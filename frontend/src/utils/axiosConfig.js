@@ -5,13 +5,8 @@ import { toast } from "react-toastify";
 
 NProgress.configure({ showSpinner: false, speed: 400, minimum: 0.1 });
 
-let baseURL = import.meta.env.VITE_API_URL || "http://localhost:5000/api";
-if (!baseURL.endsWith("/api")) {
-  baseURL += "/api";
-}
-
 const instance = axios.create({
-  baseURL,
+  baseURL: "https://it-asset-tracking.onrender.com/api",
 });
 
 let activeRequests = 0;
