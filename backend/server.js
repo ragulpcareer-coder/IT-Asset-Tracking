@@ -25,9 +25,8 @@ const allowedOrigins = [
 ];
 
 const checkOrigin = function (origin, callback) {
-  if (!origin) return callback(null, true);
-  if (allowedOrigins.includes(origin)) return callback(null, true);
-  if (origin.endsWith('vercel.app')) return callback(null, true); // Automatically trust Vercel deployments
+  // Allow all origins to bypass Render's strict CORS blocking from Vercel preview domains
+  return callback(null, true);
   return callback(new Error("Not allowed by CORS"));
 };
 
