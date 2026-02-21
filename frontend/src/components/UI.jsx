@@ -17,15 +17,15 @@ export const Button = ({
   ...props
 }) => {
   const variants = {
-    primary: "bg-gradient-to-r from-blue-600 to-blue-700 text-white hover:shadow-lg hover:shadow-blue-500/50",
+    primary: "bg-gradient-to-br from-blue-600 via-blue-700 to-teal-700 text-white hover:shadow-2xl hover:shadow-blue-500/50 hover:from-blue-500 hover:to-teal-600",
     secondary:
-      "bg-gray-100 text-gray-800 hover:bg-gray-200 border border-gray-300",
-    danger: "bg-gradient-to-r from-red-600 to-red-700 text-white hover:shadow-lg hover:shadow-red-500/50",
+      "bg-gradient-to-br from-gray-200 to-gray-300 text-gray-800 hover:from-gray-300 hover:to-gray-400 border border-gray-400 shadow-md",
+    danger: "bg-gradient-to-br from-red-600 to-red-700 text-white hover:shadow-2xl hover:shadow-red-500/50",
     success:
-      "bg-gradient-to-r from-green-600 to-green-700 text-white hover:shadow-lg hover:shadow-green-500/50",
+      "bg-gradient-to-br from-green-600 to-green-700 text-white hover:shadow-2xl hover:shadow-green-500/50",
     outline:
-      "border-2 border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent",
-    ghost: "text-blue-600 hover:bg-blue-50 bg-transparent",
+      "border-2 border-blue-600 text-blue-600 hover:bg-blue-50 bg-transparent hover:shadow-lg",
+    ghost: "text-blue-600 hover:bg-blue-50 bg-transparent hover:shadow-md",
   };
 
   const sizes = {
@@ -43,8 +43,9 @@ export const Button = ({
       className={`inline-flex items-center justify-center gap-2 transition-all font-medium ${sizes[size]} ${
         variants[variant]
       } ${disabled || loading ? "opacity-50 cursor-not-allowed" : ""} ${className}`}
-      whileHover={!disabled && !loading ? animationVariants.buttonHover : {}}
-      whileTap={!disabled && !loading ? animationVariants.buttonTap : {}}
+      whileHover={!disabled && !loading ? { scale: 1.05, translateZ: 20 } : {}}
+      whileTap={!disabled && !loading ? { scale: 0.95, translateZ: 0 } : {}}
+      style={{ perspective: "1000px" }}
       {...props}
     >
       {loading && (
@@ -54,7 +55,7 @@ export const Button = ({
           className="w-4 h-4 border-2 border-white border-t-transparent rounded-full"
         />
       )}
-      {icon && <span className="text-lg">{icon}</span>}
+      {icon && <motion.span className="text-lg" animate={{ rotate: [0, -5, 5, 0] }} transition={{ duration: 0.3 }}>{icon}</motion.span>}
       {children}
     </motion.button>
   );
@@ -170,7 +171,7 @@ export const PasswordStrengthMeter = ({ password, requirements = [] }) => {
               animate={{ opacity: 1, x: 0 }}
             >
               <span
-                className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs ${
+                className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${
                   req.check(password) ? "bg-green-500" : "bg-gray-300"
                 }`}
               >
@@ -296,13 +297,13 @@ export const Alert = ({
       bg: "bg-yellow-50",
       border: "border-yellow-200",
       text: "text-yellow-800",
-      icon: "⚠",
+      icon: "!",
     },
     info: {
-      bg: "bg-blue-50",
-      border: "border-blue-200",
-      text: "text-blue-800",
-      icon: "ℹ",
+      bg: "bg-blue-50 dark:bg-blue-900/20",
+      border: "border-blue-200 dark:border-blue-500/30",
+      text: "text-blue-800 dark:text-blue-200",
+      icon: "i",
     },
   };
 
@@ -310,24 +311,33 @@ export const Alert = ({
 
   return (
     <motion.div
-      className={`${config.bg} ${config.border} border rounded-lg p-4 ${className}`}
-      initial={{ opacity: 0, y: -10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -10 }}
+      className={`${config.bg} ${config.border} border rounded-xl p-4 ${className} backdrop-blur-sm shadow-lg`}
+      initial={{ opacity: 0, y: -10, scale: 0.95 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -10, scale: 0.95 }}
+      transition={{ type: "spring", damping: 15 }}
     >
       <div className="flex items-start gap-3">
-        <span className={`text-xl font-bold ${config.text}`}>{icon || config.icon}</span>
+        <motion.span
+          className={`text-xl font-bold ${config.text}`}
+          animate={{ scale: [1, 1.1, 1] }}
+          transition={{ duration: 2, repeat: Infinity }}
+        >
+          {icon || config.icon}
+        </motion.span>
         <div className="flex-1">
           {title && <h3 className={`font-semibold ${config.text}`}>{title}</h3>}
           <p className={`text-sm ${config.text} mt-1`}>{message}</p>
         </div>
         {onClose && (
-          <button
+          <motion.button
             onClick={onClose}
             className={`text-lg font-bold ${config.text} hover:opacity-70 transition`}
+            whileHover={{ scale: 1.2, rotate: 90 }}
+            whileTap={{ scale: 0.9 }}
           >
-            ✕
-          </button>
+            ×
+          </motion.button>
         )}
       </div>
     </motion.div>

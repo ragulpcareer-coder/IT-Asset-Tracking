@@ -13,32 +13,30 @@ export const ProfessionalIcon = ({
   size = "md",
   color = "primary",
   className = "",
-  style = {},
+  style = {}
 }) => {
   const sizeMap = {
-    xs: "w-4 h-4",
-    sm: "w-5 h-5",
-    md: "w-6 h-6",
-    lg: "w-8 h-8",
-    xl: "w-10 h-10",
-    "2xl": "w-12 h-12",
+    xs: 12,
+    sm: 16,
+    md: 20,
+    lg: 28,
+    xl: 36,
+    "2xl": 44,
   };
 
   const colorMap = {
-    primary: "text-blue-700",
-    secondary: "text-teal-700",
-    accent: "text-blue-500",
-    success: "text-green-700",
-    warning: "text-orange-600",
-    error: "text-red-700",
-    neutral: "text-gray-600",
-    white: "text-white",
+    primary: "var(--accent)",
+    secondary: "var(--accent-2)",
+    accent: "var(--accent)",
+    success: "#10B981",
+    warning: "#F59E0B",
+    error: "#EF4444",
+    neutral: "#9AA6B2",
+    white: "#ffffff",
   };
 
-  // Map icon type to SVG
   const getIcon = () => {
     switch (type) {
-      // Asset types
       case "laptop":
         return assetIcons.laptop;
       case "server":
@@ -53,8 +51,6 @@ export const ProfessionalIcon = ({
         return assetIcons.printer;
       case "router":
         return assetIcons.router;
-
-      // Status icons
       case "active":
         return statusIcons.active;
       case "maintenance":
@@ -63,8 +59,6 @@ export const ProfessionalIcon = ({
         return statusIcons.deprecated;
       case "archived":
         return statusIcons.archived;
-
-      // Action icons
       case "add":
         return actionIcons.add;
       case "edit":
@@ -73,16 +67,18 @@ export const ProfessionalIcon = ({
         return actionIcons.delete;
       case "search":
         return actionIcons.search;
-
       default:
         return '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>';
     }
   };
 
+  const px = sizeMap[size] || sizeMap.md;
+  const colorVal = colorMap[color] || colorMap.primary;
+
   return (
     <div
-      className={`inline-flex items-center justify-center ${sizeMap[size]} ${colorMap[color]} ${className}`}
-      style={style}
+      className={`inline-flex items-center justify-center ${className}`}
+      style={{ width: px, height: px, color: colorVal, ...style }}
       dangerouslySetInnerHTML={{ __html: getIcon() }}
     />
   );
@@ -175,11 +171,9 @@ export const StatusBadge = ({ status, size = "md" }) => {
   const config = statusConfig[status] || statusConfig.active;
 
   return (
-    <div
-      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${config.bg} ${config.border} ${config.text}`}
-    >
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8, padding: "6px 10px", borderRadius: 10, border: "1px solid rgba(255,255,255,0.04)", background: "rgba(255,255,255,0.01)" }}>
       <ProfessionalIcon type={config.icon} size="sm" color={status} />
-      <span className="text-sm font-medium">{config.label}</span>
+      <span className="small">{config.label}</span>
     </div>
   );
 };
@@ -213,7 +207,7 @@ export const AssetTypeLabel = ({ category, size = "md" }) => {
   };
 
   return (
-    <div className="inline-flex items-center gap-2">
+    <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
       <div style={{ color: colorMap[icon] }}>
         <ProfessionalIcon type={icon} size={size} />
       </div>
@@ -227,14 +221,12 @@ export const AssetTypeLabel = ({ category, size = "md" }) => {
  */
 export const BrandHeader = ({ showText = true, className = "" }) => {
   return (
-    <div className={`flex items-center gap-3 ${className}`}>
+    <div style={{ display: "flex", alignItems: "center", gap: 12 }} className={className}>
       <BrandLogo size="md" />
       {showText && (
         <div>
-          <h1 className="text-xl font-bold text-blue-900">AssetFlow</h1>
-          <p className="text-xs text-blue-600 font-medium">
-            Enterprise Asset Intelligence
-          </p>
+          <h1 className="text-xl font-bold">AssetFlow</h1>
+          <p className="small">Enterprise Asset Intelligence</p>
         </div>
       )}
     </div>
@@ -266,9 +258,7 @@ export const RoleBadge = ({ role }) => {
   const config = roleConfig[role] || roleConfig.User;
 
   return (
-    <span
-      className={`inline-block px-3 py-1 rounded-full text-xs font-semibold ${config.bg} ${config.text}`}
-    >
+    <span style={{ display: "inline-block", padding: "6px 10px", borderRadius: 9999, fontSize: 12, fontWeight: 600, background: config.bg === "bg-blue-900" ? "#0f1724" : "#0b1220", color: "#fff" }}>
       {config.label}
     </span>
   );

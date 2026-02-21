@@ -1,0 +1,405 @@
+:root {
+  --bg: #000000;
+  --surface: #0a0a0a;
+  --surface-hover: #141414;
+  --muted: #888888;
+  --accent: #ffffff;
+  --accent-2: #eaeaea;
+  --primary: #3b82f6;
+  /* Modern subtle blue */
+  --glass: rgba(255, 255, 255, 0.03);
+  --border: rgba(255, 255, 255, 0.08);
+  --radius: 8px;
+  --card-padding: 24px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: #ededed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Layout */
+.app-layout {
+  display: flex;
+  min-height: 100vh;
+  background: var(--bg);
+}
+
+.app-sidebar {
+  width: 260px;
+  min-width: 80px;
+  background: var(--surface);
+  padding: 24px 16px;
+  border-right: 1px solid var(--border);
+  transition: width 0.2s ease;
+}
+
+.app-sidebar.compact {
+  width: 72px;
+  padding: 24px 8px;
+}
+
+.app-content {
+  flex: 1;
+  padding: 32px 48px;
+  position: relative;
+}
+
+/* Topbar */
+.app-topbar {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0;
+  margin-bottom: 32px;
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.brand .logo {
+  width: 32px;
+  height: 32px;
+  background: var(--accent);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #000;
+  font-size: 14px;
+}
+
+.brand .title {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--accent);
+}
+
+.search {
+  min-width: 240px;
+  background: var(--surface);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  transition: border-color 0.2s;
+}
+
+.search:focus-within {
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.search input {
+  background: transparent;
+  border: 0;
+  outline: none;
+  color: var(--accent);
+  width: 100%;
+  font-size: 14px;
+}
+
+.topbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.btn-ghost {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 6px 12px;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+}
+
+.btn-ghost:focus,
+.btn:focus,
+a:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.2);
+  outline-offset: 2px;
+}
+
+.btn-ghost:hover {
+  color: var(--accent);
+  background: var(--surface);
+}
+
+/* Nav */
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.nav-item:hover {
+  color: var(--accent);
+  background: var(--surface-hover);
+}
+
+.nav-item.active {
+  background: var(--surface-hover);
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.nav-icon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.8;
+}
+
+/* Cards & utilities */
+.card {
+  background: var(--surface);
+  border-radius: var(--radius);
+  padding: var(--card-padding);
+  border: 1px solid var(--border);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.card-title {
+  font-weight: 500;
+  font-size: 14px;
+  margin-bottom: 8px;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+}
+
+.row {
+  display: flex;
+  gap: 24px;
+}
+
+.col {
+  flex: 1;
+}
+
+.small {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Buttons */
+.btn {
+  background: var(--accent);
+  color: #000;
+  padding: 8px 16px;
+  border-radius: 6px;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 14px;
+  transition: opacity 0.2s;
+}
+
+.btn:hover {
+  opacity: 0.9;
+}
+
+.btn.secondary {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--accent);
+}
+
+.btn.secondary:hover {
+  background: var(--surface-hover);
+}
+
+/* Table styles */
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+}
+
+.table th {
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.table tr:hover td {
+  background: var(--surface-hover);
+}
+
+/* Responsive */
+@media(max-width:900px) {
+  .app-sidebar {
+    display: none
+  }
+
+  .app-topbar {
+    border-radius: 10px
+  }
+
+  .search {
+    min-width: 140px
+  }
+}
+
+/* Mobile/overlay sidebar styles */
+.mobile-toggle {
+  display: inline-flex
+}
+
+.desktop-toggle {
+  display: none
+}
+
+@media(min-width:901px) {
+  .mobile-toggle {
+    display: none
+  }
+
+  .desktop-toggle {
+    display: inline-flex
+  }
+}
+
+.sidebar-shell {
+  position: relative
+}
+
+.sidebar-shell.open {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  bottom: 16px;
+  z-index: 50;
+  width: 300px;
+  max-width: calc(100% - 32px);
+  box-shadow: 0 20px 50px rgba(2, 6, 23, 0.6)
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 40
+}
+
+.sidebar-close {
+  position: absolute;
+  right: 10px;
+  top: 10px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 18px;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer
+}
+
+.sidebar-close:focus {
+  outline: 2px solid rgba(124, 58, 237, 0.18)
+}
+
+/* Subtle animations */
+.fade-in {
+  animation: fadeIn .45s ease both
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px)
+  }
+
+  to {
+    opacity: 1;
+    transform: none
+  }
+}
+
+/* ============ REDUCED MOTION ============ */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ============ NPROGRESS OVERRIDES ============ */
+#nprogress .bar {
+  background: #ffffff !important;
+  height: 3px !important;
+}
+
+#nprogress .peg {
+  box-shadow: 0 0 10px #ffffff, 0 0 5px #ffffff !important;
+}

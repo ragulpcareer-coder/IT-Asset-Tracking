@@ -35,9 +35,9 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   // Login Function
-  const login = async (email, password) => {
-    const res = await axios.post("/auth/login", { email, password });
-    localStorage.setItem("token", res.data.token);
+  const login = async (email, password, token2FA = "") => {
+    const res = await axios.post("/auth/login", { email, password, token2FA });
+    localStorage.setItem("token", res.data.accessToken || res.data.token);
     setUser(res.data);
     return res.data;
   };
@@ -50,7 +50,7 @@ export const AuthProvider = ({ children }) => {
       password,
       role,
     });
-    localStorage.setItem("token", res.data.token);
+    localStorage.setItem("token", res.data.accessToken || res.data.token);
     setUser(res.data);
     return res.data;
   };

@@ -1,46 +1,66 @@
-import React, { useContext } from "react";
+import React, { useContext, useState, useEffect } from "react";
 import { AuthContext } from "../../context/AuthContext";
 
-export default function Topbar({ toggleSidebar }) {
+export default function Topbar({ toggleSidebar, openMobile }) {
   const { user, logout } = useContext(AuthContext);
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener("online", handleOnline);
+    window.addEventListener("offline", handleOffline);
+
+    return () => {
+      window.removeEventListener("online", handleOnline);
+      window.removeEventListener("offline", handleOffline);
+    };
+  }, []);
 
   return (
-    <div className="h-16 bg-white border-b flex items-center justify-between px-6 shadow-sm">
-      <button
-        onClick={toggleSidebar}
-        className="text-gray-600 hover:text-black focus:outline-none"
-      >
-        <svg
-          className="w-6 h-6"
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M4 6h16M4 12h16M4 18h16"
-          />
-        </svg>
-      </button>
-
-      <div className="flex items-center gap-4">
-        <div className="text-right">
-          <p className="text-sm font-semibold text-gray-700">
-            {user?.name || "User"}
-          </p>
-          <p className="text-xs text-gray-500">{user?.role || "Guest"}</p>
-        </div>
-        <div className="w-10 h-10 rounded-full bg-blue-500 flex items-center justify-center text-white font-bold">
-          {user?.name?.charAt(0).toUpperCase() || "U"}
-        </div>
-        <button
-          onClick={logout}
-          className="ml-4 text-sm text-red-600 hover:text-red-800"
-        >
-          Logout
+    <div className="app-topbar">
+      <div className="topbar-left">
+        <button onClick={openMobile} className="btn-ghost mobile-toggle" aria-label="Open menu">
+          ☰
         </button>
+
+        <button onClick={toggleSidebar} className="btn-ghost desktop-toggle" aria-label="Toggle sidebar">
+          ☰
+        </button>
+
+        <div className="brand">
+          <div className="logo">AT</div>
+          <div className="title flex items-center gap-2">
+            AssetTrack
+            {!isOnline && (
+              <span className="px-2 py-0.5 rounded text-[10px] uppercase font-bold bg-red-500/10 text-red-500 border border-red-500/20">
+                Offline
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" style={{ opacity: 0.7 }}>
+            <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path>
+            <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></circle>
+          </svg>
+          <input placeholder="Search assets or users..." aria-label="Search" />
+        </div>
+      </div>
+
+      <div className="topbar-actions">
+        <button className="btn-ghost" title="Search commands (Ctrl+K)">⌘K</button>
+        <button className="btn-ghost">🔔</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div className="avatar">{user?.name?.charAt(0).toUpperCase() || 'U'}</div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontWeight: 500, fontSize: '14px' }}>{user?.name || 'User'}</div>
+            <div style={{ fontSize: '12px', color: '#888' }}>{user?.role || 'Member'}</div>
+          </div>
+        </div>
+        <button onClick={logout} className="btn secondary" style={{ marginLeft: 16, fontSize: '13px' }}>Log out</button>
       </div>
     </div>
   );

@@ -8,10 +8,21 @@ const {
   createAsset,
   updateAsset,
   deleteAsset,
+  exportAssets,
+  bulkUploadAssets,
 } = require("../controllers/assetController");
+
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
 
 // GET all
 router.get("/", getAssets);
+
+// EXPORT
+router.get("/export", protect, authorizeRoles("Admin"), exportAssets);
+
+// BULK UPLOAD
+router.post("/bulk-upload", protect, authorizeRoles("Admin"), upload.single("file"), bulkUploadAssets);
 
 // CREATE
 router.post("/", protect, authorizeRoles("Admin"), createAsset);

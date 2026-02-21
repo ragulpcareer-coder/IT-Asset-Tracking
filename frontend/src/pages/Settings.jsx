@@ -30,9 +30,16 @@ export default function Settings() {
     pushNotifications: true,
     activityNotifications: true,
     securityAlerts: true,
-    theme: "light",
+    theme: "dark",
     sessionTimeout: 30,
-    twoFactorEnabled: false,
+    twoFactorEnabled: user?.isTwoFactorEnabled || false,
+  });
+
+  const [tfaSetup, setTfaSetup] = useState({
+    qrCode: null,
+    secret: null,
+    token: "",
+    isSettingUp: false
   });
 
   // Tabs Configuration
@@ -54,36 +61,28 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2 
-          className="text-2xl font-bold mb-6"
-          style={{ color: theme.colors.primary[700] }}
-        >
+        <h2 className="text-xl font-medium text-white mb-6">
           User Profile
         </h2>
 
-        <Card className="mb-6" style={{ 
-          background: `linear-gradient(to br, ${theme.colors.primary[50]}, ${theme.colors.secondary[50]})`
-        }}>
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-[#0a0a0a]">
           <div className="flex items-center gap-6">
             <motion.div
-              className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold text-white shadow-lg"
-              style={{ background: `linear-gradient(to br, ${theme.colors.primary[600]}, ${theme.colors.primary[700]})` }}
-              whileHover={{ scale: 1.1 }}
+              className="w-20 h-20 rounded-full flex items-center justify-center text-3xl font-bold text-white bg-[#111] border border-white/10"
+              whileHover={{ scale: 1.05 }}
             >
               {user?.name?.charAt(0).toUpperCase()}
             </motion.div>
             <div>
-              <p className="text-sm text-gray-600 font-semibold">Name</p>
-              <p className="text-xl font-bold text-gray-800">{user?.name}</p>
+              <p className="text-sm text-gray-500 font-medium">Name</p>
+              <p className="text-xl font-semibold text-white">{user?.name}</p>
               <div className="flex gap-2 mt-2">
-                <Badge variant="success" size="sm">
-                  ✓ Verified
-                </Badge>
-                <RoleBadge role={user?.role || "User"} />
+                <span className="px-2 py-1 bg-green-500/10 text-green-400 border border-green-500/20 rounded text-xs font-semibold">Verified</span>
+                <span className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded text-xs font-semibold">{user?.role || "User"}</span>
               </div>
             </div>
           </div>
-        </Card>
+        </div>
 
         <form onSubmit={async (e) => {
           e.preventDefault();
@@ -183,19 +182,14 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2 
-          className="text-2xl font-bold mb-6"
-          style={{ color: theme.colors.primary[700] }}
-        >
+        <h2 className="text-xl font-medium text-white mb-6">
           Security Settings
         </h2>
 
         {/* Change Password Section */}
-        <Card className="mb-6" style={{ 
-          borderLeft: `4px solid ${theme.colors.secondary[500]}`
-        }}>
-          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <ProfessionalIcon name="lock" size={20} /> Change Password
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-[#0a0a0a]">
+          <h3 className="text-lg font-medium text-white mb-4 flex items-center gap-2">
+            Change Password
           </h3>
           <form onSubmit={async (e) => {
             e.preventDefault();
@@ -218,97 +212,140 @@ export default function Settings() {
             }
           }} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <ProfessionalIcon name="lock" size={16} />
-                  Current Password
-                </div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Current Password
               </label>
-              <Input
+              <input
                 type="password"
                 value={passwordData.currentPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                 required
+                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <ProfessionalIcon name="star" size={16} />
-                  New Password
-                </div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                New Password
               </label>
-              <Input
+              <input
                 type="password"
                 value={passwordData.newPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                 required
+                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
               />
-              {passwordData.newPassword && (
-                <div className="mt-3">
-                  <PasswordStrengthMeter
-                    password={passwordData.newPassword}
-                    requirements={getPasswordRequirements()}
-                  />
-                </div>
-              )}
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                <div className="flex items-center gap-2">
-                  <ProfessionalIcon name="check" size={16} />
-                  Confirm Password
-                </div>
+              <label className="block text-sm font-medium text-gray-400 mb-2">
+                Confirm Password
               </label>
-              <Input
+              <input
                 type="password"
                 value={passwordData.confirmPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                 required
+                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
               />
             </div>
-            <Button
+            <button
               type="submit"
-              variant="danger"
-              size="lg"
-              loading={loading}
               disabled={loading}
-              className="w-full"
+              className="w-full bg-white text-black py-2.5 rounded-lg font-medium hover:bg-gray-100 transition"
             >
               Update Password
-            </Button>
+            </button>
           </form>
-        </Card>
+        </div>
 
         {/* Two-Factor Authentication */}
-        <Card style={{ 
-          borderLeft: `4px solid ${theme.colors.secondary[600]}`
-        }}>
-          <div className="flex items-center justify-between">
+        <div className="p-6 rounded-xl border border-white/10 bg-[#0a0a0a]">
+          <div className="flex items-center justify-between mb-4">
             <div>
-              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
-                <ProfessionalIcon name="shield" size={20} /> Two-Factor Authentication
+              <h3 className="text-lg font-medium text-white flex items-center gap-2">
+                Two-Factor Authentication (2FA)
               </h3>
-              <p className="text-sm text-gray-600 mt-2">
+              <p className="text-sm text-gray-400 mt-2">
                 Add an extra layer of security to your account
               </p>
               {preferences.twoFactorEnabled && (
-                <Badge variant="success" className="mt-3">
-                  ✓ Enabled
-                </Badge>
+                <span className="inline-block mt-3 px-2 py-1 bg-green-500/10 text-green-400 border border-green-500/20 rounded text-xs font-semibold">
+                  Enabled
+                </span>
               )}
             </div>
-            <Button
-              variant={preferences.twoFactorEnabled ? "danger" : "success"}
-              onClick={() => {
-                setPreferences(prev => ({ ...prev, twoFactorEnabled: !prev.twoFactorEnabled }));
-                toast.success(`2FA ${!preferences.twoFactorEnabled ? 'enabled' : 'disabled'}`);
-              }}
-            >
-              {preferences.twoFactorEnabled ? "Disable" : "Enable"}
-            </Button>
+            {!tfaSetup.isSettingUp && (
+              <button
+                className={`px-4 py-2 rounded-lg font-medium text-sm transition ${preferences.twoFactorEnabled
+                    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                    : "bg-white text-black hover:bg-gray-100"
+                  }`}
+                onClick={async () => {
+                  try {
+                    if (preferences.twoFactorEnabled) {
+                      await axios.post("/auth/2fa/disable");
+                      setPreferences(prev => ({ ...prev, twoFactorEnabled: false }));
+                      toast.success("2FA has been disabled.");
+                    } else {
+                      const res = await axios.post("/auth/2fa/generate");
+                      setTfaSetup({ ...tfaSetup, qrCode: res.data.qrCode, secret: res.data.secret, isSettingUp: true });
+                    }
+                  } catch (e) {
+                    toast.error("Failed to configure 2FA.");
+                  }
+                }}
+              >
+                {preferences.twoFactorEnabled ? "Disable" : "Enable"}
+              </button>
+            )}
           </div>
-        </Card>
+
+          {tfaSetup.isSettingUp && (
+            <div className="mt-6 pt-6 border-t border-white/10">
+              <h4 className="text-white font-medium mb-3">Scan this QR Code</h4>
+              <p className="text-sm text-gray-400 mb-4">Scan the image below with the Google Authenticator app or a similar time-based OTP app.</p>
+              <div className="bg-white p-2 inline-block rounded-lg mb-4">
+                <img src={tfaSetup.qrCode} alt="2FA QR Code" />
+              </div>
+              <div className="space-y-4 max-w-sm">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-2">
+                    Enter Authentication Code
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="000 000"
+                    value={tfaSetup.token}
+                    onChange={(e) => setTfaSetup({ ...tfaSetup, token: e.target.value })}
+                    className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30 tracking-widest text-center text-xl font-mono"
+                  />
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setTfaSetup({ ...tfaSetup, isSettingUp: false, token: "" })}
+                    className="flex-1 px-4 py-2 rounded-lg font-medium text-sm text-gray-400 hover:text-white transition bg-white/5 hover:bg-white/10"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const res = await axios.post("/auth/2fa/verify", { token: tfaSetup.token.replace(/\s/g, '') });
+                        setPreferences(prev => ({ ...prev, twoFactorEnabled: true }));
+                        setTfaSetup({ ...tfaSetup, isSettingUp: false, token: "" });
+                        toast.success("Two-Factor Authentication successfully enabled!");
+                      } catch (e) {
+                        toast.error("Invalid authentication token.");
+                      }
+                    }}
+                    className="flex-1 px-4 py-2 rounded-lg font-medium text-sm text-black bg-white hover:bg-gray-100 transition"
+                  >
+                    Verify & Enable
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -321,7 +358,7 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2 
+        <h2
           className="text-2xl font-bold mb-6"
           style={{ color: theme.colors.primary[700] }}
         >
@@ -380,11 +417,10 @@ export default function Settings() {
                 key={themeOption}
                 type="button"
                 onClick={() => setPreferences(prev => ({ ...prev, theme: themeOption }))}
-                className={`p-4 rounded-lg border-2 transition ${
-                  preferences.theme === themeOption
-                    ? "bg-opacity-10"
-                    : "border-gray-200 bg-white hover:border-gray-300"
-                }`}
+                className={`p-4 rounded-lg border-2 transition ${preferences.theme === themeOption
+                  ? "bg-opacity-10"
+                  : "border-gray-200 bg-white hover:border-gray-300"
+                  }`}
                 style={{
                   borderColor: preferences.theme === themeOption ? theme.colors.primary[600] : undefined,
                   backgroundColor: preferences.theme === themeOption ? `${theme.colors.primary[50]}` : undefined
@@ -392,8 +428,8 @@ export default function Settings() {
                 variants={animationVariants.itemVariants}
               >
                 <div className="text-2xl block mb-2">
-                  {themeOption === "light" ? 
-                    <ProfessionalIcon name="sun" size={20} /> : 
+                  {themeOption === "light" ?
+                    <ProfessionalIcon name="sun" size={20} /> :
                     <ProfessionalIcon name="moon" size={20} />
                   }
                 </div>
@@ -414,14 +450,14 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2 
+        <h2
           className="text-2xl font-bold mb-6 flex items-center gap-2"
           style={{ color: theme.colors.primary[700] }}
         >
           <ProfessionalIcon name="link" size={24} /> Active Sessions
         </h2>
 
-        <Card className="mb-4" style={{ 
+        <Card className="mb-4" style={{
           borderLeft: `4px solid ${theme.colors.secondary[500]}`
         }}>
           <div className="flex items-center justify-between">
@@ -460,7 +496,7 @@ export default function Settings() {
               }
             }}
           >
-            <ProfessionalIcon name="logout" size={18} style={{ marginRight: '8px' }} /> 
+            <ProfessionalIcon name="logout" size={18} style={{ marginRight: '8px' }} />
             Logout from All Sessions
           </Button>
         </motion.div>
@@ -476,7 +512,7 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2 
+        <h2
           className="text-2xl font-bold mb-6 flex items-center gap-2"
           style={{ color: theme.colors.primary[700] }}
         >
@@ -513,58 +549,46 @@ export default function Settings() {
   );
 
   return (
-    <div className="pb-10">
-      <ToastContainer position="top-right" autoClose={3000} />
+    <div className="pb-10 text-white">
+      <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
       {/* Page Header */}
       <motion.div
-        className="mb-8"
-        initial={{ opacity: 0, y: -20 }}
+        className="mb-8 px-2 pt-8"
+        initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <div className="flex items-center gap-3">
-          <ProfessionalIcon name="settings" size={32} style={{ color: theme.colors.primary[600] }} />
-          <h1 
-            className="text-4xl font-bold"
-            style={{ color: theme.colors.primary[700] }}
-          >
-            Settings
-          </h1>
-        </div>
-        <p className="text-gray-600 mt-2">Manage your account, security, and preferences</p>
+        <h1 className="text-3xl font-semibold tracking-tight mb-1">
+          Settings
+        </h1>
+        <p className="text-gray-400 text-sm font-medium mt-1">Manage your account, security, and preferences</p>
       </motion.div>
 
       {/* Tabs */}
       <motion.div
-        className="bg-white rounded-xl shadow-lg overflow-hidden"
-        initial={{ opacity: 0, scale: 0.95 }}
-        animate={{ opacity: 1, scale: 1 }}
+        className="bg-[#050505] rounded-xl border border-white/10 overflow-hidden"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
       >
-        <div className="flex border-b border-gray-200 overflow-x-auto">
+        <div className="flex border-b border-white/10 overflow-x-auto">
           {tabs.map((tab, idx) => (
             <motion.button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 min-w-max py-4 px-6 border-b-2 transition text-sm font-semibold flex items-center gap-2 justify-center ${
-                activeTab === tab.id
-                  ? "text-white"
-                  : "text-gray-600 hover:text-gray-800 hover:bg-gray-50"
-              }`}
-              style={{
-                borderColor: activeTab === tab.id ? theme.colors.primary[600] : 'transparent',
-                backgroundColor: activeTab === tab.id ? theme.colors.primary[50] : 'transparent'
-              }}
+              className={`flex-1 min-w-max py-4 px-6 border-b-2 transition text-sm font-medium flex items-center justify-center gap-2 focus:outline-none ${activeTab === tab.id
+                ? "text-white border-white bg-[#111]"
+                : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-[#0a0a0a]"
+                }`}
               variants={animationVariants.itemVariants}
               custom={idx}
             >
-              <ProfessionalIcon name={tab.icon} size={18} />
               <span>{tab.label}</span>
             </motion.button>
           ))}
         </div>
 
         {/* Tab Content */}
-        <div className="p-8">
+        <div className="p-8 bg-[#000000]">
           <AnimatePresence mode="wait">
             {activeTab === "profile" && <ProfileTab key="profile" />}
             {activeTab === "security" && <SecurityTab key="security" />}

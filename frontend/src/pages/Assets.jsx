@@ -4,6 +4,10 @@ import { ToastContainer, toast } from "react-toastify";
 import { AuthContext } from "../context/AuthContext";
 import AssetModal from "../components/AssetModal";
 import AssetTable from "../components/AssetTable";
+import { motion } from "framer-motion";
+import jsPDF from "jspdf";
+import "jspdf-autotable";
+import { useDropzone } from "react-dropzone";
 
 export default function Assets() {
   const { user } = useContext(AuthContext);
@@ -67,6 +71,36 @@ export default function Assets() {
     }
   };
 
+  const handleExportPDF = () => {
+    const doc = new jsPDF();
+    doc.text("IT Asset Inventory Report", 14, 15);
+
+    const tableColumn = ["Name", "Type", "Serial", "Status", "Price", "Life(Yrs)", "Assigned"];
+    const tableRows = [];
+
+    assets.forEach(asset => {
+      const assetData = [
+        asset.name,
+        asset.type,
+        asset.serialNumber,
+        asset.status,
+        `$${asset.purchasePrice || 0}`,
+        asset.usefulLifeYears || 5,
+        asset.assignedTo || "None"
+      ];
+      tableRows.push(assetData);
+    });
+
+    doc.autoTable({
+      head: [tableColumn],
+      body: tableRows,
+      startY: 20,
+    });
+
+    doc.save(`assets_report_${new Date().toISOString().split("T")[0]}.pdf`);
+    toast.success("PDF Exported Successfully");
+  };
+
   const handleExport = () => {
     const csvContent = [
       ["Name", "Type", "Serial Number", "Status", "Assigned To", "Created At"],
@@ -92,6 +126,38 @@ export default function Assets() {
     toast.success("Exported successfully");
   };
 
+  const onDrop = async (acceptedFiles) => {
+    const file = acceptedFiles[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      setLoading(true);
+      const res = await axios.post("/assets/bulk-upload", formData, {
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+      toast.success(res.data.message);
+      if (res.data.errors?.length > 0) {
+        console.warn("Bulk Upload Errors:", res.data.errors);
+        toast.warning(`Uploaded. ${res.data.errors.length} skipped. See console.`);
+      }
+      fetchAssets();
+    } catch (err) {
+      toast.error("Failed to upload bulk CSV");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const { getRootProps, getInputProps, isDragActive } = useDropzone({
+    onDrop,
+    accept: { 'text/csv': ['.csv'] },
+    noClick: true, // We will trigger it via a button
+    noKeyboard: true
+  });
+
   const openEditModal = (asset) => {
     setEditingAsset(asset);
     setIsModalOpen(true);
@@ -111,111 +177,161 @@ export default function Assets() {
   };
 
   return (
-    <div className="pb-10">
-      <ToastContainer position="top-right" autoClose={3000} />
+    <div className="min-h-screen relative pb-10 text-white">
+      <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
-      {/* Header */}
-      <div className="flex justify-between items-center mb-8">
-        <div>
-          <h1 className="text-4xl font-bold text-gray-800">Assets</h1>
-          <p className="text-gray-600 mt-1">Manage and track your IT assets</p>
-        </div>
-        {user?.role === "Admin" && (
-          <button
-            onClick={() => {
-              setEditingAsset(null);
-              setIsModalOpen(true);
-            }}
-            className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg shadow-md transition font-semibold"
-          >
-            + Add Asset
-          </button>
-        )}
-      </div>
-
-      {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-        {[
-          { label: "Total", value: stats.total, color: "bg-gray-500" },
-          { label: "Available", value: stats.available, color: "bg-green-500" },
-          { label: "Assigned", value: stats.assigned, color: "bg-blue-500" },
-          { label: "Maintenance", value: stats.maintenance, color: "bg-yellow-500" },
-          { label: "Retired", value: stats.retired, color: "bg-red-500" },
-        ].map((stat) => (
-          <div key={stat.label} className={`${stat.color} text-white p-4 rounded-lg shadow`}>
-            <p className="text-sm font-medium">{stat.label}</p>
-            <p className="text-3xl font-bold mt-2">{stat.value}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Filters & Controls */}
-      <div className="bg-white p-6 rounded-xl shadow-sm mb-6 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <input
-            type="text"
-            placeholder="🔍 Search assets..."
-            className="border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select
-            className="border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-          >
-            <option value="All">All Status</option>
-            <option value="available">available</option>
-            <option value="assigned">assigned</option>
-            <option value="maintenance">maintenance</option>
-            <option value="retired">retired</option>
-          </select>
-          <select
-            className="border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-          >
-            <option value="All">All Types</option>
-            {getAssetTypes().map((type) => (
-              <option key={type} value={type}>
-                {type}
-              </option>
-            ))}
-          </select>
-          <select
-            className="border border-gray-300 p-2 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-          >
-            <option value="name">Sort by Name</option>
-            <option value="createdAt">Sort by Date</option>
-            <option value="status">Sort by Status</option>
-          </select>
-        </div>
-
-        {/* Export Button */}
-        <button
-          onClick={handleExport}
-          disabled={assets.length === 0}
-          className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg transition font-semibold"
+      <div className="relative z-10">
+        {/* Header */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 px-2"
         >
-          📥 Export CSV
-        </button>
+          <div>
+            <h1 className="text-3xl font-semibold text-white tracking-tight mb-1">
+              Assets
+            </h1>
+            <p className="text-gray-400 text-sm font-medium">Manage and monitor hardware</p>
+          </div>
+          <div className="flex gap-3">
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              onClick={handleExportPDF}
+              disabled={assets.length === 0}
+              className="bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 px-5 py-2.5 rounded-lg transition-all text-sm font-medium"
+            >
+              Export PDF
+            </motion.button>
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleExport}
+              disabled={assets.length === 0}
+              className="bg-[#111] hover:bg-[#222] border border-white/10 text-white px-5 py-2.5 rounded-lg transition-all text-sm font-medium"
+            >
+              Export CSV
+            </motion.button>
+            {user?.role === "Admin" && (
+              <>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    const el = document.getElementById("csv-upload");
+                    if (el) el.click();
+                  }}
+                  className="bg-[#111] hover:bg-[#222] border border-white/10 text-white px-5 py-2.5 rounded-lg transition-all text-sm font-medium"
+                >
+                  Bulk Upload CSV
+                </motion.button>
+                <input id="csv-upload" type="file" accept=".csv" className="hidden" onChange={(e) => onDrop(e.target.files)} />
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={() => {
+                    setEditingAsset(null);
+                    setIsModalOpen(true);
+                  }}
+                  className="bg-white hover:bg-gray-100 text-black px-5 py-2.5 rounded-lg transition-all text-sm font-medium"
+                >
+                  + New Asset
+                </motion.button>
+              </>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Stats Grid */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.1 }}
+          className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8"
+        >
+          {[
+            { label: "Total", value: stats.total },
+            { label: "Available", value: stats.available },
+            { label: "Assigned", value: stats.assigned },
+            { label: "Maintenance", value: stats.maintenance },
+            { label: "Retired", value: stats.retired },
+          ].map((stat) => (
+            <div key={stat.label} className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl">
+              <p className="text-xs font-medium text-gray-500 mb-2">{stat.label}</p>
+              <p className="text-2xl font-semibold text-white">
+                {stat.value}
+              </p>
+            </div>
+          ))}
+        </motion.div>
+
+        {/* Filters Panel */}
+        <div className="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div>
+              <input
+                type="text"
+                placeholder="Search assets..."
+                className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all placeholder-gray-600 text-sm"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+              />
+            </div>
+            <select
+              className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all text-sm appearance-none"
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+            >
+              <option value="All">All Statuses</option>
+              <option value="available">Available</option>
+              <option value="assigned">Assigned</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="retired">Retired</option>
+            </select>
+            <select
+              className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all text-sm appearance-none"
+              value={typeFilter}
+              onChange={(e) => setTypeFilter(e.target.value)}
+            >
+              <option value="All">All Categories</option>
+              {getAssetTypes().map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <select
+              className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all text-sm appearance-none"
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+            >
+              <option value="name">Sort: Name (A-Z)</option>
+              <option value="createdAt">Sort: Date Added</option>
+              <option value="status">Sort: Status</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Data Matrix (Table) */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.6 }}
+        >
+          {loading ? (
+            <div className="flex justify-center py-20">
+              <div className="w-16 h-16 border-4 border-[#00d4ff]/20 border-t-[#00d4ff] rounded-full animate-spin"></div>
+            </div>
+          ) : (
+            <AssetTable
+              assets={assets}
+              onEdit={user?.role === "Admin" ? openEditModal : null}
+              onDelete={user?.role === "Admin" ? handleDelete : null}
+              user={user}
+            />
+          )}
+        </motion.div>
       </div>
 
-      {/* Assets Table */}
-      {loading ? (
-        <div className="text-center py-8 text-gray-500">Loading assets...</div>
-      ) : (
-        <AssetTable
-          assets={assets}
-          onEdit={user?.role === "Admin" ? openEditModal : null}
-          onDelete={user?.role === "Admin" ? handleDelete : null}
-          user={user}
-        />
-      )}
-
-      {/* Asset Modal */}
       <AssetModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}

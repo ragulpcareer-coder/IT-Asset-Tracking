@@ -26,12 +26,32 @@ const assetSchema = new mongoose.Schema(
     },
     purchaseDate: {
       type: Date,
+      default: Date.now,
+    },
+    purchasePrice: {
+      type: Number,
+      default: 0,
+    },
+    salvageValue: {
+      type: Number,
+      default: 0,
+    },
+    usefulLifeYears: {
+      type: Number,
+      default: 5,
     },
     warrantyExpiry: {
       type: Date,
     },
+    qrCode: {
+      type: String,
+    },
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+  }
 );
 
 module.exports = mongoose.model("Asset", assetSchema);

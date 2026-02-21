@@ -138,6 +138,96 @@ export const animationVariants = {
       ease: "easeInOut",
     },
   },
+
+  // 3D Flip animation
+  flip3D: {
+    initial: { rotateY: 0, opacity: 1 },
+    animate: { rotateY: [0, 180, 360] },
+    transition: { duration: 3, repeat: Infinity, ease: "linear" },
+  },
+
+  // 3D Tilt on hover
+  tilt3D: {
+    initial: { rotateX: 0, rotateY: 0 },
+    whileHover: {
+      rotateX: [0, 5, -5, 0],
+      rotateY: [0, 5, -5, 0],
+    },
+    transition: { duration: 0.6 },
+  },
+
+  // Floating 3D effect
+  float3D: {
+    initial: { y: 0, rotateX: 0, rotateY: 0 },
+    animate: {
+      y: [-10, 10, -10],
+      rotateX: [0, 2, -2, 0],
+      rotateY: [0, 2, -2, 0],
+    },
+    transition: { duration: 4, repeat: Infinity, ease: "easeInOut" },
+  },
+
+  // Glow pulse animation
+  glowPulse: {
+    boxShadow: [
+      "0 0 20px rgba(27, 94, 155, 0.5)",
+      "0 0 40px rgba(27, 94, 155, 0.8)",
+      "0 0 20px rgba(27, 94, 155, 0.5)",
+    ],
+    transition: { duration: 2, repeat: Infinity },
+  },
+
+  // Data stream animation
+  dataStream: {
+    initial: { opacity: 0, y: -100, x: 0 },
+    animate: { opacity: [0, 1, 0], y: 100, x: [0, 50, -50, 0] },
+    transition: { duration: 2.5, repeat: Infinity },
+  },
+
+  // Holographic shimmer
+  holographicShimmer: {
+    initial: { left: "-100%", opacity: 0 },
+    animate: { left: "100%", opacity: [0, 1, 0] },
+    transition: { duration: 3, repeat: Infinity },
+  },
+
+  // Tech pulse (like a radar)
+  techPulse: {
+    initial: { scale: 0.8, opacity: 1 },
+    animate: { scale: [0.8, 1.5, 0.8], opacity: [1, 0, 1] },
+    transition: { duration: 2, repeat: Infinity },
+  },
+
+  // Morphing shape
+  morph: {
+    initial: { borderRadius: "50%" },
+    animate: { borderRadius: ["50%", "0%", "50%"] },
+    transition: { duration: 4, repeat: Infinity },
+  },
+
+  // Constellation animation (connecting dots)
+  constellation: {
+    initial: { opacity: 0, scale: 0 },
+    animate: { opacity: 1, scale: 1 },
+    transition: { type: "spring", stiffness: 100 },
+  },
+
+  // Neon glow border
+  neonGlow: {
+    boxShadow: [
+      "0 0 10px rgba(27, 94, 155, 0.5), inset 0 0 10px rgba(0, 137, 123, 0.2)",
+      "0 0 20px rgba(27, 94, 155, 0.8), inset 0 0 20px rgba(0, 137, 123, 0.4)",
+      "0 0 10px rgba(27, 94, 155, 0.5), inset 0 0 10px rgba(0, 137, 123, 0.2)",
+    ],
+    transition: { duration: 2, repeat: Infinity },
+  },
+
+  // Scan line effect
+  scanLine: {
+    initial: { top: "-100%" },
+    animate: { top: "100%" },
+    transition: { duration: 3, repeat: Infinity },
+  },
 };
 
 // Transition presets

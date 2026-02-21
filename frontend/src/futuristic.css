@@ -1,0 +1,452 @@
+/* ====================================================================
+   NEXT-LEVEL FUTURISTIC ANIMATIONS & EFFECTS
+   Ultra-Premium, Unique, Readable UI System
+   ==================================================================== */
+
+/* ============ SPECTRUM & COLOR ANIMATIONS ============ */
+
+@keyframes spectrumShift {
+  0% { filter: hue-rotate(0deg) saturate(120%); }
+  25% { filter: hue-rotate(90deg) saturate(130%); }
+  50% { filter: hue-rotate(180deg) saturate(120%); }
+  75% { filter: hue-rotate(270deg) saturate(130%); }
+  100% { filter: hue-rotate(360deg) saturate(120%); }
+}
+
+@keyframes chromaShift {
+  0% { text-shadow: 3px 0 0 rgba(255, 0, 0, 0.8),
+                    -2px 0 0 rgba(0, 255, 255, 0.8),
+                    0 0 20px rgba(100, 200, 255, 0.6); }
+  50% { text-shadow: -3px 0 0 rgba(0, 255, 0, 0.8),
+                     2px 0 0 rgba(255, 0, 255, 0.8),
+                     0 0 40px rgba(100, 200, 255, 0.8); }
+  100% { text-shadow: 3px 0 0 rgba(255, 0, 0, 0.8),
+                      -2px 0 0 rgba(0, 255, 255, 0.8),
+                      0 0 20px rgba(100, 200, 255, 0.6); }
+}
+
+@keyframes liquidGradient {
+  0% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+@keyframes gradientFlow {
+  0% { background-position: -200% center; }
+  50% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+
+/* ============ MOTION & PHYSICS ANIMATIONS ============ */
+
+@keyframes quantumFlutter {
+  0%, 100% { transform: translateY(0) rotateZ(0deg) scaleY(1); }
+  25% { transform: translateY(-8px) rotateZ(1deg) scaleY(1.02); }
+  50% { transform: translateY(0) rotateZ(0deg) scaleY(1); }
+  75% { transform: translateY(8px) rotateZ(-1deg) scaleY(0.98); }
+}
+
+@keyframes magneticPull {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(4px, 4px) scale(1.05); }
+}
+
+@keyframes liquidWave {
+  0%, 100% { transform: skewY(-2deg) skewX(-1deg); }
+  25% { transform: skewY(2deg) skewX(1deg); }
+  50% { transform: skewY(-1deg) skewX(-2deg); }
+  75% { transform: skewY(1deg) skewX(2deg); }
+}
+
+@keyframes plasmaFlow {
+  0% { transform: translateX(-100%) rotate(0deg); }
+  100% { transform: translateX(100%) rotate(360deg); }
+}
+
+@keyframes orbitRotate {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes pulseMagnetic {
+  0%, 100% { 
+    box-shadow: 0 0 10px rgba(0, 212, 255, 0.4), 
+                inset 0 0 10px rgba(0, 212, 255, 0.1);
+  }
+  50% { 
+    box-shadow: 0 0 30px rgba(0, 212, 255, 0.8), 
+                inset 0 0 20px rgba(0, 212, 255, 0.3),
+                0 0 60px rgba(100, 200, 255, 0.4);
+  }
+}
+
+/* ============ GLOW & LUMINESCENCE ANIMATIONS ============ */
+
+@keyframes ultraGlow {
+  0%, 100% { 
+    box-shadow: 0 0 10px #00d4ff, 
+                0 0 20px #00d4ff, 
+                inset 0 0 10px rgba(0, 212, 255, 0.1);
+  }
+  50% { 
+    box-shadow: 0 0 30px #00d4ff, 
+                0 0 60px #00d4ff, 
+                0 0 90px #00d4ff,
+                inset 0 0 20px rgba(0, 212, 255, 0.3);
+  }
+}
+
+@keyframes neonPulse {
+  0%, 100% { 
+    text-shadow: 0 0 5px #00d4ff, 
+                 0 0 15px #00d4ff;
+    opacity: 0.9;
+  }
+  50% { 
+    text-shadow: 0 0 20px #00d4ff, 
+                 0 0 40px #00d4ff,
+                 0 0 60px #ff006e;
+    opacity: 1;
+  }
+}
+
+@keyframes coronaGlow {
+  0%, 100% { 
+    filter: drop-shadow(0 0 2px rgba(0, 212, 255, 0.5));
+  }
+  50% { 
+    filter: drop-shadow(0 0 15px rgba(0, 212, 255, 0.8))
+            drop-shadow(0 0 25px rgba(100, 200, 255, 0.6));
+  }
+}
+
+/* ============ MORPHING & SHAPE ANIMATIONS ============ */
+
+@keyframes morphShape {
+  0%, 100% { border-radius: 20% 80% 80% 20% / 20% 20% 80% 80%; }
+  25% { border-radius: 40% 60% 60% 40% / 40% 40% 60% 60%; }
+  50% { border-radius: 80% 20% 20% 80% / 80% 80% 20% 20%; }
+  75% { border-radius: 60% 40% 40% 60% / 60% 60% 40% 40%; }
+}
+
+@keyframes shapeShift {
+  0% { clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%); }
+  25% { clip-path: polygon(10% 0%, 100% 5%, 95% 100%, 0% 95%); }
+  50% { clip-path: polygon(20% 0%, 100% 10%, 80% 100%, 0% 80%); }
+  75% { clip-path: polygon(10% 5%, 95% 0%, 100% 95%, 5% 100%); }
+  100% { clip-path: polygon(0% 0%, 100% 0%, 100% 100%, 0% 100%); }
+}
+
+/* ============ SCANLINE & DIGITAL EFFECTS ============ */
+
+@keyframes scanlines {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(10px); }
+}
+
+@keyframes digitalGlitch {
+  0% { transform: translateX(0) skewX(0deg); }
+  25% { transform: translateX(2px) skewX(-5deg); opacity: 0.8; }
+  50% { transform: translateX(-2px) skewX(5deg); opacity: 1; }
+  75% { transform: translateX(2px) skewX(-2deg); opacity: 0.8; }
+  100% { transform: translateX(0) skewX(0deg); }
+}
+
+@keyframes statusBlink {
+  0%, 49%, 100% { opacity: 1; }
+  50%, 99% { opacity: 0.3; }
+}
+
+/* ============ PARTICLE & RAIN ANIMATIONS ============ */
+
+@keyframes particleDrift {
+  0% { transform: translateY(-100%) translateX(0); opacity: 1; }
+  100% { transform: translateY(100vh) translateX(50px); opacity: 0; }
+}
+
+@keyframes rainDrop {
+  0% { transform: translateY(-100%) scaleY(1); opacity: 1; }
+  100% { transform: translateY(100vh) scaleY(1.5); opacity: 0; }
+}
+
+/* ============ TEXT ANIMATIONS ============ */
+
+@keyframes typewriter {
+  0%, 100% { width: 0; opacity: 0; }
+  1%, 50% { width: 100%; opacity: 1; }
+  51%, 99% { width: 100%; opacity: 1; }
+}
+
+@keyframes blinkCursor {
+  0%, 49%, 100% { border-color: transparent; }
+  50%, 99% { border-color: #00d4ff; }
+}
+
+@keyframes glitchText {
+  0% { text-shadow: 3px 0 0 #ff006e, -3px 0 0 #00ffff; }
+  50% { text-shadow: -3px 0 0 #ff006e, 3px 0 0 #00ffff; }
+  100% { text-shadow: 3px 0 0 #ff006e, -3px 0 0 #00ffff; }
+}
+
+@keyframes shimmerText {
+  0% { background-position: -200% center; }
+  100% { background-position: 200% center; }
+}
+
+/* ============ INTERACTIVE ANIMATIONS ============ */
+
+@keyframes bounceGlow {
+  0%, 100% { transform: scale(1); filter: drop-shadow(0 0 5px rgba(0, 212, 255, 0.5)); }
+  50% { transform: scale(1.1); filter: drop-shadow(0 0 20px rgba(0, 212, 255, 0.9)); }
+}
+
+@keyframes floatIn {
+  0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes slideInLeft {
+  0% { opacity: 0; transform: translateX(-50px) skewX(10deg); }
+  100% { opacity: 1; transform: translateX(0) skewX(0deg); }
+}
+
+@keyframes slideInRight {
+  0% { opacity: 0; transform: translateX(50px) skewX(-10deg); }
+  100% { opacity: 1; transform: translateX(0) skewX(0deg); }
+}
+
+@keyframes rotateIn3D {
+  0% { opacity: 0; transform: rotateX(-90deg) rotateZ(0deg); }
+  100% { opacity: 1; transform: rotateX(0deg) rotateZ(0deg); }
+}
+
+/* ============ UTILITY CLASSES ============ */
+
+.spectrum-shift {
+  animation: spectrumShift 4s ease-in-out infinite;
+}
+
+.chroma-text {
+  animation: chromaShift 3s ease-in-out infinite;
+}
+
+.liquid-gradient {
+  animation: liquidGradient 6s ease infinite;
+  background-size: 200% 200%;
+}
+
+.quantum-flutter {
+  animation: quantumFlutter 2s ease-in-out infinite;
+}
+
+.ultra-glow {
+  animation: ultraGlow 2s ease-in-out infinite;
+}
+
+.neon-pulse {
+  animation: neonPulse 1.5s ease-in-out infinite;
+}
+
+.morph-shape {
+  animation: morphShape 4s ease-in-out infinite;
+}
+
+.digital-glitch {
+  animation: digitalGlitch 0.3s ease-in-out infinite;
+}
+
+.scanline-effect {
+  animation: scanlines 8s linear infinite;
+  background-image: repeating-linear-gradient(
+    0deg,
+    rgba(255, 255, 255, 0.03) 0px,
+    rgba(255, 255, 255, 0.03) 1px,
+    transparent 1px,
+    transparent 2px
+  );
+}
+
+.cursor-blink {
+  animation: blinkCursor 1s steps(2, start) infinite;
+  border-right: 3px solid #00d4ff;
+  padding-right: 5px;
+}
+
+.shimmer {
+  animation: shimmerText 2s ease-in-out infinite;
+  background-size: 200% 100%;
+}
+
+.float-entrance {
+  animation: floatIn 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.slide-left-entrance {
+  animation: slideInLeft 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.slide-right-entrance {
+  animation: slideInRight 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.rotate-3d-entrance {
+  animation: rotateIn3D 0.8s ease-out;
+  perspective: 1000px;
+}
+
+/* ============ RESPONSIVE GLOW & EFFECTS ============ */
+
+.glow-cyan {
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+}
+
+.glow-cyan:hover {
+  box-shadow: 0 0 40px rgba(0, 212, 255, 0.8);
+}
+
+.glow-pink {
+  box-shadow: 0 0 20px rgba(255, 0, 110, 0.5);
+}
+
+.glow-pink:hover {
+  box-shadow: 0 0 40px rgba(255, 0, 110, 0.8);
+}
+
+.neon-border {
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-image: linear-gradient(90deg, #00d4ff, #ff006e) 1;
+}
+
+.glass-morphism {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.glass-morphism-dark {
+  background: rgba(0, 0, 0, 0.3);
+  backdrop-filter: blur(20px);
+  border: 1px solid rgba(100, 200, 255, 0.2);
+}
+
+/* ============ GRADIENT DEFINITIONS ============ */
+
+.gradient-spectrum {
+  background: linear-gradient(
+    90deg,
+    #00d4ff 0%,
+    #6432ff 25%,
+    #ff006e 50%,
+    #ffa500 75%,
+    #00d4ff 100%
+  );
+  background-size: 200% 100%;
+  animation: gradientFlow 4s ease infinite;
+}
+
+.gradient-cyber {
+  background: linear-gradient(
+    135deg,
+    #0a1128 0%,
+    #1a0f2e 25%,
+    #2d1b4e 50%,
+    #1a0f2e 75%,
+    #0a1128 100%
+  );
+}
+
+.gradient-neon {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 212, 255, 0.1) 0%,
+    rgba(100, 50, 255, 0.1) 50%,
+    rgba(255, 0, 110, 0.1) 100%
+  );
+}
+
+/* ============ ELEVATION & DEPTH ============ */
+
+.elevation-1 {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2), 0 0 10px rgba(0, 212, 255, 0.1);
+}
+
+.elevation-2 {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.3), 0 0 20px rgba(0, 212, 255, 0.2);
+}
+
+.elevation-3 {
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.4), 0 0 30px rgba(0, 212, 255, 0.3);
+}
+
+.elevation-high {
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5), 0 0 60px rgba(0, 212, 255, 0.4);
+}
+
+/* ============ FOCUS STATES & INTERACTIONS ============ */
+
+.interactive-element {
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.interactive-element:hover {
+  transform: translateY(-4px) scale(1.02);
+  filter: brightness(1.1);
+}
+
+.interactive-element:focus {
+  outline: 2px solid #00d4ff;
+  outline-offset: 3px;
+  box-shadow: 0 0 20px rgba(0, 212, 255, 0.5);
+}
+
+/* ============ ACCESSIBILITY & READABILITY ============ */
+
+::-webkit-scrollbar {
+  width: 12px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, #00d4ff, #ff006e);
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, #00ffff, #ff0088);
+}
+
+/* ============ HIGH DPI & RETINA DISPLAYS ============ */
+
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .ultra-glow {
+    animation: ultraGlow 2s ease-in-out infinite;
+    filter: drop-shadow(0 0 3px rgba(0, 212, 255, 0.5));
+  }
+}
+
+/* ============ REDUCED MOTION ============ */
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ============ DARK MODE ENHANCEMENTS ============ */
+
+@media (prefers-color-scheme: dark) {
+  .glass-morphism {
+    background: rgba(10, 20, 50, 0.4);
+    border-color: rgba(0, 212, 255, 0.3);
+  }
+
+  .neon-pulse {
+    text-shadow: 0 0 10px #00d4ff, 0 0 20px #00d4ff;
+  }
+}

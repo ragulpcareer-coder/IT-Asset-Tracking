@@ -4,10 +4,11 @@ import { useNavigate, Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Button, Input, PasswordStrengthMeter, Alert } from "../components/UI";
 import { ProfessionalIcon, BrandLogo } from "../components/ProfessionalIcons";
+import { Background3D, HolographicCard, FloatingElement, GlowingOrb, TechGrid } from "../components/3DBackground";
 import { validateEmail, getPasswordRequirements } from "../utils/validation";
 import { animationVariants } from "../utils/animations";
 import { theme } from "../config/theme";
-import { brandIdentity, professionalColors } from "../config/brandIdentity";
+import { brandIdentity } from "../config/brandIdentity";
 
 export default function Register() {
   const [formData, setFormData] = useState({
@@ -26,6 +27,7 @@ export default function Register() {
     confirmPassword: "",
   });
   const [agreeTerms, setAgreeTerms] = useState(false);
+  const [activeStep, setActiveStep] = useState(1);
   const { register } = useContext(AuthContext);
   const navigate = useNavigate();
 
@@ -92,238 +94,395 @@ export default function Register() {
   const passwordRequirements = getPasswordRequirements();
 
   return (
-    <div 
-      className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden py-12"
-      style={{
-        background: `linear-gradient(to bottom right, ${theme.colors.primary[600]}, ${theme.colors.primary[500]}, ${theme.colors.secondary[600]})`
-      }}
-    >
-      {/* Animated background elements */}
-      <motion.div
-        className="absolute top-20 right-10 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl opacity-20"
-        animate={{ y: [0, 50, 0], x: [0, 30, 0] }}
-        transition={{ duration: 8, repeat: Infinity }}
-        style={{ backgroundColor: theme.colors.secondary[400] }}
-      />
-      <motion.div
-        className="absolute bottom-20 left-10 w-72 h-72 rounded-full mix-blend-multiply filter blur-3xl opacity-20"
-        animate={{ y: [0, -50, 0], x: [0, -30, 0] }}
-        transition={{ duration: 8, repeat: Infinity, delay: 1 }}
-        style={{ backgroundColor: theme.colors.primary[400] }}
-      />
+    <div className="min-h-screen relative overflow-hidden gradient-animated">
+      {/* 3D Particle Background */}
+      <Background3D className="z-0" />
+      
+      {/* Tech Grid Overlay */}
+      <TechGrid className="z-1" />
 
+      {/* Animated Floating Orbits */}
       <motion.div
-        className="w-full max-w-lg relative z-10"
-        initial="hidden"
-        animate="visible"
-        variants={animationVariants.containerVariants}
+        className="absolute top-32 right-10 w-32 h-32 opacity-20 z-1"
+        animate={{
+          y: [0, 40, -30, 0],
+          x: [0, 25, -20, 0],
+          rotate: [360, 180, 0],
+        }}
+        transition={{ duration: 18, repeat: Infinity }}
       >
-        {/* Logo/Header Section */}
+        <GlowingOrb color="#00897B" size="w-32 h-32" />
+      </motion.div>
+
+      <motion.div
+        className="absolute bottom-32 left-10 w-28 h-28 opacity-15 z-1"
+        animate={{
+          y: [0, -35, 25, 0],
+          x: [0, -30, 20, 0],
+          rotate: [0, 180, 360],
+        }}
+        transition={{ duration: 15, repeat: Infinity, delay: 3 }}
+      >
+        <GlowingOrb color="#1B5E9B" size="w-28 h-28" />
+      </motion.div>
+
+      {/* Main Content Container */}
+      <div className="relative z-10 min-h-screen flex items-center justify-center p-4 py-12">
         <motion.div
-          className="text-center mb-6"
-          variants={animationVariants.itemVariants}
+          className="w-full max-w-2xl"
+          initial="hidden"
+          animate="visible"
+          variants={animationVariants.containerVariants}
         >
+          {/* Header Section */}
           <motion.div
-            className="inline-block mb-4"
-            whileHover={{ scale: 1.05, rotate: -5 }}
-            whileTap={{ scale: 0.95 }}
+            className="text-center mb-10"
+            variants={animationVariants.itemVariants}
           >
-            <BrandLogo variant="main" size="lg" />
-          </motion.div>
-          <h1 className="text-4xl font-bold text-white mb-2">Join {brandIdentity.name}</h1>
-          <p className="text-blue-100">Create a secure account today</p>
-        </motion.div>
-
-        {/* Main Card */}
-        <motion.div
-          className="bg-white backdrop-blur-xl rounded-2xl shadow-2xl overflow-hidden"
-          variants={animationVariants.itemVariants}
-        >
-          <div className="p-8 space-y-6">
-            {error && (
-              <Alert
-                type="error"
-                title="Registration Error"
-                message={error}
-                onClose={() => setError("")}
-              />
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <ProfessionalIcon name="user" size={16} />
-                    Full Name
-                  </div>
-                </label>
-                <Input
-                  placeholder="John Doe"
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  error={errors.name}
-                  required
-                />
-                {errors.name && <p className="text-red-500 text-xs mt-1">{errors.name}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <ProfessionalIcon name="email" size={16} />
-                    Email Address
-                  </div>
-                </label>
-                <Input
-                  type="email"
-                  placeholder="john@example.com"
-                  name="email"
-                  value={formData.email}
-                  onChange={handleChange}
-                  error={errors.email}
-                  required
-                />
-                {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <ProfessionalIcon name="lock" size={16} />
-                    Password
-                  </div>
-                </label>
-                <Input
-                  type="password"
-                  placeholder="Create a strong password"
-                  name="password"
-                  value={formData.password}
-                  onChange={handleChange}
-                  error={errors.password}
-                  required
-                />
-                {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
-                {formData.password && (
-                  <PasswordStrengthMeter
-                    password={formData.password}
-                    requirements={passwordRequirements}
-                  />
-                )}
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <ProfessionalIcon name="check" size={16} />
-                    Confirm Password
-                  </div>
-                </label>
-                <Input
-                  type="password"
-                  placeholder="Confirm your password"
-                  name="confirmPassword"
-                  value={formData.confirmPassword}
-                  onChange={handleChange}
-                  error={errors.confirmPassword}
-                  required
-                />
-                {errors.confirmPassword && <p className="text-red-500 text-xs mt-1">{errors.confirmPassword}</p>}
-              </div>
-
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  <div className="flex items-center gap-2">
-                    <ProfessionalIcon name="userCheck" size={16} />
-                    Role
-                  </div>
-                </label>
-                <select
-                  name="role"
-                  value={formData.role}
-                  onChange={handleChange}
-                  className="w-full px-4 py-2.5 border-2 border-gray-200 rounded-lg focus:outline-none bg-white transition"
-                  style={{ 
-                    focusBorderColor: theme.colors.primary[500]
-                  }}
-                >
-                  <option value="User">Regular User</option>
-                  <option value="Admin">Administrator</option>
-                </select>
-                <p className="text-xs text-gray-500 mt-1.5">
-                  Select your role in the organization
-                </p>
-              </div>
-
+            <FloatingElement delay={0} duration={4}>
               <motion.div
-                className="p-4 rounded-lg border-2"
-                style={{
-                  backgroundColor: `${theme.colors.primary[50]}`,
-                  borderColor: theme.colors.primary[200]
-                }}
+                className="inline-block mb-6"
+                whileHover={{ scale: 1.1, rotateZ: -10 }}
+                whileTap={{ scale: 0.95 }}
+                animate={{ rotateY: [0, -360] }}
+                transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
+                style={{ transformStyle: "preserve-3d" }}
+              >
+                <BrandLogo variant="icon" size="lg" />
+              </motion.div>
+            </FloatingElement>
+
+            <motion.h1
+              className="text-5xl font-black bg-gradient-to-r from-teal-300 via-blue-300 to-teal-400 bg-clip-text text-transparent mb-3"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.2 }}
+            >
+              Join the Team
+            </motion.h1>
+
+            <motion.p
+              className="text-blue-100 text-lg font-light"
+              initial={{ y: 20, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ delay: 0.3 }}
+            >
+              Create your account in minutes
+            </motion.p>
+          </motion.div>
+
+          {/* Step Indicators */}
+          <motion.div
+            className="flex justify-between gap-4 mb-8"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.4 }}
+          >
+            {[1, 2, 3].map((step) => (
+              <motion.div
+                key={step}
+                className="flex-1"
+                whileHover={{ scale: 1.05 }}
+              >
+                <div className={`h-1 rounded-full transition-all duration-300 ${
+                  activeStep >= step
+                    ? "bg-gradient-to-r from-blue-500 to-teal-500"
+                    : "bg-blue-900/30"
+                }`} />
+                <p className="text-xs text-blue-200 mt-2 text-center font-semibold">
+                  {step === 1 ? "Personal" : step === 2 ? "Security" : "Confirm"}
+                </p>
+              </motion.div>
+            ))}
+          </motion.div>
+
+          {/* Holographic Registration Card */}
+          <motion.div
+            variants={animationVariants.itemVariants}
+            className="card-3d corner-glow"
+          >
+            <HolographicCard className="rounded-3xl p-8 space-y-6">
+              <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 transition={{ delay: 0.5 }}
               >
-                <label className="flex items-start gap-3 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={agreeTerms}
-                    onChange={(e) => setAgreeTerms(e.target.checked)}
-                    className="w-5 h-5 mt-0.5 rounded"
-                  />
-                  <span className="text-sm text-gray-700">
-                    I agree to the{" "}
-                    <a href="#" className="font-semibold hover:underline" style={{ color: theme.colors.primary[600] }}>
-                      Terms of Service
-                    </a>{" "}
-                    and{" "}
-                    <a href="#" className="font-semibold hover:underline" style={{ color: theme.colors.primary[600] }}>
-                      Privacy Policy
-                    </a>
-                  </span>
-                </label>
+                <h2 className="text-3xl font-bold bg-gradient-to-r from-white to-blue-100 bg-clip-text text-transparent mb-2">
+                  Create Account
+                </h2>
+                <p className="text-blue-200 text-sm">
+                  Step {activeStep} of 3
+                </p>
               </motion.div>
 
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                transition={{ delay: 0.6 }}
-              >
-                <Button
-                  type="submit"
-                  variant="primary"
-                  size="lg"
-                  loading={loading}
-                  disabled={loading || !agreeTerms}
-                  className="w-full"
+              {error && (
+                <motion.div
+                  initial={{ scaleY: 0 }}
+                  animate={{ scaleY: 1 }}
+                  transition={{ type: "spring" }}
                 >
-                  {loading ? "Creating Account..." : "Create Account"}
-                </Button>
-              </motion.div>
-            </form>
-          </div>
+                  <Alert
+                    type="error"
+                    title="Registration Error"
+                    message={error}
+                    onClose={() => setError("")}
+                  />
+                </motion.div>
+              )}
 
+              <form onSubmit={handleSubmit} className="space-y-5">
+                {/* Step 1: Personal Info */}
+                {activeStep === 1 && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-5"
+                  >
+                    <div>
+                      <label className="block text-sm font-semibold text-blue-100 mb-2">
+                        Full Name
+                      </label>
+                      <div className="relative group">
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                        <Input
+                          placeholder="John Doe"
+                          name="name"
+                          value={formData.name}
+                          onChange={handleChange}
+                          error={errors.name}
+                          required
+                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
+                        />
+                      </div>
+                      {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-blue-100 mb-2">
+                        Email Address
+                      </label>
+                      <div className="relative group">
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                        <Input
+                          type="email"
+                          placeholder="john@example.com"
+                          name="email"
+                          value={formData.email}
+                          onChange={handleChange}
+                          error={errors.email}
+                          required
+                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
+                        />
+                      </div>
+                      {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-blue-100 mb-2">
+                        User Role
+                      </label>
+                      <select
+                        name="role"
+                        value={formData.role}
+                        onChange={handleChange}
+                        className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg border border-blue-500/30 focus:border-blue-500 transition backdrop-blur-md"
+                      >
+                        <option value="User">Regular User</option>
+                        <option value="Admin">Administrator</option>
+                      </select>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Step 2: Security Setup */}
+                {activeStep === 2 && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-5"
+                  >
+                    <div>
+                      <label className="block text-sm font-semibold text-blue-100 mb-2">
+                        Password
+                      </label>
+                      <div className="relative group">
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                        <Input
+                          type="password"
+                          placeholder="Create a strong password"
+                          name="password"
+                          value={formData.password}
+                          onChange={handleChange}
+                          error={errors.password}
+                          required
+                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
+                        />
+                      </div>
+                      {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password}</p>}
+                      {formData.password && (
+                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+                          <PasswordStrengthMeter
+                            password={formData.password}
+                            requirements={passwordRequirements}
+                          />
+                        </motion.div>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-semibold text-blue-100 mb-2">
+                        Confirm Password
+                      </label>
+                      <div className="relative group">
+                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                        <Input
+                          type="password"
+                          placeholder="Confirm your password"
+                          name="confirmPassword"
+                          value={formData.confirmPassword}
+                          onChange={handleChange}
+                          error={errors.confirmPassword}
+                          required
+                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
+                        />
+                      </div>
+                      {errors.confirmPassword && <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>}
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Step 3: Confirmation */}
+                {activeStep === 3 && (
+                  <motion.div
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -20 }}
+                    className="space-y-5"
+                  >
+                    <div className="bg-gradient-to-r from-blue-900/30 to-teal-900/30 p-6 rounded-lg border border-blue-500/20 backdrop-blur-md">
+                      <h3 className="text-lg font-bold text-blue-100 mb-4">Verify Your Information</h3>
+                      <div className="space-y-3">
+                        <div className="flex justify-between items-center py-2 border-b border-blue-500/10">
+                          <span className="text-blue-200">Name:</span>
+                          <span className="text-white font-semibold">{formData.name}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-2 border-b border-blue-500/10">
+                          <span className="text-blue-200">Email:</span>
+                          <span className="text-white font-semibold">{formData.email}</span>
+                        </div>
+                        <div className="flex justify-between items-center py-2">
+                          <span className="text-blue-200">Role:</span>
+                          <span className="text-white font-semibold">{formData.role}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <motion.div
+                      className="p-4 rounded-lg border border-teal-500/30 bg-teal-900/20 backdrop-blur-md"
+                      whileHover={{ scale: 1.02 }}
+                    >
+                      <label className="flex items-start gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={agreeTerms}
+                          onChange={(e) => setAgreeTerms(e.target.checked)}
+                          className="w-5 h-5 mt-0.5 rounded border-teal-500 accent-teal-500"
+                        />
+                        <span className="text-sm text-teal-100">
+                          I agree to the{" "}
+                          <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
+                            Terms of Service
+                          </a>{" "}
+                          and{" "}
+                          <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
+                            Privacy Policy
+                          </a>
+                        </span>
+                      </label>
+                    </motion.div>
+                  </motion.div>
+                )}
+
+                {/* Navigation Buttons */}
+                <div className="flex gap-3 pt-4">
+                  {activeStep > 1 && (
+                    <motion.div
+                      className="flex-1"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="lg"
+                        onClick={() => setActiveStep(activeStep - 1)}
+                        className="w-full"
+                      >
+                        Previous
+                      </Button>
+                    </motion.div>
+                  )}
+
+                  {activeStep < 3 ? (
+                    <motion.div
+                      className={activeStep === 1 ? "w-full" : "flex-1"}
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Button
+                        type="button"
+                        variant="primary"
+                        size="lg"
+                        onClick={() => setActiveStep(activeStep + 1)}
+                        className="w-full bg-gradient-to-r from-blue-600 via-teal-500 to-blue-600"
+                      >
+                        Next
+                      </Button>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      className="flex-1"
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Button
+                        type="submit"
+                        variant="success"
+                        size="lg"
+                        loading={loading}
+                        disabled={loading || !agreeTerms}
+                        className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:shadow-2xl hover:shadow-green-500/50"
+                      >
+                        {loading ? "Creating..." : "Create Account"}
+                      </Button>
+                    </motion.div>
+                  )}
+                </div>
+              </form>
+            </HolographicCard>
+          </motion.div>
+
+          {/* Sign In Link */}
           <motion.div
-            className="px-8 py-4 flex items-center justify-center gap-2"
-            style={{
-              background: `linear-gradient(to right, ${theme.colors.primary[50]}, ${theme.colors.secondary[50]})`
-            }}
+            className="mt-8 text-center"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.7 }}
+            transition={{ delay: 1 }}
           >
-            <span className="text-gray-700">Already have an account?</span>
-            <Link
-              to="/login"
-              className="font-bold transition"
-              style={{ color: theme.colors.primary[600] }}
-            >
-              Sign In
-            </Link>
+            <p className="text-blue-200">
+              Already have an account?{" "}
+              <Link
+                to="/login"
+                className="font-bold text-transparent bg-gradient-to-r from-blue-300 to-teal-300 bg-clip-text hover:from-blue-200 hover:to-teal-200 transition"
+              >
+                Sign in here
+              </Link>
+            </p>
           </motion.div>
         </motion.div>
-      </motion.div>
+      </div>
     </div>
   );
 }

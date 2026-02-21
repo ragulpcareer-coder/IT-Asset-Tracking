@@ -8,7 +8,10 @@ import AuditLogs from "./pages/AuditLogs";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
+import Users from "./pages/Users";
 import PrivateRoute from "./components/PrivateRoute";
+import AdminRoute from "./components/AdminRoute";
+import "./modern.css";
 
 export default function App() {
   return (
@@ -25,6 +28,16 @@ export default function App() {
                   <Dashboard />
                 </Layout>
               </PrivateRoute>
+            }
+          />
+          <Route
+            path="/users"
+            element={
+              <AdminRoute>
+                <Layout>
+                  <Users />
+                </Layout>
+              </AdminRoute>
             }
           />
           <Route

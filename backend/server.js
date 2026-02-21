@@ -37,6 +37,24 @@ const io = new Server(server, {
 // Make io accessible to routes
 app.set("io", io);
 
+try {
+  require('./jobs/auditRetentionJob');
+} catch (err) {
+  console.warn('Could not start audit retention job', err.message);
+}
+
+try {
+  require('./jobs/warrantyJob');
+} catch (err) {
+  console.warn('Could not start warranty job', err.message);
+}
+
+try {
+  require('./jobs/backupJob');
+} catch (err) {
+  console.warn('Could not start professional backup job', err.message);
+}
+
 io.on("connection", (socket) => {
   console.log("New client connected", socket.id);
 
@@ -45,8 +63,16 @@ io.on("connection", (socket) => {
   });
 });
 
-// Security Middlewares
-app.use(helmet());
+const mongoSanitize = require("express-mongo-sanitize");
+const xss = require("xss-clean");
+const compression = require("compression");
+
+// Security & Networking Middlewares
+app.use(helmet({
+  contentSecurityPolicy: false, // Let frontend handle its own CSP or configure properly 
+  crossOriginEmbedderPolicy: false
+}));
+app.use(compression()); // Compress all responses for advanced networking efficiency
 app.use(
   cors({
     origin: function (origin, callback) {
@@ -54,21 +80,43 @@ app.use(
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error("Not allowed by CORS"));
     },
+    credentials: true
   })
 );
-app.use(express.json());
+app.use(express.json({ limit: "10kb" })); // Body parser limit to prevent payload attacks
 
-// Rate Limiting
-const limiter = rateLimit({
+// Data Sanitization against NoSQL query injection
+app.use(mongoSanitize());
+
+// Data Sanitization against XSS
+app.use(xss());
+
+// Advanced Rate Limiting
+const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 300,
+  message: "Too many requests from this IP, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
 });
-app.use(limiter);
 
-// Routes
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: "Too many login attempts, your account has been temporarily restricted.",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/", globalLimiter);
+app.use("/api/auth/login", authLimiter);
 app.use("/api/auth", require("./routes/authRoutes"));
 app.use("/api/assets", require("./routes/assetRoutes"));
 app.use("/api/audit", require("./routes/auditRoutes"));
+// Advanced Modules
+app.use("/api/tickets", require("./routes/ticketRoutes"));
+app.use("/api/software", require("./routes/softwareRoutes"));
+app.use("/api/keys", require("./routes/apiRoutes"));
 
 // Centralized Error Handler
 app.use((err, req, res, next) => {
@@ -104,3 +152,4 @@ const tryListen = (port) => {
 };
 
 tryListen(PORT);
+
