@@ -21,15 +21,19 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
+  FRONTEND_URL
 ];
+
+const checkOrigin = function (origin, callback) {
+  if (!origin) return callback(null, true);
+  if (allowedOrigins.includes(origin)) return callback(null, true);
+  if (origin.endsWith('vercel.app')) return callback(null, true); // Automatically trust Vercel deployments
+  return callback(new Error("Not allowed by CORS"));
+};
 
 const io = new Server(server, {
   cors: {
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
-    },
+    origin: checkOrigin,
     methods: ["GET", "POST"],
   },
 });
@@ -75,11 +79,7 @@ app.use(helmet({
 app.use(compression()); // Compress all responses for advanced networking efficiency
 app.use(
   cors({
-    origin: function (origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error("Not allowed by CORS"));
-    },
+    origin: checkOrigin,
     credentials: true
   })
 );
