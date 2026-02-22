@@ -93,6 +93,18 @@ app.use(express.json({ limit: "10kb" })); // Body parser limit to prevent payloa
 // Data Sanitization against NoSQL query injection
 app.use(mongoSanitize());
 
+// Enterprise SIEM Logging Integration
+const logger = require('./utils/logger');
+app.use((req, res, next) => {
+  logger.info(`HTTP ${req.method} ${req.url}`, {
+    ip: req.ip,
+    method: req.method,
+    url: req.url,
+    userAgent: req.get('User-Agent')
+  });
+  next();
+});
+
 // Data Sanitization against XSS
 app.use(xss());
 

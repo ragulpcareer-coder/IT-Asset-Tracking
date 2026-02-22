@@ -39,5 +39,9 @@ auditLogSchema.pre("save", async function (next) {
     }
     next();
 });
+// Immutable Log Policy (Enterprise Write-Once Logic)
+auditLogSchema.pre(['update', 'updateOne', 'updateMany', 'findOneAndUpdate', 'replaceOne', 'remove', 'deleteOne', 'deleteMany', 'findOneAndDelete', 'findOneAndRemove'], function (next) {
+    throw new Error("SECURITY VIOLATION: Audit Logs are immutable and cannot be modified or deleted once written.");
+});
 
 module.exports = mongoose.model("AuditLog", auditLogSchema);

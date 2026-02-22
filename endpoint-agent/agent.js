@@ -1,6 +1,7 @@
 const axios = require('axios');
 const si = require('systeminformation');
 const os = require('os');
+const crypto = require('crypto');
 
 // Server URL where the agent will report
 const SERVER_URL = process.env.SERVER_URL || 'https://it-asset-tracking.onrender.com/api';
@@ -29,7 +30,7 @@ async function gatherAndReport() {
 
         const payload = {
             serialNumber: SERIAL_NUMBER,
-            secretKey: SECRET_KEY,
+            timestamp: Date.now(),
             healthStatus: {
                 cpuUsage: cpu.currentLoad.toFixed(2),
                 ramTotal: (mem.total / (1024 ** 3)).toFixed(2),
@@ -49,7 +50,14 @@ async function gatherAndReport() {
             }
         };
 
-        const response = await axios.post(`${SERVER_URL}/assets/agent-report`, payload);
+        // Create cryptographic HMAC signature for payload authentication
+        const signature = crypto.createHmac('sha256', SECRET_KEY)
+            .update(JSON.stringify(payload))
+            .digest('hex');
+
+        const response = await axios.post(`${SERVER_URL}/assets/agent-report`, payload, {
+            headers: { 'x-agent-signature': signature }
+        });
         console.log(`[Agent] Report sent successfully. Status: ${response.status}`);
     } catch (error) {
         console.error(`[Agent] Failed to send report: ${error.message}`);

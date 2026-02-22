@@ -393,10 +393,33 @@ const getSecurityAlerts = async (req, res) => {
 
 const agentReport = async (req, res) => {
   try {
-    const { serialNumber, secretKey, healthStatus, networkStatus, osInfo } = req.body;
+    const { serialNumber, healthStatus, networkStatus, osInfo, timestamp } = req.body;
+    const signature = req.headers['x-agent-signature'];
 
-    if (secretKey !== (process.env.AGENT_SECRET || 'endpoint_agent_secret_key_123!')) {
-      return res.status(403).json({ message: "Unauthorized agent" });
+    if (!signature) {
+      return res.status(403).json({ message: "Missing agent signature" });
+    }
+
+    // Prevent Replay Attacks (Reject payloads older than 5 minutes)
+    if (!timestamp || Date.now() - timestamp > 5 * 60 * 1000) {
+      return res.status(403).json({ message: "Payload expired / possible replay attack" });
+    }
+
+    // Verify HMAC Signature (Enterprise Agent Authentication)
+    const SECRET_KEY = process.env.AGENT_SECRET || 'endpoint_agent_secret_key_123!';
+    const expectedSignature = crypto.createHmac('sha256', SECRET_KEY)
+      .update(JSON.stringify(req.body))
+      .digest('hex');
+
+    // Perform timing-safe equal to prevent timing attacks
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+      // Log Unauthorized Agent Attempt
+      await AuditLog.create({
+        action: `SECURITY ALERT: Unauthorized Agent Connection Blocked`,
+        performedBy: `Agent IP: ${req.ip}`,
+        details: `Failed HMAC signature verification for Serial: ${serialNumber}`,
+      });
+      return res.status(403).json({ message: "Unauthorized agent signature" });
     }
 
     let asset = await Asset.findOne({ serialNumber });
