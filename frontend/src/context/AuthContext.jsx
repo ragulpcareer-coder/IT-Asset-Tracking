@@ -13,8 +13,12 @@ export const AuthProvider = ({ children }) => {
   useEffect(() => {
     const loadUser = async () => {
       const token = localStorage.getItem("token");
+      if (!token) {
+        setLoading(false);
+        return;
+      }
       try {
-        const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+        const config = { headers: { Authorization: `Bearer ${token}` } };
         const res = await axios.get("/auth/me", config);
         setUser(res.data);
       } catch (error) {

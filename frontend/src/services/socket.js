@@ -5,4 +5,6 @@ const SOCKET_URL = isLocal ? "http://localhost:5000" : "https://it-asset-trackin
 
 export const socket = io(SOCKET_URL, {
     autoConnect: false,
+    transports: ["websocket", "polling"],
+    withCredentials: true
 });
