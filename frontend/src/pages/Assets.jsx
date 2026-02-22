@@ -22,6 +22,12 @@ export default function Assets() {
 
   useEffect(() => {
     fetchAssets();
+    if (window.location.search.includes("add=true")) {
+      setEditingAsset(null);
+      setIsModalOpen(true);
+      // Clean up URL without refreshing
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
   }, [search, statusFilter, typeFilter, sortBy]);
 
   const fetchAssets = async () => {

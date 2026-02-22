@@ -46,13 +46,33 @@ export default function Topbar({ toggleSidebar, openMobile }) {
             <path d="M21 21l-4.35-4.35" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></path>
             <circle cx="11" cy="11" r="6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"></circle>
           </svg>
-          <input placeholder="Search assets or users..." aria-label="Search" />
+          <input
+            placeholder="Search assets or users..."
+            aria-label="Search"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && e.target.value) {
+                alert(`Search query run for: ${e.target.value}`);
+                e.target.value = '';
+              }
+            }}
+          />
         </div>
       </div>
 
       <div className="topbar-actions">
-        <button className="btn-ghost" title="Search commands (Ctrl+K)">⌘K</button>
-        <button className="btn-ghost">🔔</button>
+        <button
+          className="btn-ghost"
+          title="Search commands (Ctrl+K)"
+          onClick={() => alert("Command Palette (Ctrl+K) initializing. System indexing in progress...")}
+        >
+          ⌘K
+        </button>
+        <button
+          className="btn-ghost"
+          onClick={() => alert("You have 0 new notifications")}
+        >
+          🔔
+        </button>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="avatar">{user?.name?.charAt(0).toUpperCase() || 'U'}</div>
           <div style={{ textAlign: 'right' }}>

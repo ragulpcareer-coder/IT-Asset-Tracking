@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useContext } from "react";
+import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
@@ -356,22 +357,22 @@ export default function Dashboard() {
                   <h3 className="text-lg font-bold text-white mb-4">Quick Actions</h3>
                   <div className="space-y-2 flex-1">
                     {[
-                      { label: "Add Asset", href: "/assets" },
+                      { label: "Add Asset", href: "/assets?add=true" },
                       { label: "View Logs", href: "/audit-logs" },
                       { label: "Settings", href: "/settings" },
                     ].map((action, i) => (
-                      <motion.a
-                        key={i}
-                        href={action.href}
-                        className="block w-full bg-emerald-500/30 hover:bg-emerald-500/50 text-white py-2.5 px-4 rounded-lg transition font-semibold border border-emerald-500/50"
-                        whileHover={{ scale: 1.05, x: 4 }}
-                        whileTap={{ scale: 0.98 }}
-                        initial={{ x: -20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: 0.9 + i * 0.1 }}
-                      >
-                        {action.label}
-                      </motion.a>
+                      <Link key={i} to={action.href}>
+                        <motion.div
+                          className="block w-full bg-emerald-500/30 hover:bg-emerald-500/50 text-white py-2.5 px-4 rounded-lg transition font-semibold border border-emerald-500/50 mb-2"
+                          whileHover={{ scale: 1.05, x: 4 }}
+                          whileTap={{ scale: 0.98 }}
+                          initial={{ x: -20, opacity: 0 }}
+                          animate={{ x: 0, opacity: 1 }}
+                          transition={{ delay: 0.9 + i * 0.1 }}
+                        >
+                          {action.label}
+                        </motion.div>
+                      </Link>
                     ))}
                   </div>
                 </motion.div>
