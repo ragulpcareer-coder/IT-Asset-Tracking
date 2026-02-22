@@ -358,60 +358,56 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2
-          className="text-2xl font-bold mb-6"
-          style={{ color: theme.colors.primary[700] }}
-        >
+        <h2 className="text-xl font-medium text-white mb-6">
           Notification Preferences
         </h2>
 
-        <Card>
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-[#0a0a0a]">
           <div className="space-y-4">
             {[
               { key: "emailNotifications", label: "Email Notifications", description: "Receive updates via email", icon: "email" },
-              { key: "pushNotifications", label: "Push Notifications", description: "Get real-time alerts", icon: "bell" },
+              { key: "pushNotifications", label: "Push Notifications", description: "Get real-time alerts", icon: "notification" },
               { key: "activityNotifications", label: "Activity Updates", description: "Stay informed about asset changes", icon: "activity" },
               { key: "securityAlerts", label: "Security Alerts", description: "Critical security notifications", icon: "alert" },
             ].map((pref) => (
               <motion.div
                 key={pref.key}
-                className="flex items-center justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition"
+                className="flex items-center justify-between p-4 rounded-lg bg-[#111] hover:bg-white/5 border border-white/5 transition"
                 variants={animationVariants.itemVariants}
               >
-                <div className="flex items-start gap-3">
-                  <div className="mt-1">
+                <div className="flex items-start gap-4">
+                  <div className="text-cyan-400 mt-1">
                     <ProfessionalIcon name={pref.icon} size={20} />
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-800">{pref.label}</p>
-                    <p className="text-sm text-gray-600">{pref.description}</p>
+                    <p className="font-semibold text-white">{pref.label}</p>
+                    <p className="text-sm text-gray-400">{pref.description}</p>
                   </div>
                 </div>
                 <motion.button
                   type="button"
                   onClick={() => setPreferences(prev => ({ ...prev, [pref.key]: !prev[pref.key] }))}
-                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors`}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors`}
                   style={{
-                    backgroundColor: preferences[pref.key] ? theme.colors.secondary[500] : "#d1d5db"
+                    backgroundColor: preferences[pref.key] ? "#0ea5e9" : "#333"
                   }}
-                  whileHover={{ scale: 1.05 }}
                 >
                   <motion.span
-                    className="inline-block h-6 w-6 transform rounded-full bg-white shadow-lg"
-                    animate={{ x: preferences[pref.key] ? 28 : 2 }}
-                    transition={transitionPresets.snappy}
+                    className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+                    style={{ transform: preferences[pref.key] ? "translateX(24px)" : "translateX(4px)" }}
                   />
                 </motion.button>
               </motion.div>
             ))}
           </div>
-        </Card>
-        <Card className="mt-6">
+        </div>
+
+        <div className="p-6 rounded-xl border border-white/10 bg-[#0a0a0a]">
           <div className="space-y-4">
-            <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
+            <h3 className="text-lg font-medium text-white mb-2 flex items-center gap-2">
               🛡️ Privacy & Tracking Consent
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
+            <p className="text-sm text-gray-400 mb-4">
               Manage what asset data is collected to address privacy concerns.
             </p>
             {[
@@ -420,71 +416,34 @@ export default function Settings() {
             ].map((pref) => (
               <motion.div
                 key={pref.key}
-                className="flex items-center justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition"
-                variants={animationVariants.itemVariants}
-                initial="hidden"
-                animate="visible"
+                className="flex items-center justify-between p-4 rounded-lg bg-[#111] hover:bg-white/5 border border-white/5 transition"
               >
-                <div className="flex items-start gap-3">
-                  <div className="mt-1">
+                <div className="flex items-start gap-4">
+                  <div className="text-cyan-400 mt-1">
                     <ProfessionalIcon name={pref.icon} size={20} />
                   </div>
                   <div>
-                    <p className="font-semibold text-gray-800">{pref.label}</p>
-                    <p className="text-sm text-gray-600">{pref.description}</p>
+                    <p className="font-semibold text-white">{pref.label}</p>
+                    <p className="text-sm text-gray-400">{pref.description}</p>
                   </div>
                 </div>
                 <motion.button
                   type="button"
-                  onClick={() => setPreferences(prev => ({ ...prev, [pref.key]: prev[pref.key] === undefined ? false : !prev[pref.key] }))}
-                  className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors`}
+                  onClick={() => setPreferences(prev => ({ ...prev, [pref.key]: !prev[pref.key] }))}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors`}
                   style={{
-                    backgroundColor: preferences[pref.key] !== false ? theme.colors.secondary[500] : "#d1d5db"
+                    backgroundColor: preferences[pref.key] !== false ? "#0ea5e9" : "#333"
                   }}
-                  whileHover={{ scale: 1.05 }}
                 >
                   <motion.span
-                    className="inline-block h-6 w-6 transform rounded-full bg-white shadow-lg"
-                    animate={{ x: preferences[pref.key] !== false ? 28 : 2 }}
-                    transition={transitionPresets.snappy}
+                    className="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+                    style={{ transform: preferences[pref.key] !== false ? "translateX(24px)" : "translateX(4px)" }}
                   />
                 </motion.button>
               </motion.div>
             ))}
           </div>
-        </Card>
-
-        <Card className="mt-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <ProfessionalIcon name="palette" size={20} /> Theme
-          </h3>
-          <div className="grid grid-cols-2 gap-3">
-            {["light", "dark"].map((themeOption) => (
-              <motion.button
-                key={themeOption}
-                type="button"
-                onClick={() => setPreferences(prev => ({ ...prev, theme: themeOption }))}
-                className={`p-4 rounded-lg border-2 transition ${preferences.theme === themeOption
-                  ? "bg-opacity-10"
-                  : "border-gray-200 bg-white hover:border-gray-300"
-                  }`}
-                style={{
-                  borderColor: preferences.theme === themeOption ? theme.colors.primary[600] : undefined,
-                  backgroundColor: preferences.theme === themeOption ? `${theme.colors.primary[50]}` : undefined
-                }}
-                variants={animationVariants.itemVariants}
-              >
-                <div className="text-2xl block mb-2">
-                  {themeOption === "light" ?
-                    <ProfessionalIcon name="sun" size={20} /> :
-                    <ProfessionalIcon name="moon" size={20} />
-                  }
-                </div>
-                <span className="font-semibold text-gray-800 capitalize">{themeOption}</span>
-              </motion.button>
-            ))}
-          </div>
-        </Card>
+        </div>
       </motion.div>
     </motion.div>
   );
@@ -497,55 +456,45 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2
-          className="text-2xl font-bold mb-6 flex items-center gap-2"
-          style={{ color: theme.colors.primary[700] }}
-        >
-          <ProfessionalIcon name="link" size={24} /> Active Sessions
+        <h2 className="text-xl font-medium mb-6 text-white">
+          Active Sessions
         </h2>
 
-        <Card className="mb-4" style={{
-          borderLeft: `4px solid ${theme.colors.secondary[500]}`
-        }}>
-          <div className="flex items-center justify-between">
+        <div className="mb-6 p-6 rounded-xl border border-white/10 bg-[#0a0a0a] relative overflow-hidden">
+          <div className="absolute left-0 top-0 bottom-0 w-1 bg-cyan-500"></div>
+          <div className="flex items-center justify-between pl-4">
             <div>
-              <p className="font-bold text-gray-800 mb-2 flex items-center gap-2">
-                <ProfessionalIcon name="monitor" size={18} /> Current Session
+              <p className="font-bold text-white mb-2 flex items-center gap-2">
+                <ProfessionalIcon name="desktop" size={18} /> Current Session
               </p>
-              <div className="space-y-1 text-sm text-gray-600">
-                <p className="flex items-center gap-2">
-                  <ProfessionalIcon name="globe" size={16} /> Browser: Chrome (Windows)
-                </p>
-                <p className="flex items-center gap-2">
-                  <ProfessionalIcon name="location" size={16} /> Location: Your Location
-                </p>
-                <p className="flex items-center gap-2">
-                  <ProfessionalIcon name="clock" size={16} /> Last Active: Just Now
-                </p>
+              <div className="space-y-1 text-sm text-gray-400">
+                <p className="flex items-center gap-2">Browser: Modern Browser</p>
+                <p className="flex items-center gap-2">Last Active: Just Now</p>
               </div>
-              <Badge variant="success" className="mt-3">
+              <span className="inline-block mt-3 px-2 py-1 bg-green-500/10 text-green-400 border border-green-500/20 rounded text-xs font-semibold">
                 Active Now
-              </Badge>
+              </span>
             </div>
-            <ProfessionalIcon name="check" size={40} />
           </div>
-        </Card>
+        </div>
 
         <motion.div variants={animationVariants.itemVariants}>
-          <Button
-            variant="danger"
-            size="lg"
-            className="w-full"
-            onClick={() => {
-              if (window.confirm("Logout from all devices?")) {
-                logout();
-                toast.success("Logged out from all devices");
+          <button
+            className="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/30 rounded-lg py-3 font-semibold transition flex items-center justify-center gap-2"
+            onClick={async () => {
+              if (window.confirm("Are you sure you want to log out from all devices? This will invalidate all refresh tokens.")) {
+                try {
+                  await axios.post("/auth/logout-all");
+                  logout();
+                  toast.success("Logged out from all devices");
+                } catch (e) {
+                  toast.error("Error logging out of all devices");
+                }
               }
             }}
           >
-            <ProfessionalIcon name="logout" size={18} style={{ marginRight: '8px' }} />
-            Logout from All Sessions
-          </Button>
+            Log Out From All Sessions
+          </button>
         </motion.div>
       </motion.div>
     </motion.div>
@@ -559,35 +508,33 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2
-          className="text-2xl font-bold mb-6 flex items-center gap-2"
-          style={{ color: theme.colors.primary[700] }}
-        >
-          <ProfessionalIcon name="activity" size={24} /> Activity Timeline
+        <h2 className="text-xl font-medium mb-6 text-white">
+          Activity Timeline
         </h2>
 
         <div className="space-y-3">
           {[
             { icon: "lock", action: "Password Changed", time: "2 hours ago", status: "success" },
-            { icon: "login", action: "New Login", time: "Today at 10:30 AM", status: "info" },
             { icon: "user", action: "Profile Updated", time: "Yesterday", status: "info" },
-            { icon: "shield", action: "2FA Enabled", time: "3 days ago", status: "success" },
+            { icon: "shield", action: "2FA Checked", time: "3 days ago", status: "success" },
           ].map((activity, idx) => (
             <motion.div
               key={idx}
-              className="flex gap-4 p-4 rounded-lg border border-gray-200 hover:bg-gray-50 transition"
+              className="flex gap-4 p-4 rounded-xl border border-white/10 bg-[#0a0a0a] hover:bg-white/5 transition"
               variants={animationVariants.itemVariants}
             >
-              <div className="mt-1">
+              <div className="text-cyan-400 mt-1">
                 <ProfessionalIcon name={activity.icon} size={20} />
               </div>
               <div className="flex-1">
-                <p className="font-semibold text-gray-800">{activity.action}</p>
-                <p className="text-sm text-gray-500">{activity.time}</p>
+                <p className="font-semibold text-white">{activity.action}</p>
+                <p className="text-sm text-gray-400">{activity.time}</p>
               </div>
-              <Badge variant={activity.status} size="sm">
-                {activity.status === "success" ? <ProfessionalIcon name="check" size={14} /> : "ℹ"}
-              </Badge>
+              <div>
+                <span className={`px-2 py-1 text-xs rounded border ${activity.status === 'success' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
+                  {activity.status === "success" ? "Done" : "Info"}
+                </span>
+              </div>
             </motion.div>
           ))}
         </div>
