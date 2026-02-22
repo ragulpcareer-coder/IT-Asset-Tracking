@@ -78,7 +78,16 @@ const compression = require("compression");
 
 // Security & Networking Middlewares
 app.use(helmet({
-  contentSecurityPolicy: false, // Let frontend handle its own CSP or configure properly 
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https:"],
+      connectSrc: ["'self'", "ws:", "wss:", "http:", "https:"],
+    }
+  },
   crossOriginEmbedderPolicy: false
 }));
 app.use(compression()); // Compress all responses for advanced networking efficiency

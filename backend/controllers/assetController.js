@@ -450,6 +450,9 @@ const agentReport = async (req, res) => {
     };
     asset.osInfo = osInfo;
     asset.networkStatus = networkStatus;
+    if (req.body.hardwareFingerprint) {
+      asset.hardwareFingerprint = req.body.hardwareFingerprint;
+    }
 
     // Auto-update IP/MAC if it changed
     if (networkStatus?.ipAddress) asset.ipAddress = networkStatus.ipAddress;

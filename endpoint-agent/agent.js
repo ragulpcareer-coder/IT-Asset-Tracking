@@ -16,6 +16,8 @@ async function gatherAndReport() {
         const cpu = await si.currentLoad();
         const mem = await si.mem();
         const network = await si.networkInterfaces();
+        const uuid = await si.uuid();
+        const bios = await si.bios();
 
         // Find primary IPv4
         let primaryIp = 'Unknown';
@@ -42,6 +44,10 @@ async function gatherAndReport() {
                 macAddress: primaryMac,
                 isOnline: true,
                 lastSeen: Date.now()
+            },
+            hardwareFingerprint: {
+                uuid: uuid.os || uuid.macs[0],
+                biosSerial: bios.serial
             },
             osInfo: {
                 platform: os.platform(),

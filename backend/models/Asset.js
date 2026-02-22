@@ -73,6 +73,10 @@ const assetSchema = new mongoose.Schema(
       release: { type: String, default: '' },
       hostname: { type: String, default: '' }
     },
+    hardwareFingerprint: {
+      uuid: { type: String, default: '' },
+      biosSerial: { type: String, default: '' }
+    },
     securityStatus: {
       isAuthorized: { type: Boolean, default: true },
       riskLevel: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Low' },
