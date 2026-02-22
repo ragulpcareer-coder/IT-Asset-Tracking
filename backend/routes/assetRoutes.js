@@ -12,6 +12,7 @@ const {
   bulkUploadAssets,
   scanNetwork,
   getSecurityAlerts,
+  agentReport,
 } = require("../controllers/assetController");
 
 const multer = require("multer");
@@ -40,6 +41,9 @@ router.put("/:id", protect, authorizeRoles("Admin"), updateAsset);
 
 // DELETE
 router.delete("/:id", protect, authorizeRoles("Admin"), deleteAsset);
+
+// AGENT REPORT (Open endpoint, but secured by secret in body)
+router.post("/agent-report", agentReport);
 
 module.exports = router;
 

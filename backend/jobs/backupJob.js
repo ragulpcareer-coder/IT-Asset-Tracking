@@ -32,20 +32,39 @@ const backupTask = cron.schedule('0 2 * * *', async () => {
         };
 
         fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
-        console.log(`✅ Backup successfully created at: ${backupFile}`);
+        console.log(`✅ Local backup successfully created at: ${backupFile}`);
 
-        // Optional: Clean up old backups (keep last 7)
+        // Cloud Backup to AWS S3 (Cybersecurity Enterprise Feature)
+        try {
+            if (process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY && process.env.AWS_S3_BUCKET) {
+                const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
+                const s3 = new S3Client({ region: process.env.AWS_REGION || 'us-east-1' });
+                const fileContent = fs.readFileSync(backupFile);
+
+                await s3.send(new PutObjectCommand({
+                    Bucket: process.env.AWS_S3_BUCKET,
+                    Key: `backups/backup-${timestamp}.json`,
+                    Body: fileContent,
+                    ContentType: 'application/json'
+                }));
+                console.log(`☁️ Cloud Backup successfully uploaded to S3 Bucket: ${process.env.AWS_S3_BUCKET}`);
+            } else {
+                console.log(`☁️ Skipping S3 Cloud backup, AWS credentials not fully configured in env.`);
+            }
+        } catch (s3Error) {
+            console.error('❌ Failed to upload backup to S3:', s3Error.message);
+        }
+
+        // Optional: Clean up old local backups (keep last 7)
         const files = fs.readdirSync(backupDir)
             .filter(f => f.startsWith('backup-') && f.endsWith('.json'))
-            .sort((a, b) => {
-                return fs.statSync(path.join(backupDir, b)).mtime.getTime() - fs.statSync(path.join(backupDir, a)).mtime.getTime();
-            });
+            .sort((a, b) => fs.statSync(path.join(backupDir, b)).mtime.getTime() - fs.statSync(path.join(backupDir, a)).mtime.getTime());
 
         if (files.length > 7) {
             for (let i = 7; i < files.length; i++) {
                 fs.unlinkSync(path.join(backupDir, files[i]));
             }
-            console.log('🧹 Cleaned up outdated backups.');
+            console.log('🧹 Cleaned up outdated local backups.');
         }
     } catch (error) {
         console.error('❌ Failed to execute automated backup:', error);

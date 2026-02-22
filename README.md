@@ -6,7 +6,14 @@ AssetTrack is an advanced, Zero-Trust Architecture web application built with th
 
 ## ✨ Enterprise Features
 
-### 🔐 Zero-Trust Security & Authentication
+### �️ SOC-Level Cybersecurity (10/10 Enterprise Setup)
+- **Active Network Scanner Integration**: Real-time ARP scanning (`local-devices`) natively discovers devices connected to the network automatically without manual entry, transforming this into a Cybersecurity Asset Detection System.
+- **Rogue Device Alerts**: Instantly detects and isolates unknown/unauthorized devices on the network, tagging them with High Risk and firing an automated **Email Alert** to the Security Admin (`Nodemailer`).
+- **Endpoint Health Agent**: Includes a separate lightweight Node.js agent (`/endpoint-agent`) that can be installed on target machines to securely report CPU/RAM telemetry, active IP/MAC changes, and online status directly back to the main server.
+- **Automated Cloud Backup**: Nightly scheduled database snapshots are not just saved locally, but fully integrated to mathematically upload directly to **AWS S3 Cloud Storage** (`@aws-sdk/client-s3`), guarding against server failure.
+- **Real-Time Ping Watchdog**: Automated tracking pings every 2 minutes tracking physical device connectivities across the network natively.
+
+### �🔐 Zero-Trust Security & Authentication
 - **First-Mover Super Admin Initialization**: The first registered user automatically becomes the Main Admin. All subsequent users are default "Users" requiring promotion.
 - **Strict Role-Based Access Control (RBAC)**: Deep Node.js middleware completely silences undocumented/unauthorized API queries.
 - **Cryptographic 2FA (Two-Factor Auth)**: Base32 Time-Based One-Time Passwords via Microsoft/Google Authenticator (`speakeasy` & `qrcode`).

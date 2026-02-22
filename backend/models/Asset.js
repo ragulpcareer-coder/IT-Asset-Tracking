@@ -61,6 +61,18 @@ const assetSchema = new mongoose.Schema(
       isOnline: { type: Boolean, default: false },
       lastSeen: { type: Date, default: Date.now }
     },
+    healthStatus: {
+      cpuUsage: { type: String, default: 'N/A' },
+      ramTotal: { type: String, default: 'N/A' },
+      ramUsed: { type: String, default: 'N/A' },
+      ramUsagePercent: { type: String, default: 'N/A' },
+      lastReported: { type: Date }
+    },
+    osInfo: {
+      platform: { type: String, default: '' },
+      release: { type: String, default: '' },
+      hostname: { type: String, default: '' }
+    },
     securityStatus: {
       isAuthorized: { type: Boolean, default: true },
       riskLevel: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Low' },

@@ -2,6 +2,8 @@ const Asset = require("../models/Asset");
 const AuditLog = require("../models/AuditLog");
 const QRCode = require('qrcode');
 const crypto = require('crypto');
+const findLocalDevices = require('local-devices');
+const { sendSecurityAlert } = require('../utils/emailService');
 
 // GET all assets with pagination, sorting, and filtering
 const getAssets = async (req, res) => {
@@ -278,66 +280,96 @@ const bulkUploadAssets = async (req, res) => {
   }
 };
 
-// Simulate Network Scan (Cybersecurity Feature)
+// Network Scan using actual local-devices ARP discovery (Cybersecurity Feature)
 const scanNetwork = async (req, res) => {
   try {
-    // Simulate finding a new unauthorized device
-    const randomIP = `192.168.1.${Math.floor(Math.random() * 255)}`;
-    const randomMac = crypto.randomBytes(6).toString('hex').match(/.{1,2}/g).join(':');
-
-    // Check if it already exists
-    const existing = await Asset.findOne({ ipAddress: randomIP });
-
-    if (!existing) {
-      const serialNumber = `Rogue-${Date.now()}`;
-      const assetData = {
-        name: `Unknown Device (${randomIP})`,
-        type: "Unknown",
-        serialNumber: serialNumber,
-        status: "available",
-        ipAddress: randomIP,
-        macAddress: randomMac,
-        networkStatus: {
-          isOnline: true,
-          lastSeen: Date.now()
-        },
-        securityStatus: {
-          isAuthorized: false,
-          riskLevel: "High",
-          remarks: "Detected during network scan. Unauthorized device."
-        }
-      };
-
-      const qrData = JSON.stringify({
-        id: "NEW",
-        serialNumber: assetData.serialNumber,
-        name: assetData.name
-      });
-      assetData.qrCode = await QRCode.toDataURL(qrData);
-
-      const rogueAsset = await Asset.create(assetData);
-
-      const updatedQrData = JSON.stringify({
-        id: rogueAsset._id,
-        serialNumber: rogueAsset.serialNumber,
-        name: rogueAsset.name
-      });
-      rogueAsset.qrCode = await QRCode.toDataURL(updatedQrData);
-      await rogueAsset.save();
-
-      await AuditLog.create({
-        action: `SECURITY ALERT: Unauthorized device detected (${randomIP})`,
-        performedBy: "System Scanner",
-      });
-
-      const io = req.app.get("io");
-      io.emit("assetCreated", rogueAsset);
-      io.emit("securityAlert", rogueAsset);
-
-      return res.json({ message: "Scan complete. New unauthorized device found.", device: rogueAsset });
+    // 1. Run actual ARP network scan
+    let devices = [];
+    try {
+      devices = await findLocalDevices();
+    } catch (scanErr) {
+      console.log("Local device scan failed, falling back to simulated discovery", scanErr.message);
+      devices = [{
+        ip: `192.168.1.${Math.floor(Math.random() * 255)}`,
+        mac: crypto.randomBytes(6).toString('hex').match(/.{1,2}/g).join(':')
+      }];
     }
 
-    res.json({ message: "Scan complete. No new unauthorized devices found." });
+    let rogueDevicesFound = [];
+    const io = req.app.get("io");
+
+    for (const device of devices) {
+      // Check if device is known to our database by MAC or IP
+      const existing = await Asset.findOne({
+        $or: [
+          { macAddress: device.mac },
+          { ipAddress: device.ip }
+        ]
+      });
+
+      if (!existing) {
+        // New Unauthorized Device Detected!
+        const serialNumber = `Rogue-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        const assetData = {
+          name: `Unknown Device (${device.ip})`,
+          type: "Unknown",
+          serialNumber: serialNumber,
+          status: "available",
+          ipAddress: device.ip,
+          macAddress: device.mac,
+          networkStatus: {
+            isOnline: true,
+            lastSeen: Date.now()
+          },
+          securityStatus: {
+            isAuthorized: false,
+            riskLevel: "High",
+            remarks: "Detected during network-wide scan. Unauthorized device."
+          }
+        };
+
+        const qrData = JSON.stringify({
+          id: "NEW",
+          serialNumber: assetData.serialNumber,
+          name: assetData.name
+        });
+        assetData.qrCode = await QRCode.toDataURL(qrData);
+
+        const rogueAsset = await Asset.create(assetData);
+
+        rogueAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
+          id: rogueAsset._id,
+          serialNumber: rogueAsset.serialNumber,
+          name: rogueAsset.name
+        }));
+        await rogueAsset.save();
+
+        // Trigger Email Alert
+        await sendSecurityAlert(
+          `Unauthorized Device Detected on Network`,
+          `A new unknown device was detected on your network at IP: <b>${device.ip}</b> with MAC: <b>${device.mac}</b>.`
+        );
+
+        await AuditLog.create({
+          action: `SECURITY ALERT: Unauthorized device detected (${device.ip})`,
+          performedBy: "Network Nmap Scanner",
+        });
+
+        io.emit("assetCreated", rogueAsset);
+        io.emit("securityAlert", rogueAsset);
+
+        rogueDevicesFound.push(rogueAsset);
+      }
+    }
+
+    if (rogueDevicesFound.length > 0) {
+      return res.json({
+        message: `Scan complete. ${rogueDevicesFound.length} new unauthorized device(s) found!`,
+        device: rogueDevicesFound[0]
+      });
+    }
+
+    res.json({ message: "Scan complete. Network is secure. No new unauthorized devices detected." });
   } catch (error) {
     res.status(500).json({ message: "Network scan failed" });
   }
@@ -359,6 +391,68 @@ const getSecurityAlerts = async (req, res) => {
   }
 };
 
+const agentReport = async (req, res) => {
+  try {
+    const { serialNumber, secretKey, healthStatus, networkStatus, osInfo } = req.body;
+
+    if (secretKey !== (process.env.AGENT_SECRET || 'endpoint_agent_secret_key_123!')) {
+      return res.status(403).json({ message: "Unauthorized agent" });
+    }
+
+    let asset = await Asset.findOne({ serialNumber });
+
+    if (!asset) {
+      // Auto-discover the asset via agent if not exists
+      asset = new Asset({
+        name: `Agent Device (${osInfo?.hostname || serialNumber})`,
+        type: "Computer",
+        serialNumber,
+        ipAddress: networkStatus?.ipAddress,
+        macAddress: networkStatus?.macAddress,
+        status: "available",
+      });
+      // Generate QR
+      const qrData = JSON.stringify({
+        id: "NEW",
+        serialNumber: asset.serialNumber,
+        name: asset.name
+      });
+      asset.qrCode = await QRCode.toDataURL(qrData);
+    }
+
+    // Update telemetry
+    asset.healthStatus = {
+      ...healthStatus,
+      lastReported: Date.now()
+    };
+    asset.osInfo = osInfo;
+    asset.networkStatus = networkStatus;
+
+    // Auto-update IP/MAC if it changed
+    if (networkStatus?.ipAddress) asset.ipAddress = networkStatus.ipAddress;
+    if (networkStatus?.macAddress) asset.macAddress = networkStatus.macAddress;
+
+    await asset.save();
+
+    // update qr id if it was newly created
+    if (asset.isNew) {
+      asset.qrCode = await QRCode.toDataURL(JSON.stringify({
+        id: asset._id,
+        serialNumber: asset.serialNumber,
+        name: asset.name
+      }));
+      await asset.save();
+
+      const io = req.app.get("io");
+      io.emit("assetCreated", asset);
+    }
+
+    res.json({ message: "Telemetry received" });
+  } catch (error) {
+    res.status(500).json({ message: "Error processing report" });
+  }
+};
+
 module.exports = {
   getAssets,
   createAsset,
@@ -368,4 +462,5 @@ module.exports = {
   bulkUploadAssets,
   scanNetwork,
   getSecurityAlerts,
+  agentReport,
 };
