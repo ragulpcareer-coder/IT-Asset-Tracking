@@ -27,6 +27,7 @@
     "jsonwebtoken": "^9.0.2",
     "local-devices": "^4.0.0",
     "mongoose": "^8.5.1",
+    "mongoose-field-encryption": "^7.0.1",
     "multer": "^2.0.2",
     "node-cron": "^3.0.3",
     "nodemailer": "^8.0.1",
