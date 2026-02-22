@@ -9,16 +9,31 @@ import jsPDF from "jspdf";
 import "jspdf-autotable";
 import { useDropzone } from "react-dropzone";
 
+import { useLocation } from "react-router-dom";
+
 export default function Assets() {
   const { user } = useContext(AuthContext);
+  const location = useLocation();
   const [assets, setAssets] = useState([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAsset, setEditingAsset] = useState(null);
-  const [search, setSearch] = useState("");
+
+  // Initialize search from URL if present
+  const initialSearch = new URLSearchParams(window.location.search).get("search") || "";
+  const [search, setSearch] = useState(initialSearch);
+
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
   const [sortBy, setSortBy] = useState("name");
   const [loading, setLoading] = useState(false);
+
+  // Sync search state if URL changes externally
+  useEffect(() => {
+    const querySearch = new URLSearchParams(location.search).get("search");
+    if (querySearch !== null && querySearch !== search) {
+      setSearch(querySearch);
+    }
+  }, [location.search]);
 
   useEffect(() => {
     fetchAssets();

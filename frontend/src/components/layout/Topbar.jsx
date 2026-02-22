@@ -1,9 +1,11 @@
 import React, { useContext, useState, useEffect } from "react";
 import { AuthContext } from "../../context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 export default function Topbar({ toggleSidebar, openMobile }) {
   const { user, logout } = useContext(AuthContext);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -51,8 +53,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
             aria-label="Search"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && e.target.value) {
-                alert(`Search query run for: ${e.target.value}`);
-                e.target.value = '';
+                navigate("/assets?search=" + encodeURIComponent(e.target.value));
               }
             }}
           />
@@ -63,7 +64,13 @@ export default function Topbar({ toggleSidebar, openMobile }) {
         <button
           className="btn-ghost"
           title="Search commands (Ctrl+K)"
-          onClick={() => alert("Command Palette (Ctrl+K) initializing. System indexing in progress...")}
+          onClick={() => {
+            window.dispatchEvent(new KeyboardEvent('keydown', {
+              key: 'k',
+              metaKey: true,
+              ctrlKey: true
+            }));
+          }}
         >
           ⌘K
         </button>
