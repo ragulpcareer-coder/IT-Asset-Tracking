@@ -100,57 +100,63 @@ export default function Settings() {
           }
         }} className="space-y-5">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
               <div className="flex items-center gap-2">
                 <ProfessionalIcon name="user" size={16} />
                 Full Name
               </div>
             </label>
-            <Input
+            <input
+              type="text"
               value={profileData.name}
               onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
               required
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
               <div className="flex items-center gap-2">
                 <ProfessionalIcon name="email" size={16} />
                 Email Address
               </div>
             </label>
-            <Input
+            <input
               type="email"
               value={profileData.email}
               disabled
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-gray-500 cursor-not-allowed outline-none"
             />
             <p className="text-xs text-gray-500 mt-1">Email cannot be changed for security reasons</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
               <div className="flex items-center gap-2">
                 <ProfessionalIcon name="smartphone" size={16} />
                 Phone Number
               </div>
             </label>
-            <Input
+            <input
               type="tel"
               placeholder="+1 (555) 000-0000"
               value={profileData.phone}
               onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
             />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
+            <label className="block text-sm font-medium text-gray-400 mb-2">
               <div className="flex items-center gap-2">
                 <ProfessionalIcon name="building" size={16} />
                 Department
               </div>
             </label>
-            <Input
+            <input
+              type="text"
               placeholder="IT Support"
               value={profileData.department}
               onChange={(e) => setProfileData({ ...profileData, department: e.target.value })}
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
             />
           </div>
           <motion.div
@@ -584,11 +590,19 @@ export default function Settings() {
         {/* Tab Content */}
         <div className="p-8 bg-[#000000]">
           <AnimatePresence mode="wait">
-            {activeTab === "profile" && <ProfileTab key="profile" />}
-            {activeTab === "security" && <SecurityTab key="security" />}
-            {activeTab === "preferences" && <PreferencesTab key="preferences" />}
-            {activeTab === "devices" && <DevicesTab key="devices" />}
-            {activeTab === "activity" && <ActivityTab key="activity" />}
+            <motion.div
+              key={activeTab}
+              initial="hidden"
+              animate="visible"
+              exit="hidden"
+              variants={animationVariants.containerVariants}
+            >
+              {activeTab === "profile" && ProfileTab()}
+              {activeTab === "security" && SecurityTab()}
+              {activeTab === "preferences" && PreferencesTab()}
+              {activeTab === "devices" && DevicesTab()}
+              {activeTab === "activity" && ActivityTab()}
+            </motion.div>
           </AnimatePresence>
         </div>
       </motion.div>
