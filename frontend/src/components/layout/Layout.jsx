@@ -10,7 +10,7 @@ export default function Layout({ children }) {
   return (
     <div className="app-layout">
       <CommandPalette />
-      <div className={`app-sidebar ${collapsed ? 'compact' : ''}`}>
+      <div className={`app-sidebar ${collapsed ? 'compact' : ''} ${mobileOpen ? 'mobile-active' : ''}`}>
         <Sidebar collapsed={collapsed} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
       </div>
 
