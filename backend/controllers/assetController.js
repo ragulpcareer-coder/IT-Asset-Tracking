@@ -1,6 +1,7 @@
 const Asset = require("../models/Asset");
 const AuditLog = require("../models/AuditLog");
 const QRCode = require('qrcode');
+const crypto = require('crypto');
 
 // GET all assets with pagination, sorting, and filtering
 const getAssets = async (req, res) => {
@@ -277,6 +278,87 @@ const bulkUploadAssets = async (req, res) => {
   }
 };
 
+// Simulate Network Scan (Cybersecurity Feature)
+const scanNetwork = async (req, res) => {
+  try {
+    // Simulate finding a new unauthorized device
+    const randomIP = `192.168.1.${Math.floor(Math.random() * 255)}`;
+    const randomMac = crypto.randomBytes(6).toString('hex').match(/.{1,2}/g).join(':');
+
+    // Check if it already exists
+    const existing = await Asset.findOne({ ipAddress: randomIP });
+
+    if (!existing) {
+      const serialNumber = `Rogue-${Date.now()}`;
+      const assetData = {
+        name: `Unknown Device (${randomIP})`,
+        type: "Unknown",
+        serialNumber: serialNumber,
+        status: "available",
+        ipAddress: randomIP,
+        macAddress: randomMac,
+        networkStatus: {
+          isOnline: true,
+          lastSeen: Date.now()
+        },
+        securityStatus: {
+          isAuthorized: false,
+          riskLevel: "High",
+          remarks: "Detected during network scan. Unauthorized device."
+        }
+      };
+
+      const qrData = JSON.stringify({
+        id: "NEW",
+        serialNumber: assetData.serialNumber,
+        name: assetData.name
+      });
+      assetData.qrCode = await QRCode.toDataURL(qrData);
+
+      const rogueAsset = await Asset.create(assetData);
+
+      const updatedQrData = JSON.stringify({
+        id: rogueAsset._id,
+        serialNumber: rogueAsset.serialNumber,
+        name: rogueAsset.name
+      });
+      rogueAsset.qrCode = await QRCode.toDataURL(updatedQrData);
+      await rogueAsset.save();
+
+      await AuditLog.create({
+        action: `SECURITY ALERT: Unauthorized device detected (${randomIP})`,
+        performedBy: "System Scanner",
+      });
+
+      const io = req.app.get("io");
+      io.emit("assetCreated", rogueAsset);
+      io.emit("securityAlert", rogueAsset);
+
+      return res.json({ message: "Scan complete. New unauthorized device found.", device: rogueAsset });
+    }
+
+    res.json({ message: "Scan complete. No new unauthorized devices found." });
+  } catch (error) {
+    res.status(500).json({ message: "Network scan failed" });
+  }
+};
+
+// GET Security Alerts
+const getSecurityAlerts = async (req, res) => {
+  try {
+    const alerts = await Asset.find({
+      $or: [
+        { "securityStatus.isAuthorized": false },
+        { "securityStatus.riskLevel": { $in: ["High", "Critical"] } }
+      ]
+    }).sort({ createdAt: -1 }).limit(20);
+
+    res.json(alerts);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch security alerts" });
+  }
+};
+
 module.exports = {
   getAssets,
   createAsset,
@@ -284,4 +366,6 @@ module.exports = {
   deleteAsset,
   exportAssets,
   bulkUploadAssets,
+  scanNetwork,
+  getSecurityAlerts,
 };

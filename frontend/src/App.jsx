@@ -9,6 +9,7 @@ import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import Users from "./pages/Users";
+import Cybersecurity from "./pages/Cybersecurity";
 import PrivateRoute from "./components/PrivateRoute";
 import AdminRoute from "./components/AdminRoute";
 import "./modern.css";
@@ -36,6 +37,16 @@ export default function App() {
               <AdminRoute>
                 <Layout>
                   <Users />
+                </Layout>
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/security"
+            element={
+              <AdminRoute>
+                <Layout>
+                  <Cybersecurity />
                 </Layout>
               </AdminRoute>
             }

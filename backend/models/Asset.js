@@ -46,6 +46,26 @@ const assetSchema = new mongoose.Schema(
     qrCode: {
       type: String,
     },
+    ipAddress: {
+      type: String,
+    },
+    macAddress: {
+      type: String,
+    },
+    location: {
+      room: { type: String, default: 'Unknown' },
+      department: { type: String, default: 'IT' },
+      building: { type: String, default: 'Main HQ' }
+    },
+    networkStatus: {
+      isOnline: { type: Boolean, default: false },
+      lastSeen: { type: Date, default: Date.now }
+    },
+    securityStatus: {
+      isAuthorized: { type: Boolean, default: true },
+      riskLevel: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Low' },
+      remarks: { type: String, default: '' }
+    }
   },
   {
     timestamps: true,

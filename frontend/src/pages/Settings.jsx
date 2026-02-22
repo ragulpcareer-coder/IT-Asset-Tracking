@@ -276,8 +276,8 @@ export default function Settings() {
             {!tfaSetup.isSettingUp && (
               <button
                 className={`px-4 py-2 rounded-lg font-medium text-sm transition ${preferences.twoFactorEnabled
-                    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                    : "bg-white text-black hover:bg-gray-100"
+                  ? "bg-red-500/10 text-red-400 hover:bg-red-500/20"
+                  : "bg-white text-black hover:bg-gray-100"
                   }`}
                 onClick={async () => {
                   try {
@@ -405,39 +405,85 @@ export default function Settings() {
               </motion.div>
             ))}
           </div>
-        </Card>
+          <Card className="mt-6">
+            <div className="space-y-4">
+              <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center gap-2">
+                🛡️ Privacy & Tracking Consent
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Manage what asset data is collected to address privacy concerns.
+              </p>
+              {[
+                { key: "trackLocation", label: "Track General Location", description: "Allow tracking of asset department and building.", icon: "location" },
+                { key: "trackIP", label: "Network Activity Monitoring", description: "Allow logging of IPs and MAC addresses for security.", icon: "activity" },
+              ].map((pref) => (
+                <motion.div
+                  key={pref.key}
+                  className="flex items-center justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition"
+                  variants={animationVariants.itemVariants}
+                  initial="hidden"
+                  animate="visible"
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="mt-1">
+                      <ProfessionalIcon name={pref.icon} size={20} />
+                    </div>
+                    <div>
+                      <p className="font-semibold text-gray-800">{pref.label}</p>
+                      <p className="text-sm text-gray-600">{pref.description}</p>
+                    </div>
+                  </div>
+                  <motion.button
+                    type="button"
+                    onClick={() => setPreferences(prev => ({ ...prev, [pref.key]: prev[pref.key] === undefined ? false : !prev[pref.key] }))}
+                    className={`relative inline-flex h-8 w-14 items-center rounded-full transition-colors`}
+                    style={{
+                      backgroundColor: preferences[pref.key] !== false ? theme.colors.secondary[500] : "#d1d5db"
+                    }}
+                    whileHover={{ scale: 1.05 }}
+                  >
+                    <motion.span
+                      className="inline-block h-6 w-6 transform rounded-full bg-white shadow-lg"
+                      animate={{ x: preferences[pref.key] !== false ? 28 : 2 }}
+                      transition={transitionPresets.snappy}
+                    />
+                  </motion.button>
+                </motion.div>
+              ))}
+            </div>
+          </Card>
 
-        <Card className="mt-6">
-          <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-            <ProfessionalIcon name="palette" size={20} /> Theme
-          </h3>
-          <div className="grid grid-cols-2 gap-3">
-            {["light", "dark"].map((themeOption) => (
-              <motion.button
-                key={themeOption}
-                type="button"
-                onClick={() => setPreferences(prev => ({ ...prev, theme: themeOption }))}
-                className={`p-4 rounded-lg border-2 transition ${preferences.theme === themeOption
-                  ? "bg-opacity-10"
-                  : "border-gray-200 bg-white hover:border-gray-300"
-                  }`}
-                style={{
-                  borderColor: preferences.theme === themeOption ? theme.colors.primary[600] : undefined,
-                  backgroundColor: preferences.theme === themeOption ? `${theme.colors.primary[50]}` : undefined
-                }}
-                variants={animationVariants.itemVariants}
-              >
-                <div className="text-2xl block mb-2">
-                  {themeOption === "light" ?
-                    <ProfessionalIcon name="sun" size={20} /> :
-                    <ProfessionalIcon name="moon" size={20} />
-                  }
-                </div>
-                <span className="font-semibold text-gray-800 capitalize">{themeOption}</span>
-              </motion.button>
-            ))}
-          </div>
-        </Card>
+          <Card className="mt-6">
+            <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+              <ProfessionalIcon name="palette" size={20} /> Theme
+            </h3>
+            <div className="grid grid-cols-2 gap-3">
+              {["light", "dark"].map((themeOption) => (
+                <motion.button
+                  key={themeOption}
+                  type="button"
+                  onClick={() => setPreferences(prev => ({ ...prev, theme: themeOption }))}
+                  className={`p-4 rounded-lg border-2 transition ${preferences.theme === themeOption
+                    ? "bg-opacity-10"
+                    : "border-gray-200 bg-white hover:border-gray-300"
+                    }`}
+                  style={{
+                    borderColor: preferences.theme === themeOption ? theme.colors.primary[600] : undefined,
+                    backgroundColor: preferences.theme === themeOption ? `${theme.colors.primary[50]}` : undefined
+                  }}
+                  variants={animationVariants.itemVariants}
+                >
+                  <div className="text-2xl block mb-2">
+                    {themeOption === "light" ?
+                      <ProfessionalIcon name="sun" size={20} /> :
+                      <ProfessionalIcon name="moon" size={20} />
+                    }
+                  </div>
+                  <span className="font-semibold text-gray-800 capitalize">{themeOption}</span>
+                </motion.button>
+              ))}
+            </div>
+          </Card>
       </motion.div>
     </motion.div>
   );

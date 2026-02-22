@@ -83,6 +83,15 @@ export default function Dashboard() {
     assigned: assets.filter((a) => a.status === "assigned").length,
     maintenance: assets.filter((a) => a.status === "maintenance").length,
     retired: assets.filter((a) => a.status === "retired").length,
+    unauthorized: assets.filter((a) => a?.securityStatus?.isAuthorized === false).length,
+    warrantyExpiring: assets.filter((a) => {
+      if (!a.warrantyExpiry) return false;
+      const expiry = new Date(a.warrantyExpiry);
+      const now = new Date();
+      const diffTime = Math.abs(expiry - now);
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      return diffDays <= 30 && expiry > now;
+    }).length,
     totalLogs: logs.length,
     todayLogs: logs.filter((l) => new Date(l.createdAt).toDateString() === new Date().toDateString()).length,
     uniqueUsers: new Set(logs.map((l) => l.performedBy)).size,
@@ -112,15 +121,9 @@ export default function Dashboard() {
     return acc;
   }, []);
 
-  const recentActivities = logs.slice(0, 5).map((log) => ({
-    action: log.action,
-    user: log.performedBy,
-    time: new Date(log.createdAt).toLocaleTimeString(),
-  }));
-
   const assetHealth = {
-    compliant: assets.filter((a) => a.status !== "retired").length,
-    noncompliant: assets.filter((a) => a.status === "retired").length,
+    compliant: assets.filter((a) => a.status !== "retired" && a?.securityStatus?.isAuthorized !== false).length,
+    noncompliant: assets.filter((a) => a.status === "retired" || a?.securityStatus?.isAuthorized === false).length,
     totalAssets: assets.length,
   };
 
@@ -146,9 +149,9 @@ export default function Dashboard() {
   const metricCards = [
     { label: "Total Assets", value: stats.totalAssets, color: theme.colors.primary[500], delay: 0 },
     { label: "Available", value: stats.available, color: theme.colors.accent.success, delay: 0.1 },
-    { label: "Assigned", value: stats.assigned, color: theme.colors.primary[600], delay: 0.2 },
-    { label: "Maintenance", value: stats.maintenance, color: theme.colors.accent.warning, delay: 0.3 },
-    { label: "Retired", value: stats.retired, color: theme.colors.accent.error, delay: 0.4 },
+    { label: "Maintenance", value: stats.maintenance, color: theme.colors.accent.warning, delay: 0.2 },
+    { label: "Expiring Warranty", value: stats.warrantyExpiring, color: "#f97316", delay: 0.3 },
+    { label: "Rogue Devices", value: stats.unauthorized, color: theme.colors.accent.error, delay: 0.4 },
   ];
 
   return (

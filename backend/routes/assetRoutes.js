@@ -10,6 +10,8 @@ const {
   deleteAsset,
   exportAssets,
   bulkUploadAssets,
+  scanNetwork,
+  getSecurityAlerts,
 } = require("../controllers/assetController");
 
 const multer = require("multer");
@@ -20,6 +22,12 @@ router.get("/", getAssets);
 
 // EXPORT
 router.get("/export", protect, authorizeRoles("Admin"), exportAssets);
+
+// GET Security Alerts
+router.get("/security-alerts", protect, authorizeRoles("Admin"), getSecurityAlerts);
+
+// SCAN Network
+router.post("/scan-network", protect, authorizeRoles("Admin"), scanNetwork);
 
 // BULK UPLOAD
 router.post("/bulk-upload", protect, authorizeRoles("Admin"), upload.single("file"), bulkUploadAssets);
