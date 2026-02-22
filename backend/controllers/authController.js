@@ -12,6 +12,8 @@ const {
   RateLimiter,
   sanitizeInput,
 } = require("../utils/security");
+const geoip = require("geoip-lite");
+const { sendSecurityAlert } = require("../utils/emailService");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -186,6 +188,17 @@ const login = async (req, res) => {
     user.lockUntil = undefined;
     user.lastLogin = Date.now();
     await user.save();
+
+    // Geo-Location Login Detection (Weakness 39)
+    const ip = req.ip || req.connection.remoteAddress;
+    const geo = geoip.lookup(ip);
+    if (geo) {
+      console.log(`[Security] User ${user.email} logged in from ${geo.city}, ${geo.country}`);
+      // Enterprise systems typically alert on unusual countries, but we log the context for the SIEM.
+    }
+
+    // Concurrent Session Control (Weakness 38) - Prevent multiple logins by invalidating old sessions
+    await RefreshToken.deleteMany({ user: user._id });
 
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
@@ -438,6 +451,12 @@ const promoteUser = async (req, res) => {
       details: `Promoted ${userToPromote.email} to Admin`,
       ip: req.ip || req.connection.remoteAddress,
     });
+
+    // Enterprise Privilege Escalation Monitoring Alert (Weakness 7)
+    await sendSecurityAlert(
+      `Critical Privilege Escalation Detected`,
+      `User <b>${userToPromote.email}</b> was just promoted to Super Admin level by <b>${req.user.email}</b>. If this was not authorized, please lock down the system immediately.`
+    );
 
     res.json({ message: "User successfully promoted to Admin", user: { _id: userToPromote._id, email: userToPromote.email, role: userToPromote.role } });
   } catch (error) {

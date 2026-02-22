@@ -4,6 +4,27 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const findLocalDevices = require('local-devices');
 const { sendSecurityAlert } = require('../utils/emailService');
+const net = require('net');
+
+// Simple TCP Port Scanner (Enterprise Weakness 12 Fix)
+const checkPort = (port, host) => {
+  return new Promise((resolve) => {
+    const socket = new net.Socket();
+    socket.setTimeout(1000); // 1-second timeout
+    socket.on('connect', () => {
+      socket.destroy();
+      resolve(true); // Port is open
+    });
+    socket.on('timeout', () => {
+      socket.destroy();
+      resolve(false);
+    });
+    socket.on('error', () => {
+      resolve(false);
+    });
+    socket.connect(port, host);
+  });
+};
 
 // GET all assets with pagination, sorting, and filtering
 const getAssets = async (req, res) => {
@@ -327,6 +348,18 @@ const scanNetwork = async (req, res) => {
             remarks: "Detected during network-wide scan. Unauthorized device."
           }
         };
+
+        // TCP Port Scan (Nmap integration replacement)
+        const commonPorts = [22, 80, 443, 3389, 8080];
+        let openPorts = [];
+        for (let port of commonPorts) {
+          const isOpen = await checkPort(port, device.ip);
+          if (isOpen) openPorts.push(port);
+        }
+        if (openPorts.length > 0) {
+          assetData.securityStatus.remarks += ` Warning: Vulnerable Open Ports Detected: [${openPorts.join(', ')}]`;
+          assetData.securityStatus.riskLevel = "Critical"; // Escalate risk if device listening on ports
+        }
 
         const qrData = JSON.stringify({
           id: "NEW",
