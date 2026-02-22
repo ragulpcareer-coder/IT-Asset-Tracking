@@ -9,8 +9,6 @@ function Cybersecurity() {
     const [loading, setLoading] = useState(true);
     const [scanResult, setScanResult] = useState(null);
 
-    const token = localStorage.getItem("token");
-
     useEffect(() => {
         fetchAlerts();
 

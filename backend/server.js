@@ -97,7 +97,9 @@ app.use(
     credentials: true
   })
 );
+const cookieParser = require("cookie-parser");
 app.use(express.json({ limit: "10kb" })); // Body parser limit to prevent payload attacks
+app.use(cookieParser());
 
 // Data Sanitization against NoSQL query injection
 app.use(mongoSanitize());

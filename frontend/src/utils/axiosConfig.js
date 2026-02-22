@@ -7,6 +7,7 @@ NProgress.configure({ showSpinner: false, speed: 400, minimum: 0.1 });
 
 const instance = axios.create({
   baseURL: "https://it-asset-tracking.onrender.com/api",
+  withCredentials: true,
 });
 
 let activeRequests = 0;
@@ -16,12 +17,6 @@ instance.interceptors.request.use((config) => {
     NProgress.start();
   }
   activeRequests++;
-
-  const token = localStorage.getItem("token");
-  if (token) {
-    config.headers.Authorization = `Bearer ${token}`;
-  }
-
   return config;
 }, (error) => {
   activeRequests--;
@@ -41,7 +36,6 @@ instance.interceptors.response.use(
 
     // Global Unauthorized Handler (only show if it's not a specific 2FA requirement)
     if (error.response?.status === 401 && !error.response?.data?.requires2FA) {
-      localStorage.removeItem("token");
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }

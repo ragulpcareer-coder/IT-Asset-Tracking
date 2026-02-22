@@ -5,29 +5,27 @@ const TokenManager = require("../utils/tokenManager");
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
 
 const protect = async (req, res, next) => {
-  let token;
+  let token = req.cookies.jwt;
 
   if (req.headers.authorization && req.headers.authorization.startsWith("Bearer")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
+  if (token) {
     try {
-      token = req.headers.authorization.split(" ")[1];
-
-
       const verified = tokenManager.verifyAccessToken(token);
       if (!verified.valid) {
         return res.status(401).json({ message: 'Not authorized, token invalid' });
       }
 
       const decoded = verified.decoded;
-
       req.user = await User.findById(decoded.userId).select("-password");
 
       return next();
     } catch (error) {
       return res.status(401).json({ message: "Not authorized, token failed" });
     }
-  }
-
-  if (!token) {
+  } else {
     return res.status(401).json({ message: "Not authorized, no token" });
   }
 };

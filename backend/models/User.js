@@ -11,6 +11,12 @@ const userSchema = new mongoose.Schema({
   },
   isTwoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String },
+  twoFactorBackupCodes: [{ type: String }],
+  isEmailVerified: { type: Boolean, default: false },
+  emailVerificationToken: { type: String },
+  emailVerificationExpires: { type: Date },
+  passwordResetToken: { type: String },
+  passwordResetExpires: { type: Date },
   failedLoginAttempts: { type: Number, default: 0 },
   lockUntil: { type: Date },
   lastLogin: { type: Date }

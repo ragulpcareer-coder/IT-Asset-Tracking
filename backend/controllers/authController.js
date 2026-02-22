@@ -114,6 +114,15 @@ const register = async (req, res) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    res.cookie('jwt', pair.accessToken, cookieOptions);
+
     res.status(201).json({
       _id: user._id,
       name: user.name,
@@ -171,15 +180,22 @@ const login = async (req, res) => {
         return res.status(403).json({ requires2FA: true, message: "Two-factor authentication token required" });
       }
 
-      const isVerified = speakeasy.totp.verify({
+      let isVerified = speakeasy.totp.verify({
         secret: user.twoFactorSecret,
         encoding: 'base32',
         token: token2FA,
         window: 1 // allows 30 seconds drift either way
       });
 
+      // Weakness Fix: Check backup codes if TOTP fails
+      if (!isVerified && user.twoFactorBackupCodes && user.twoFactorBackupCodes.includes(token2FA)) {
+        isVerified = true;
+        // Remove the used backup code
+        user.twoFactorBackupCodes = user.twoFactorBackupCodes.filter(c => c !== token2FA);
+      }
+
       if (!isVerified) {
-        return res.status(400).json({ message: "Invalid 2FA token" });
+        return res.status(400).json({ message: "Invalid 2FA token or backup code" });
       }
     }
 
@@ -208,6 +224,15 @@ const login = async (req, res) => {
       user: user._id,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
+
+    const cookieOptions = {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'strict',
+      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    };
+
+    res.cookie('jwt', pair.accessToken, cookieOptions);
 
     return res.json({
       _id: user._id,
@@ -284,6 +309,17 @@ const updateProfile = async (req, res) => {
   }
 };
 
+// @desc    Logout current session
+// @route   POST /api/auth/logout
+// @access  Private
+const logout = async (req, res) => {
+  res.cookie('jwt', '', {
+    httpOnly: true,
+    expires: new Date(0)
+  });
+  res.json({ message: "Logout successful" });
+};
+
 // @desc    Logout from all sessions
 // @route   POST /api/auth/logout-all
 // @access  Private
@@ -291,6 +327,11 @@ const logoutAll = async (req, res) => {
   try {
     // Revoke all refresh tokens for this user
     await RefreshToken.updateMany({ user: req.user._id }, { revoked: true });
+
+    res.cookie('jwt', '', {
+      httpOnly: true,
+      expires: new Date(0)
+    });
 
     // Log audit
     await AuditLog.create({
@@ -393,8 +434,13 @@ const verify2FA = async (req, res) => {
 
     if (isVerified) {
       user.isTwoFactorEnabled = true;
+      // Generate 10 random hex backup codes
+      const crypto = require('crypto');
+      const backupCodes = Array.from({ length: 10 }, () => crypto.randomBytes(4).toString('hex'));
+      user.twoFactorBackupCodes = backupCodes;
+
       await user.save();
-      res.json({ message: "Two-Factor authentication successfully enabled" });
+      res.json({ message: "Two-Factor authentication successfully enabled", backupCodes });
     } else {
       res.status(400).json({ message: "Invalid authentication code" });
     }
@@ -500,6 +546,7 @@ module.exports = {
   getMe,
   changePassword,
   updateProfile,
+  logout,
   logoutAll,
   refresh,
   generate2FA,
