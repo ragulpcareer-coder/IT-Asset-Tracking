@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useContext } from "react";
-import axios from "axios";
+import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
-import { io } from "socket.io-client";
-import { SERVER_URL } from "../config/constants"; // Assuming there's a config, if not I'll handle it below
-
+import { socket } from "../services/socket";
 function Cybersecurity() {
     const { user } = useContext(AuthContext);
     const [alerts, setAlerts] = useState([]);
@@ -16,23 +14,20 @@ function Cybersecurity() {
     useEffect(() => {
         fetchAlerts();
 
-        // Setup Socket
-        const socketURL = SERVER_URL || "http://localhost:5000";
-        const newSocket = io(socketURL, { transports: ["websocket"] });
-
-        newSocket.on("securityAlert", (data) => {
+        socket.connect();
+        socket.on("securityAlert", (data) => {
             fetchAlerts(); // Refresh alerts
         });
 
-        return () => newSocket.close();
+        return () => {
+            socket.off("securityAlert");
+            socket.disconnect();
+        };
     }, []);
 
     const fetchAlerts = async () => {
         try {
-            const apiUrl = SERVER_URL ? `${SERVER_URL}/api` : "http://localhost:5000/api";
-            const { data } = await axios.get(`${apiUrl}/assets/security-alerts`, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const { data } = await axios.get(`/assets/security-alerts`);
             setAlerts(data);
         } catch (err) {
             console.error(err);
@@ -45,10 +40,7 @@ function Cybersecurity() {
         setScanning(true);
         setScanResult(null);
         try {
-            const apiUrl = SERVER_URL ? `${SERVER_URL}/api` : "http://localhost:5000/api";
-            const { data } = await axios.post(`${apiUrl}/assets/scan-network`, {}, {
-                headers: { Authorization: `Bearer ${token}` }
-            });
+            const { data } = await axios.post(`/assets/scan-network`);
             setScanResult(data);
             fetchAlerts();
         } catch (err) {
