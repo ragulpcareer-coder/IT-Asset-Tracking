@@ -58,6 +58,12 @@ try {
   console.warn('Could not start professional backup job', err.message);
 }
 
+try {
+  require('./jobs/pingWatchdog');
+} catch (err) {
+  console.warn('Could not start ping watchdog job', err.message);
+}
+
 io.on("connection", (socket) => {
   console.log("New client connected", socket.id);
 
