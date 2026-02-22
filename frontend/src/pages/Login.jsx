@@ -139,18 +139,17 @@ export default function Login() {
               }}
               transition={{ duration: 4, repeat: Infinity }}
             >
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-cyan-500 via-blue-600 to-purple-600 flex items-center justify-center relative">
-                <motion.div
-                  className="absolute inset-0 rounded-2xl"
-                  style={{
-                    background: "linear-gradient(135deg, rgba(0, 212, 255, 0.5), rgba(255, 0, 110, 0.5))",
-                  }}
+              <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-[#0a1128] via-[#1e293b] to-[#0f172a] flex items-center justify-center relative border border-cyan-500/30 overflow-hidden shadow-[0_0_20px_rgba(0,212,255,0.3)]">
+                <motion.img
+                  src="/logo.svg"
+                  alt="AssetTrack Logo"
+                  className="w-16 h-16 relative z-10"
                   animate={{
-                    opacity: [0.5, 1, 0.5],
+                    opacity: [0.8, 1, 0.8],
+                    scale: [0.95, 1.05, 0.95]
                   }}
-                  transition={{ duration: 2, repeat: Infinity }}
+                  transition={{ duration: 3, repeat: Infinity }}
                 />
-                <span className="text-white text-2xl font-bold relative z-10">✦</span>
               </div>
             </motion.div>
 

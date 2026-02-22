@@ -26,10 +26,8 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
         )}
         <div style={{ marginBottom: 32, display: 'flex', alignItems: 'center', gap: 12 }}>
           <div className="logo-placeholder" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div className="nav-icon" style={{ width: 32, height: 32, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff', color: '#000', fontWeight: 'bold', fontSize: '14px' }}>
-              IT
-            </div>
-            {!collapsed && <div style={{ fontWeight: 500, fontSize: '16px', letterSpacing: '-0.02em', color: '#fff' }}>AssetTrack</div>}
+            <img src="/logo.svg" alt="AssetTrack Logo" style={{ width: 32, height: 32 }} />
+            {!collapsed && <div style={{ fontWeight: 'bold', fontSize: '18px', letterSpacing: '-0.02em', color: '#fff' }}>AssetTrack</div>}
           </div>
         </div>
 

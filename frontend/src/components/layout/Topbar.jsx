@@ -30,7 +30,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
         </button>
 
         <div className="brand">
-          <div className="logo">AT</div>
+          <img src="/logo.svg" alt="Logo" style={{ width: 24, height: 24 }} />
           <div className="title flex items-center gap-2">
             AssetTrack
             {!isOnline && (
