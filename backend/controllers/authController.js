@@ -18,6 +18,13 @@ const { sendSecurityAlert } = require("../utils/emailService");
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
 
+const getCookieOptions = () => ({
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
+  maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+});
+
 // Create rate limiters
 const loginLimiter = new RateLimiter(5, 15 * 60 * 1000); // 5 attempts per 15 mins
 const registerLimiter = new RateLimiter(3, 60 * 60 * 1000); // 3 attempts per hour
@@ -114,14 +121,7 @@ const register = async (req, res) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    };
-
-    res.cookie('jwt', pair.accessToken, cookieOptions);
+    res.cookie('jwt', pair.accessToken, getCookieOptions());
 
     res.status(201).json({
       _id: user._id,
@@ -225,14 +225,7 @@ const login = async (req, res) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    const cookieOptions = {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'strict',
-      maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-    };
-
-    res.cookie('jwt', pair.accessToken, cookieOptions);
+    res.cookie('jwt', pair.accessToken, getCookieOptions());
 
     return res.json({
       _id: user._id,
@@ -313,10 +306,8 @@ const updateProfile = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logout = async (req, res) => {
-  res.cookie('jwt', '', {
-    httpOnly: true,
-    expires: new Date(0)
-  });
+  const opts = getCookieOptions();
+  res.cookie('jwt', '', { ...opts, maxAge: 0, expires: new Date(0) });
   res.json({ message: "Logout successful" });
 };
 
@@ -328,10 +319,8 @@ const logoutAll = async (req, res) => {
     // Revoke all refresh tokens for this user
     await RefreshToken.updateMany({ user: req.user._id }, { revoked: true });
 
-    res.cookie('jwt', '', {
-      httpOnly: true,
-      expires: new Date(0)
-    });
+    const opts = getCookieOptions();
+    res.cookie('jwt', '', { ...opts, maxAge: 0, expires: new Date(0) });
 
     // Log audit
     await AuditLog.create({
@@ -378,6 +367,8 @@ const refresh = async (req, res) => {
       user: decoded.userId || decoded.user,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
+
+    res.cookie('jwt', pair.accessToken, getCookieOptions());
 
     return res.json({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
   } catch (error) {

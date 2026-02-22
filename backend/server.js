@@ -103,7 +103,13 @@ app.use(express.json({ limit: "10kb" })); // Body parser limit to prevent payloa
 app.use(cookieParser());
 
 // CSRF Protection configuration (Enterprise OWASP fix)
-const csrfProtection = csurf({ cookie: true });
+const csrfProtection = csurf({
+  cookie: {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
+  }
+});
 // Apply to routes below, but add an endpoint to get the token
 app.get("/api/csrf-token", csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
