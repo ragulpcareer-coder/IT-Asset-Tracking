@@ -175,6 +175,16 @@ app.use("/api/tickets", require("./routes/ticketRoutes"));
 app.use("/api/software", require("./routes/softwareRoutes"));
 app.use("/api/keys", require("./routes/apiRoutes"));
 
+app.get("/api/diag/email", (req, res) => {
+  res.json({
+    emailUser: !!process.env.EMAIL_USER,
+    emailPass: !!process.env.EMAIL_PASS,
+    adminEmail: !!process.env.ADMIN_EMAIL,
+    backendUrl: !!process.env.BACKEND_URL,
+    configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.ADMIN_EMAIL)
+  });
+});
+
 // Centralized Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
