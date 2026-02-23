@@ -191,9 +191,9 @@ app.get("/api/diag/email", async (req, res) => {
   res.json({
     emailUser: maskEmail(process.env.EMAIL_USER),
     adminEmail: maskEmail(process.env.ADMIN_EMAIL),
-    backendUrl: process.env.BACKEND_URL || "not set",
+    userLen: process.env.EMAIL_USER?.length,
+    passLen: process.env.EMAIL_PASS?.length,
     smtpStatus: smtpStatus,
-    nodeEnv: process.env.NODE_ENV,
     configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.ADMIN_EMAIL)
   });
 });
