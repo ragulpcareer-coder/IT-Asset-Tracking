@@ -107,7 +107,14 @@ const register = async (req, res) => {
 
     // Send approval request email if not auto-approved
     if (!isApproved) {
-      await sendApprovalRequest(user);
+      try {
+        console.log(`[Registration] Triggering approval email for ${sanitizedEmail}`);
+        await sendApprovalRequest(user);
+      } catch (emailErr) {
+        console.error(`[Registration] Email failed for ${sanitizedEmail}:`, emailErr.message);
+        // We don't fail the whole registration if just the email fails, 
+        // but we should probably tell the user or log it.
+      }
     }
 
     // Log registration
@@ -676,6 +683,11 @@ const deleteUser = async (req, res) => {
 // @access  Public (via secure link in email)
 const approveUser = async (req, res) => {
   try {
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).send("<h1>Invalid ID</h1><p>The provided ID is not a valid user identifier.</p>");
+    }
+
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).send("<h1>User Not Found</h1><p>The user you are trying to approve does not exist.</p>");
 
@@ -710,6 +722,11 @@ const approveUser = async (req, res) => {
 // @access  Public (via secure link in email)
 const rejectUser = async (req, res) => {
   try {
+    const mongoose = require("mongoose");
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).send("<h1>Invalid ID</h1><p>The provided ID is not a valid user identifier.</p>");
+    }
+
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).send("<h1>User Not Found</h1><p>The user you are trying to reject does not exist.</p>");
 
