@@ -176,11 +176,16 @@ app.use("/api/software", require("./routes/softwareRoutes"));
 app.use("/api/keys", require("./routes/apiRoutes"));
 
 app.get("/api/diag/email", (req, res) => {
+  const maskEmail = (email) => {
+    if (!email) return "not set";
+    const parts = email.split("@");
+    return `${parts[0][0]}...${parts[0][parts[0].length - 1]}@${parts[1]}`;
+  };
   res.json({
-    emailUser: !!process.env.EMAIL_USER,
-    emailPass: !!process.env.EMAIL_PASS,
-    adminEmail: !!process.env.ADMIN_EMAIL,
-    backendUrl: !!process.env.BACKEND_URL,
+    emailUser: maskEmail(process.env.EMAIL_USER),
+    adminEmail: maskEmail(process.env.ADMIN_EMAIL),
+    backendUrl: process.env.BACKEND_URL || "not set",
+    nodeEnv: process.env.NODE_ENV,
     configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.ADMIN_EMAIL)
   });
 });
