@@ -1,32 +1,19 @@
-const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
 
-const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 587,
-    secure: false,
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-    },
-    tls: {
-        // Force IPv4 and handle self-signed certs common in cloud proxies
-        rejectUnauthorized: false
-    }
-});
+// Initialize Resend with API Key
+const resend = new Resend(process.env.RESEND_API_KEY || 're_7AUPEm1L_BvDiR3ASjMgXyhtoveD9ACzY');
 
 const sendSecurityAlert = async (subject, message) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
-        const sender = process.env.EMAIL_USER;
+        const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
 
-        if (!adminEmail || !sender) {
-            console.error('[Email Service] Missing configuration: ADMIN_EMAIL or EMAIL_USER');
-            return;
-        }
+        // Resend free tier requires sending from onboarding@resend.dev
+        // unless you verify a custom domain.
+        const fromEmail = 'AssetTracker <onboarding@resend.dev>';
 
-        await transporter.sendMail({
-            from: `"Asset Tracker Security" <${sender}>`,
-            to: adminEmail,
+        const { data, error } = await resend.emails.send({
+            from: fromEmail,
+            to: [adminEmail],
             subject: `🚨 SECURITY ALERT: ${subject}`,
             html: `
                 <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ff0000; border-radius: 5px;">
@@ -38,7 +25,12 @@ const sendSecurityAlert = async (subject, message) => {
                 </div>
             `
         });
-        console.log(`[Email Service] Sent alert: ${subject}`);
+
+        if (error) {
+            console.error('[Email Service] Resend Error:', error);
+        } else {
+            console.log('[Email Service] Sent alert via Resend:', data.id);
+        }
     } catch (err) {
         console.error('[Email Service] Failed to send email alert:', err.message);
     }
@@ -46,22 +38,16 @@ const sendSecurityAlert = async (subject, message) => {
 
 const sendApprovalRequest = async (userInfo) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
-        const sender = process.env.EMAIL_USER;
-
-        if (!adminEmail || !sender) {
-            console.error('[Email Service] Missing configuration for approval request');
-            return;
-        }
-
-        const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+        const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
+        const fromEmail = 'AssetTracker <onboarding@resend.dev>';
+        const backendUrl = process.env.BACKEND_URL || 'https://it-asset-tracking.onrender.com';
 
         const approveUrl = `${backendUrl}/api/auth/approve/${userInfo._id}`;
         const rejectUrl = `${backendUrl}/api/auth/reject/${userInfo._id}`;
 
-        await transporter.sendMail({
-            from: `"Asset Tracker Approval" <${sender}>`,
-            to: adminEmail,
+        const { data, error } = await resend.emails.send({
+            from: fromEmail,
+            to: [adminEmail],
             subject: `📝 NEW USER REGISTRATION: ${userInfo.name}`,
             html: `
                 <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #007bff; border-radius: 5px;">
@@ -79,14 +65,19 @@ const sendApprovalRequest = async (userInfo) => {
                 </div>
             `
         });
-        console.log(`[Email Service] Sent approval request for: ${userInfo.email}`);
+
+        if (error) {
+            console.error('[Email Service] Resend Error:', error);
+        } else {
+            console.log('[Email Service] Sent approval request via Resend:', data.id);
+        }
     } catch (err) {
         console.error('[Email Service] Failed to send approval request:', err.message);
     }
 };
 
 module.exports = {
-    transporter,
+    resend, // Exporting the instance for the diagnostic route
     sendSecurityAlert,
     sendApprovalRequest
 };

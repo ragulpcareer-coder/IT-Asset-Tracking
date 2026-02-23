@@ -183,28 +183,29 @@ app.get("/api/diag/email", async (req, res) => {
   };
 
   res.json({
-    emailUser: maskEmail(process.env.EMAIL_USER),
-    adminEmail: maskEmail(process.env.ADMIN_EMAIL),
-    userLen: process.env.EMAIL_USER?.length,
-    passLen: process.env.EMAIL_PASS?.length,
-    configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.ADMIN_EMAIL)
+    emailService: "Resend API",
+    adminEmail: maskEmail(process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com'),
+    resendKeySet: !!process.env.RESEND_API_KEY,
+    configured: true
   });
 });
 
 app.get("/api/diag/email-test", async (req, res) => {
-  const { transporter } = require("./utils/emailService");
+  const { resend } = require("./utils/emailService");
   try {
-    const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
-    const info = await transporter.sendMail({
-      from: `"Diagnostic Test" <${process.env.EMAIL_USER}>`,
-      to: adminEmail,
-      subject: "🛠️ Asset Tracker Email Diagnostic Test",
-      text: "This is a test email to verify the IT Asset Tracking system's notification settings.",
-      html: "<b>System Test:</b> The email service is now correctly configured and communicating with Gmail."
+    const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
+    const { data, error } = await resend.emails.send({
+      from: 'Diagnostic <onboarding@resend.dev>',
+      to: [adminEmail],
+      subject: "🛠️ Asset Tracker Email Diagnostic Test (Resend)",
+      html: "<b>API Connection Success!</b> The system is now using Resend to bypass Render's network restrictions."
     });
-    res.json({ success: true, messageId: info.messageId, response: info.response, accepted: info.accepted });
+
+    if (error) throw error;
+
+    res.json({ success: true, message: "Resend API call successful!", data });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message, code: err.code, command: err.command });
+    res.status(500).json({ success: false, error: err.message, details: err });
   }
 });
 
