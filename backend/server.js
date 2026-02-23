@@ -192,18 +192,19 @@ app.get("/api/diag/email", async (req, res) => {
 });
 
 app.get("/api/diag/email-test", async (req, res) => {
-  const { sendApprovalRequest } = require("./utils/emailService");
+  const { transporter } = require("./utils/emailService");
   try {
-    const testUser = {
-      _id: "test_id_123",
-      name: "Test Diagnostic",
-      email: "test@example.com",
-      role: "User"
-    };
-    await sendApprovalRequest(testUser);
-    res.json({ message: "Test email trigger successful! Check your inbox.", details: "Look at server logs for details." });
+    const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+    const info = await transporter.sendMail({
+      from: `"Diagnostic Test" <${process.env.EMAIL_USER}>`,
+      to: adminEmail,
+      subject: "🛠️ Asset Tracker Email Diagnostic Test",
+      text: "This is a test email to verify the IT Asset Tracking system's notification settings.",
+      html: "<b>System Test:</b> The email service is now correctly configured and communicating with Gmail."
+    });
+    res.json({ success: true, messageId: info.messageId, response: info.response, accepted: info.accepted });
   } catch (err) {
-    res.status(500).json({ error: "Test trigger failed", message: err.message, stack: err.stack });
+    res.status(500).json({ success: false, error: err.message, code: err.code, command: err.command });
   }
 });
 
