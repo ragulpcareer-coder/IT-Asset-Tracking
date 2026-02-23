@@ -1,19 +1,27 @@
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-    service: 'gmail', // Standard configuration for demonstration/student projects
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // Use SSL/TLS
     auth: {
-        user: process.env.EMAIL_USER || 'it.asset.tracker.alert@gmail.com', // Replace via ENV
-        pass: process.env.EMAIL_PASS || 'placeholder_password',
-    }
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS,
+    },
+    debug: true, // Enable debug output
+    logger: true // Log information to console
 });
 
 const sendSecurityAlert = async (subject, message) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
+        const adminEmail = process.env.ADMIN_EMAIL;
+        if (!adminEmail || !process.env.EMAIL_USER) {
+            console.error('[Email Service] Missing configuration: ADMIN_EMAIL or EMAIL_USER');
+            return;
+        }
 
         await transporter.sendMail({
-            from: '"Asset Tracker Security" <alert@asset-tracker.local>',
+            from: `"Asset Tracker Security" <${process.env.EMAIL_USER}>`,
             to: adminEmail,
             subject: `🚨 SECURITY ALERT: ${subject}`,
             html: `
@@ -34,14 +42,19 @@ const sendSecurityAlert = async (subject, message) => {
 
 const sendApprovalRequest = async (userInfo) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL || 'admin@example.com';
+        const adminEmail = process.env.ADMIN_EMAIL;
+        if (!adminEmail || !process.env.EMAIL_USER) {
+            console.error('[Email Service] Missing configuration for approval request');
+            return;
+        }
+
         const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
 
         const approveUrl = `${backendUrl}/api/auth/approve/${userInfo._id}`;
         const rejectUrl = `${backendUrl}/api/auth/reject/${userInfo._id}`;
 
         await transporter.sendMail({
-            from: '"Asset Tracker Approval" <approval@asset-tracker.local>',
+            from: `"Asset Tracker Approval" <${process.env.EMAIL_USER}>`,
             to: adminEmail,
             subject: `📝 NEW USER REGISTRATION: ${userInfo.name}`,
             html: `
