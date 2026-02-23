@@ -1,19 +1,25 @@
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // true for 465, false for other ports
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
-    }
+    },
+    // Adding timeout and connection settings for cloud reliability
+    connectionTimeout: 10000,
+    greetingTimeout: 5000,
+    socketTimeout: 15000
 });
 
 // Verify connection configuration
 transporter.verify((error, success) => {
     if (error) {
-        console.error('[Email Service] Server is not ready to send emails:', error);
+        console.error('[Email Service] Connection Error:', error);
     } else {
-        console.log('[Email Service] Server is ready to take our messages');
+        console.log('[Email Service] SMTP connection established successfully');
     }
 });
 

@@ -185,6 +185,22 @@ app.get("/api/diag/email", (req, res) => {
   });
 });
 
+app.get("/api/diag/email-test", async (req, res) => {
+  const { sendApprovalRequest } = require("./utils/emailService");
+  try {
+    const testUser = {
+      _id: "test_id_123",
+      name: "Test Diagnostic",
+      email: "test@example.com",
+      role: "User"
+    };
+    await sendApprovalRequest(testUser);
+    res.json({ message: "Test email trigger successful! Check your inbox.", details: "Look at server logs for details." });
+  } catch (err) {
+    res.status(500).json({ error: "Test trigger failed", message: err.message, stack: err.stack });
+  }
+});
+
 // Centralized Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
