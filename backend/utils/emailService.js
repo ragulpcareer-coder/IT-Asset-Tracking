@@ -42,8 +42,11 @@ const sendApprovalRequest = async (userInfo) => {
         const fromEmail = 'AssetTracker <onboarding@resend.dev>';
         const backendUrl = process.env.BACKEND_URL || 'https://it-asset-tracking.onrender.com';
 
-        const approveUrl = `${backendUrl}/api/auth/approve/${userInfo._id}`;
-        const rejectUrl = `${backendUrl}/api/auth/reject/${userInfo._id}`;
+        const userId = userInfo._id.toString();
+        const approveUrl = `${backendUrl}/api/auth/approve/${userId}`;
+        const rejectUrl = `${backendUrl}/api/auth/reject/${userId}`;
+
+        console.log(`[Email Service] Sending registration email for UserID: ${userId}`);
 
         console.log(`[Email Service] Attempting to send approval request for ${userInfo.email} to ${adminEmail}`);
 
