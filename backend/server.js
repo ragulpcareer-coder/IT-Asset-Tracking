@@ -175,6 +175,22 @@ app.use("/api/tickets", require("./routes/ticketRoutes"));
 app.use("/api/software", require("./routes/softwareRoutes"));
 app.use("/api/keys", require("./routes/apiRoutes"));
 
+app.get("/api/diag/email-test", async (req, res) => {
+  const { sendApprovalRequest } = require("./utils/emailService");
+  try {
+    const testUser = {
+      _id: "test_67890",
+      name: "Dummy Test User",
+      email: "dummy@test.com",
+      role: "User"
+    };
+    await sendApprovalRequest(testUser);
+    res.json({ success: true, message: "Approval request email triggered via sendApprovalRequest!" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, stack: err.stack });
+  }
+});
+
 // Centralized Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
