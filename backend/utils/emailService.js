@@ -95,6 +95,7 @@ const sendApprovalRequest = async (userInfo) => {
 };
 
 module.exports = {
+    transporter,
     sendSecurityAlert,
     sendApprovalRequest
 };

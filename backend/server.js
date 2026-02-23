@@ -175,16 +175,24 @@ app.use("/api/tickets", require("./routes/ticketRoutes"));
 app.use("/api/software", require("./routes/softwareRoutes"));
 app.use("/api/keys", require("./routes/apiRoutes"));
 
-app.get("/api/diag/email", (req, res) => {
+app.get("/api/diag/email", async (req, res) => {
+  const { transporter } = require("./utils/emailService");
   const maskEmail = (email) => {
     if (!email) return "not set";
     const parts = email.split("@");
     return `${parts[0][0]}...${parts[0][parts[0].length - 1]}@${parts[1]}`;
   };
+  const smtpStatus = await new Promise((resolve) => {
+    transporter.verify((error) => {
+      resolve(error ? `Error: ${error.message}` : "Ready");
+    });
+  });
+
   res.json({
     emailUser: maskEmail(process.env.EMAIL_USER),
     adminEmail: maskEmail(process.env.ADMIN_EMAIL),
     backendUrl: process.env.BACKEND_URL || "not set",
+    smtpStatus: smtpStatus,
     nodeEnv: process.env.NODE_ENV,
     configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.ADMIN_EMAIL)
   });
