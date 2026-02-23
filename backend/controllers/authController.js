@@ -742,8 +742,13 @@ const diagEmailTest = async (req, res) => {
       email: "dummy@test.com",
       role: "User"
     };
+    const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
     await sendApprovalRequest(testUser);
-    res.json({ success: true, message: "Approval request email triggered!" });
+    res.json({
+      success: true,
+      message: "Approval request email triggered!",
+      sentTo: adminEmail.replace(/(.{2}).*(@.*)/, "$1...$2")
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
