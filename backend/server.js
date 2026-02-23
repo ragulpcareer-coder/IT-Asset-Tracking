@@ -175,40 +175,6 @@ app.use("/api/tickets", require("./routes/ticketRoutes"));
 app.use("/api/software", require("./routes/softwareRoutes"));
 app.use("/api/keys", require("./routes/apiRoutes"));
 
-app.get("/api/diag/email", async (req, res) => {
-  const maskEmail = (email) => {
-    if (!email) return "not set";
-    const parts = email.split("@");
-    return `${parts[0][0]}...${parts[0][parts[0].length - 1]}@${parts[1]}`;
-  };
-
-  res.json({
-    emailService: "Resend API",
-    adminEmail: maskEmail(process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com'),
-    resendKeySet: !!process.env.RESEND_API_KEY,
-    configured: true
-  });
-});
-
-app.get("/api/diag/email-test", async (req, res) => {
-  const { resend } = require("./utils/emailService");
-  try {
-    const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
-    const { data, error } = await resend.emails.send({
-      from: 'Diagnostic <onboarding@resend.dev>',
-      to: [adminEmail],
-      subject: "🛠️ Asset Tracker Email Diagnostic Test (Resend)",
-      html: "<b>API Connection Success!</b> The system is now using Resend to bypass Render's network restrictions."
-    });
-
-    if (error) throw error;
-
-    res.json({ success: true, message: "Resend API call successful!", data });
-  } catch (err) {
-    res.status(500).json({ success: false, error: err.message, details: err });
-  }
-});
-
 // Centralized Error Handler
 app.use((err, req, res, next) => {
   res.status(err.status || 500).json({
