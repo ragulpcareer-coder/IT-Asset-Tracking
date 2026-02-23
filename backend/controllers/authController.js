@@ -734,6 +734,21 @@ const rejectUser = async (req, res) => {
   }
 };
 
+const diagEmailTest = async (req, res) => {
+  try {
+    const testUser = {
+      _id: "test_67890",
+      name: "Dummy Test User",
+      email: "dummy@test.com",
+      role: "User"
+    };
+    await sendApprovalRequest(testUser);
+    res.json({ success: true, message: "Approval request email triggered!" });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -754,5 +769,6 @@ module.exports = {
   adminDisable2FA,
   deleteUser,
   approveUser,
-  rejectUser
+  rejectUser,
+  diagEmailTest
 };

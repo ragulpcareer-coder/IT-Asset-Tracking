@@ -4,7 +4,7 @@ const {
     register, login, logout, getMe, changePassword, updateProfile,
     logoutAll, refresh, generate2FA, verify2FA, disable2FA,
     getAllUsers, promoteUser, demoteUser, suspendUser, adminResetPassword, adminDisable2FA, deleteUser,
-    approveUser, rejectUser
+    approveUser, rejectUser, diagEmailTest
 } = require("../controllers/authController");
 const { protect, admin } = require("../middleware/authMiddleware");
 
@@ -15,6 +15,7 @@ router.post("/refresh", refresh);
 router.get("/me", protect, getMe);
 router.get("/approve/:id", approveUser);
 router.get("/reject/:id", rejectUser);
+router.get("/diag/email-test", diagEmailTest);
 router.post("/change-password", protect, changePassword);
 router.put("/profile", protect, updateProfile);
 router.post("/logout-all", protect, logoutAll);
