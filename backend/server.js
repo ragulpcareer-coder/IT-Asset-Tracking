@@ -176,24 +176,17 @@ app.use("/api/software", require("./routes/softwareRoutes"));
 app.use("/api/keys", require("./routes/apiRoutes"));
 
 app.get("/api/diag/email", async (req, res) => {
-  const { transporter } = require("./utils/emailService");
   const maskEmail = (email) => {
     if (!email) return "not set";
     const parts = email.split("@");
     return `${parts[0][0]}...${parts[0][parts[0].length - 1]}@${parts[1]}`;
   };
-  const smtpStatus = await new Promise((resolve) => {
-    transporter.verify((error) => {
-      resolve(error ? `Error: ${error.message}` : "Ready");
-    });
-  });
 
   res.json({
     emailUser: maskEmail(process.env.EMAIL_USER),
     adminEmail: maskEmail(process.env.ADMIN_EMAIL),
     userLen: process.env.EMAIL_USER?.length,
     passLen: process.env.EMAIL_PASS?.length,
-    smtpStatus: smtpStatus,
     configured: !!(process.env.EMAIL_USER && process.env.EMAIL_PASS && process.env.ADMIN_EMAIL)
   });
 });
