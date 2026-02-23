@@ -45,9 +45,12 @@ const sendApprovalRequest = async (userInfo) => {
         const approveUrl = `${backendUrl}/api/auth/approve/${userInfo._id}`;
         const rejectUrl = `${backendUrl}/api/auth/reject/${userInfo._id}`;
 
+        console.log(`[Email Service] Attempting to send approval request for ${userInfo.email} to ${adminEmail}`);
+
         const { data, error } = await resend.emails.send({
             from: fromEmail,
             to: [adminEmail],
+            reply_to: userInfo.email,
             subject: `📝 NEW USER REGISTRATION: ${userInfo.name}`,
             html: `
                 <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #007bff; border-radius: 5px;">
@@ -67,12 +70,15 @@ const sendApprovalRequest = async (userInfo) => {
         });
 
         if (error) {
-            console.error('[Email Service] Resend Error:', error);
+            console.error('[Email Service] Resend API Error:', error);
+            throw new Error(`Resend Error: ${error.message}`);
         } else {
-            console.log('[Email Service] Sent approval request via Resend:', data.id);
+            console.log('[Email Service] Successfully sent approval request. ID:', data.id);
+            return data;
         }
     } catch (err) {
-        console.error('[Email Service] Failed to send approval request:', err.message);
+        console.error('[Email Service] Critical Failure:', err.message);
+        throw err;
     }
 };
 
