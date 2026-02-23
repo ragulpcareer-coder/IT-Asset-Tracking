@@ -1,27 +1,34 @@
 const nodemailer = require('nodemailer');
 
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Use SSL/TLS
+    service: 'gmail',
     auth: {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
-    },
-    debug: true, // Enable debug output
-    logger: true // Log information to console
+    }
+});
+
+// Verify connection configuration
+transporter.verify((error, success) => {
+    if (error) {
+        console.error('[Email Service] Server is not ready to send emails:', error);
+    } else {
+        console.log('[Email Service] Server is ready to take our messages');
+    }
 });
 
 const sendSecurityAlert = async (subject, message) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL;
-        if (!adminEmail || !process.env.EMAIL_USER) {
+        const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+        const sender = process.env.EMAIL_USER;
+
+        if (!adminEmail || !sender) {
             console.error('[Email Service] Missing configuration: ADMIN_EMAIL or EMAIL_USER');
             return;
         }
 
         await transporter.sendMail({
-            from: `"Asset Tracker Security" <${process.env.EMAIL_USER}>`,
+            from: `"Asset Tracker Security" <${sender}>`,
             to: adminEmail,
             subject: `🚨 SECURITY ALERT: ${subject}`,
             html: `
@@ -42,8 +49,10 @@ const sendSecurityAlert = async (subject, message) => {
 
 const sendApprovalRequest = async (userInfo) => {
     try {
-        const adminEmail = process.env.ADMIN_EMAIL;
-        if (!adminEmail || !process.env.EMAIL_USER) {
+        const adminEmail = process.env.ADMIN_EMAIL || process.env.EMAIL_USER;
+        const sender = process.env.EMAIL_USER;
+
+        if (!adminEmail || !sender) {
             console.error('[Email Service] Missing configuration for approval request');
             return;
         }
@@ -54,7 +63,7 @@ const sendApprovalRequest = async (userInfo) => {
         const rejectUrl = `${backendUrl}/api/auth/reject/${userInfo._id}`;
 
         await transporter.sendMail({
-            from: `"Asset Tracker Approval" <${process.env.EMAIL_USER}>`,
+            from: `"Asset Tracker Approval" <${sender}>`,
             to: adminEmail,
             subject: `📝 NEW USER REGISTRATION: ${userInfo.name}`,
             html: `

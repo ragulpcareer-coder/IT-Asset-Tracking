@@ -6,7 +6,17 @@ const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const connectDB = require("./config/db");
 
-dotenv.config({ path: path.resolve(__dirname, "backend.env") });
+const fs = require('fs');
+
+// Advanced Environment Configuration
+const envPath = path.resolve(__dirname, "backend.env");
+if (fs.existsSync(envPath)) {
+  dotenv.config({ path: envPath });
+} else {
+  // If backend.env doesn't exist, try standard .env or rely on environment variables (like in Render)
+  dotenv.config();
+}
+
 connectDB();
 
 const http = require("http");
