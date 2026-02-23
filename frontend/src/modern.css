@@ -122,10 +122,33 @@ body {
   background: transparent;
   border: 0;
   outline: none;
-  color: var(--accent);
+  color: var(--accent) !important;
+  caret-color: var(--accent) !important;
   width: 100%;
   font-size: 14px;
 }
+
+/* Global Fix for dark mode input visibility */
+input,
+textarea,
+select {
+  color: #ffffff !important;
+  caret-color: #ffffff !important;
+}
+
+input::placeholder {
+  color: rgba(255, 255, 255, 0.4) !important;
+}
+
+/* Autofill styling fix */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #111 inset !important;
+  -webkit-text-fill-color: white !important;
+}
+
 
 .topbar-actions {
   display: flex;
@@ -309,7 +332,7 @@ a:focus {
   }
 
   .app-content {
-    padding: 16px 16px;
+    padding: 12px 12px;
   }
 
   .app-topbar {
@@ -321,6 +344,12 @@ a:focus {
     min-width: unset;
     flex: 1;
     margin-left: 12px;
+  }
+
+  /* Compact grid for mobile */
+  .grid-mobile-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 8px !important;
   }
 }
 

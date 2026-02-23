@@ -19,8 +19,17 @@ const protect = async (req, res, next) => {
       }
 
       const decoded = verified.decoded;
-      req.user = await User.findById(decoded.userId).select("-password");
+      const user = await User.findById(decoded.userId).select("-password");
 
+      if (!user) {
+        return res.status(401).json({ message: "Not authorized, user not found" });
+      }
+
+      if (user.isActive === false) {
+        return res.status(403).json({ message: "Your account has been suspended by an administrator." });
+      }
+
+      req.user = user;
       return next();
     } catch (error) {
       return res.status(401).json({ message: "Not authorized, token failed" });
@@ -30,10 +39,17 @@ const protect = async (req, res, next) => {
   }
 };
 
-const admin = (req, res, next) => {
+const admin = async (req, res, next) => {
   if (req.user && req.user.role === 'Admin') {
     next();
   } else {
+    const AuditLog = require("../models/AuditLog");
+    await AuditLog.create({
+      action: "Security Violation: Admin Access Denied",
+      performedBy: req.user?.email || "Unknown",
+      details: `Unauthorized attempt to access Admin-only route: ${req.originalUrl}`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
     res.status(403).json({ message: 'Not authorized as an admin' });
   }
 };

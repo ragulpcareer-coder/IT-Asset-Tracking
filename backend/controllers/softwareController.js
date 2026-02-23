@@ -7,7 +7,11 @@ const User = require("../models/User");
 // @access  Private/Admin
 const getSoftware = async (req, res) => {
     try {
-        const licenses = await SoftwareLicense.find({}).populate("assignedUsers", "name email");
+        const query = {};
+        if (req.user.role !== "Admin") {
+            query.assignedUsers = req.user._id;
+        }
+        const licenses = await SoftwareLicense.find(query).populate("assignedUsers", "name email");
         res.json(licenses);
     } catch (error) {
         res.status(500).json({ message: "Failed to fetch software licenses" });

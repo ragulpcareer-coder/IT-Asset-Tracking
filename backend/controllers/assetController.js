@@ -34,6 +34,14 @@ const getAssets = async (req, res) => {
     const limit = parseInt(req.query.limit, 10) || 10;
     const query = {};
 
+    // RBAC: Standard Users can only see assets assigned to them
+    if (req.user.role !== "Admin") {
+      query.$or = [
+        { assignedTo: req.user.email },
+        { assignedTo: req.user.name }
+      ];
+    }
+
     if (search) {
       query.name = { $regex: search, $options: "i" };
     }

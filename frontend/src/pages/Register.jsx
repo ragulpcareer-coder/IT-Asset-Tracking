@@ -26,6 +26,7 @@ export default function Register() {
     password: "",
     confirmPassword: "",
   });
+  const [success, setSuccess] = useState("");
   const [agreeTerms, setAgreeTerms] = useState(false);
   const [activeStep, setActiveStep] = useState(1);
   const { register } = useContext(AuthContext);
@@ -77,13 +78,18 @@ export default function Register() {
 
     try {
       setLoading(true);
-      await register(
+      const data = await register(
         formData.name,
         formData.email,
         formData.password,
         formData.role
       );
-      navigate("/");
+
+      if (data.accessToken) {
+        navigate("/");
+      } else {
+        setSuccess(data.message || "Registration request sent! Please wait for admin approval.");
+      }
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed. Please try again.");
     } finally {
@@ -97,7 +103,7 @@ export default function Register() {
     <div className="min-h-screen relative overflow-hidden gradient-animated">
       {/* 3D Particle Background */}
       <Background3D className="z-0" />
-      
+
       {/* Tech Grid Overlay */}
       <TechGrid className="z-1" />
 
@@ -184,11 +190,10 @@ export default function Register() {
                 className="flex-1"
                 whileHover={{ scale: 1.05 }}
               >
-                <div className={`h-1 rounded-full transition-all duration-300 ${
-                  activeStep >= step
-                    ? "bg-gradient-to-r from-blue-500 to-teal-500"
-                    : "bg-blue-900/30"
-                }`} />
+                <div className={`h-1 rounded-full transition-all duration-300 ${activeStep >= step
+                  ? "bg-gradient-to-r from-blue-500 to-teal-500"
+                  : "bg-blue-900/30"
+                  }`} />
                 <p className="text-xs text-blue-200 mt-2 text-center font-semibold">
                   {step === 1 ? "Personal" : step === 2 ? "Security" : "Confirm"}
                 </p>
@@ -214,7 +219,6 @@ export default function Register() {
                   Step {activeStep} of 3
                 </p>
               </motion.div>
-
               {error && (
                 <motion.div
                   initial={{ scaleY: 0 }}
@@ -230,237 +234,262 @@ export default function Register() {
                 </motion.div>
               )}
 
-              <form onSubmit={handleSubmit} className="space-y-5">
-                {/* Step 1: Personal Info */}
-                {activeStep === 1 && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="space-y-5"
-                  >
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-100 mb-2">
-                        Full Name
-                      </label>
-                      <div className="relative group">
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
-                        <Input
-                          placeholder="John Doe"
-                          name="name"
-                          value={formData.name}
-                          onChange={handleChange}
-                          error={errors.name}
-                          required
-                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
-                        />
-                      </div>
-                      {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-100 mb-2">
-                        Email Address
-                      </label>
-                      <div className="relative group">
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
-                        <Input
-                          type="email"
-                          placeholder="john@example.com"
-                          name="email"
-                          value={formData.email}
-                          onChange={handleChange}
-                          error={errors.email}
-                          required
-                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
-                        />
-                      </div>
-                      {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-100 mb-2">
-                        User Role
-                      </label>
-                      <select
-                        name="role"
-                        value={formData.role}
-                        onChange={handleChange}
-                        className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg border border-blue-500/30 focus:border-blue-500 transition backdrop-blur-md"
-                      >
-                        <option value="User">Regular User</option>
-                        <option value="Admin">Administrator</option>
-                      </select>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Step 2: Security Setup */}
-                {activeStep === 2 && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="space-y-5"
-                  >
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-100 mb-2">
-                        Password
-                      </label>
-                      <div className="relative group">
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
-                        <Input
-                          type="password"
-                          placeholder="Create a strong password"
-                          name="password"
-                          value={formData.password}
-                          onChange={handleChange}
-                          error={errors.password}
-                          required
-                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
-                        />
-                      </div>
-                      {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password}</p>}
-                      {formData.password && (
-                        <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
-                          <PasswordStrengthMeter
-                            password={formData.password}
-                            requirements={passwordRequirements}
+              {success ? (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-center py-10 space-y-6"
+                >
+                  <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto border border-green-500/50">
+                    <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <div className="space-y-2">
+                    <h3 className="text-2xl font-bold text-white">Request Received</h3>
+                    <p className="text-blue-100 px-4">
+                      {success}
+                    </p>
+                  </div>
+                  <Link to="/login">
+                    <Button variant="primary" className="mt-4 px-8">
+                      Back to Login
+                    </Button>
+                  </Link>
+                </motion.div>
+              ) : (
+                <form onSubmit={handleSubmit} className="space-y-5">
+                  {/* Step 1: Personal Info */}
+                  {activeStep === 1 && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className="space-y-5"
+                    >
+                      <div>
+                        <label className="block text-sm font-semibold text-blue-100 mb-2">
+                          Full Name
+                        </label>
+                        <div className="relative group">
+                          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                          <Input
+                            placeholder="John Doe"
+                            name="name"
+                            value={formData.name}
+                            onChange={handleChange}
+                            error={errors.name}
+                            required
+                            className="relative bg-gray-900/80 text-white placeholder-gray-500 border border-blue-500/30 rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:bg-gray-800 caret-white"
                           />
-                        </motion.div>
-                      )}
-                    </div>
+                        </div>
+                        {errors.name && <p className="text-red-400 text-xs mt-1">{errors.name}</p>}
+                      </div>
 
-                    <div>
-                      <label className="block text-sm font-semibold text-blue-100 mb-2">
-                        Confirm Password
-                      </label>
-                      <div className="relative group">
-                        <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
-                        <Input
-                          type="password"
-                          placeholder="Confirm your password"
-                          name="confirmPassword"
-                          value={formData.confirmPassword}
+                      <div>
+                        <label className="block text-sm font-semibold text-blue-100 mb-2">
+                          Email Address
+                        </label>
+                        <div className="relative group">
+                          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                          <Input
+                            type="email"
+                            placeholder="john@example.com"
+                            name="email"
+                            value={formData.email}
+                            onChange={handleChange}
+                            error={errors.email}
+                            required
+                            className="relative bg-gray-900/80 text-white placeholder-gray-500 border border-blue-500/30 rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:bg-gray-800 caret-white"
+                          />
+                        </div>
+                        {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-blue-100 mb-2">
+                          User Role
+                        </label>
+                        <select
+                          name="role"
+                          value={formData.role}
                           onChange={handleChange}
-                          error={errors.confirmPassword}
-                          required
-                          className="relative bg-gray-900 text-white placeholder-gray-500 border-0 rounded-lg"
-                        />
+                          className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg border border-blue-500/30 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 transition backdrop-blur-md appearance-none"
+                        >
+                          <option value="User" className="bg-gray-900 text-white">Regular User</option>
+                          <option value="Admin" className="bg-gray-900 text-white">Administrator</option>
+                        </select>
                       </div>
-                      {errors.confirmPassword && <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>}
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* Step 3: Confirmation */}
-                {activeStep === 3 && (
-                  <motion.div
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -20 }}
-                    className="space-y-5"
-                  >
-                    <div className="bg-gradient-to-r from-blue-900/30 to-teal-900/30 p-6 rounded-lg border border-blue-500/20 backdrop-blur-md">
-                      <h3 className="text-lg font-bold text-blue-100 mb-4">Verify Your Information</h3>
-                      <div className="space-y-3">
-                        <div className="flex justify-between items-center py-2 border-b border-blue-500/10">
-                          <span className="text-blue-200">Name:</span>
-                          <span className="text-white font-semibold">{formData.name}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-2 border-b border-blue-500/10">
-                          <span className="text-blue-200">Email:</span>
-                          <span className="text-white font-semibold">{formData.email}</span>
-                        </div>
-                        <div className="flex justify-between items-center py-2">
-                          <span className="text-blue-200">Role:</span>
-                          <span className="text-white font-semibold">{formData.role}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <motion.div
-                      className="p-4 rounded-lg border border-teal-500/30 bg-teal-900/20 backdrop-blur-md"
-                      whileHover={{ scale: 1.02 }}
-                    >
-                      <label className="flex items-start gap-3 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={agreeTerms}
-                          onChange={(e) => setAgreeTerms(e.target.checked)}
-                          className="w-5 h-5 mt-0.5 rounded border-teal-500 accent-teal-500"
-                        />
-                        <span className="text-sm text-teal-100">
-                          I agree to the{" "}
-                          <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
-                            Terms of Service
-                          </a>{" "}
-                          and{" "}
-                          <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
-                            Privacy Policy
-                          </a>
-                        </span>
-                      </label>
-                    </motion.div>
-                  </motion.div>
-                )}
-
-                {/* Navigation Buttons */}
-                <div className="flex gap-3 pt-4">
-                  {activeStep > 1 && (
-                    <motion.div
-                      className="flex-1"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="lg"
-                        onClick={() => setActiveStep(activeStep - 1)}
-                        className="w-full"
-                      >
-                        Previous
-                      </Button>
                     </motion.div>
                   )}
 
-                  {activeStep < 3 ? (
+                  {/* Step 2: Security Setup */}
+                  {activeStep === 2 && (
                     <motion.div
-                      className={activeStep === 1 ? "w-full" : "flex-1"}
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className="space-y-5"
                     >
-                      <Button
-                        type="button"
-                        variant="primary"
-                        size="lg"
-                        onClick={() => setActiveStep(activeStep + 1)}
-                        className="w-full bg-gradient-to-r from-blue-600 via-teal-500 to-blue-600"
-                      >
-                        Next
-                      </Button>
-                    </motion.div>
-                  ) : (
-                    <motion.div
-                      className="flex-1"
-                      whileHover={{ scale: 1.05 }}
-                      whileTap={{ scale: 0.95 }}
-                    >
-                      <Button
-                        type="submit"
-                        variant="success"
-                        size="lg"
-                        loading={loading}
-                        disabled={loading || !agreeTerms}
-                        className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:shadow-2xl hover:shadow-green-500/50"
-                      >
-                        {loading ? "Creating..." : "Create Account"}
-                      </Button>
+                      <div>
+                        <label className="block text-sm font-semibold text-blue-100 mb-2">
+                          Password
+                        </label>
+                        <div className="relative group">
+                          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                          <Input
+                            type="password"
+                            placeholder="Create a strong password"
+                            name="password"
+                            value={formData.password}
+                            onChange={handleChange}
+                            error={errors.password}
+                            required
+                            className="relative bg-gray-900/80 text-white placeholder-gray-500 border border-blue-500/30 rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:bg-gray-800 caret-white"
+                          />
+                        </div>
+                        {errors.password && <p className="text-red-400 text-xs mt-1">{errors.password}</p>}
+                        {formData.password && (
+                          <motion.div initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}>
+                            <PasswordStrengthMeter
+                              password={formData.password}
+                              requirements={passwordRequirements}
+                            />
+                          </motion.div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-semibold text-blue-100 mb-2">
+                          Confirm Password
+                        </label>
+                        <div className="relative group">
+                          <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
+                          <Input
+                            type="password"
+                            placeholder="Confirm your password"
+                            name="confirmPassword"
+                            value={formData.confirmPassword}
+                            onChange={handleChange}
+                            error={errors.confirmPassword}
+                            required
+                            className="relative bg-gray-900/80 text-white placeholder-gray-500 border border-blue-500/30 rounded-lg focus:ring-2 focus:ring-blue-500/50 focus:bg-gray-800 caret-white"
+                          />
+                        </div>
+                        {errors.confirmPassword && <p className="text-red-400 text-xs mt-1">{errors.confirmPassword}</p>}
+                      </div>
                     </motion.div>
                   )}
-                </div>
-              </form>
+
+                  {/* Step 3: Confirmation */}
+                  {activeStep === 3 && (
+                    <motion.div
+                      initial={{ opacity: 0, x: 20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -20 }}
+                      className="space-y-5"
+                    >
+                      <div className="bg-gradient-to-r from-blue-900/30 to-teal-900/30 p-6 rounded-lg border border-blue-500/20 backdrop-blur-md">
+                        <h3 className="text-lg font-bold text-blue-100 mb-4">Verify Your Information</h3>
+                        <div className="space-y-3">
+                          <div className="flex justify-between items-center py-2 border-b border-blue-500/10">
+                            <span className="text-blue-200">Name:</span>
+                            <span className="text-white font-semibold">{formData.name}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-2 border-b border-blue-500/10">
+                            <span className="text-blue-200">Email:</span>
+                            <span className="text-white font-semibold">{formData.email}</span>
+                          </div>
+                          <div className="flex justify-between items-center py-2">
+                            <span className="text-blue-200">Role:</span>
+                            <span className="text-white font-semibold">{formData.role}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <motion.div
+                        className="p-4 rounded-lg border border-teal-500/30 bg-teal-900/20 backdrop-blur-md"
+                        whileHover={{ scale: 1.02 }}
+                      >
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={agreeTerms}
+                            onChange={(e) => setAgreeTerms(e.target.checked)}
+                            className="w-5 h-5 mt-0.5 rounded border-teal-500 accent-teal-500"
+                          />
+                          <span className="text-sm text-teal-100">
+                            I agree to the{" "}
+                            <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
+                              Terms of Service
+                            </a>{" "}
+                            and{" "}
+                            <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
+                              Privacy Policy
+                            </a>
+                          </span>
+                        </label>
+                      </motion.div>
+                    </motion.div>
+                  )}
+
+                  {/* Navigation Buttons */}
+                  <div className="flex gap-3 pt-4">
+                    {activeStep > 1 && (
+                      <motion.div
+                        className="flex-1"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="lg"
+                          onClick={() => setActiveStep(activeStep - 1)}
+                          className="w-full"
+                        >
+                          Previous
+                        </Button>
+                      </motion.div>
+                    )}
+
+                    {activeStep < 3 ? (
+                      <motion.div
+                        className={activeStep === 1 ? "w-full" : "flex-1"}
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Button
+                          type="button"
+                          variant="primary"
+                          size="lg"
+                          onClick={() => setActiveStep(activeStep + 1)}
+                          className="w-full bg-gradient-to-r from-blue-600 via-teal-500 to-blue-600"
+                        >
+                          Next
+                        </Button>
+                      </motion.div>
+                    ) : (
+                      <motion.div
+                        className="flex-1"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                      >
+                        <Button
+                          type="submit"
+                          variant="success"
+                          size="lg"
+                          loading={loading}
+                          disabled={loading || !agreeTerms}
+                          className="w-full bg-gradient-to-r from-green-600 to-teal-600 hover:shadow-2xl hover:shadow-green-500/50"
+                        >
+                          {loading ? "Creating..." : "Create Account"}
+                        </Button>
+                      </motion.div>
+                    )}
+                  </div>
+                </form>
+              )}
             </HolographicCard>
           </motion.div>
 
@@ -482,7 +511,7 @@ export default function Register() {
             </p>
           </motion.div>
         </motion.div>
-      </div>
-    </div>
+      </div >
+    </div >
   );
 }

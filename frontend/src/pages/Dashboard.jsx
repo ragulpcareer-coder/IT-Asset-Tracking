@@ -162,7 +162,7 @@ export default function Dashboard() {
 
         {/* Welcome Section */}
         <motion.div
-          className="mb-8 px-6 pt-8"
+          className="mb-8 px-4 md:px-6 pt-4 md:pt-8"
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
@@ -176,8 +176,8 @@ export default function Dashboard() {
         </motion.div>
 
         {/* Key Metrics - 3D Cards */}
-        <div className="px-6 mb-10">
-          <motion.div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="px-4 md:px-6 mb-10">
+          <motion.div className="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
             {metricCards.map((metric, idx) => (
               <div className="card" key={idx}>
                 <motion.div
@@ -213,7 +213,7 @@ export default function Dashboard() {
         </div>
 
         {/* Charts Section */}
-        <div className="px-6 mb-10">
+        <div className="px-4 md:px-6 mb-10">
           <motion.div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/* Asset Status Distribution */}
             <div className="card">
@@ -289,7 +289,7 @@ export default function Dashboard() {
 
         {/* Admin Section */}
         {user?.role === "Admin" && (
-          <div className="px-6 mb-10">
+          <div className="px-4 md:px-6 mb-10">
             <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Audit Stats */}
               <div className="card">
@@ -382,7 +382,7 @@ export default function Dashboard() {
         )}
 
         {/* Recent Activities */}
-        <div className="px-6 mb-10">
+        <div className="px-4 md:px-6 mb-10">
           <div className="card">
             <motion.div className="p-6">
               <h2 className="text-xl font-bold text-white mb-4">Recent Activities</h2>
@@ -439,7 +439,7 @@ export default function Dashboard() {
         </div>
 
         {/* System Status */}
-        <div className="px-6">
+        <div className="px-4 md:px-6">
           <div className="card">
             <motion.div className="p-6">
               <h2 className="text-xl font-bold text-white mb-6">System Status</h2>

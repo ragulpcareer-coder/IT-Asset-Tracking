@@ -18,8 +18,8 @@ const {
 const multer = require("multer");
 const upload = multer({ dest: "uploads/" });
 
-// GET all
-router.get("/", getAssets);
+// GET all (Filtered by user/role in controller)
+router.get("/", protect, getAssets);
 
 // EXPORT
 router.get("/export", protect, authorizeRoles("Admin"), exportAssets);

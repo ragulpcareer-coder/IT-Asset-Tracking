@@ -13,7 +13,7 @@ const {
   sanitizeInput,
 } = require("../utils/security");
 const geoip = require("geoip-lite");
-const { sendSecurityAlert } = require("../utils/emailService");
+const { sendSecurityAlert, sendApprovalRequest } = require("../utils/emailService");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -85,10 +85,12 @@ const register = async (req, res) => {
 
     // Zero Trust Admin Enforcement
     const totalUsers = await User.countDocuments();
-    let assignedRole = "User";
+    let assignedRole = role || "User"; // Allow specifying role but default to User
+    let isApproved = false;
 
     if (totalUsers === 0) {
       assignedRole = "Admin"; // First ever user gets Admin privileges
+      isApproved = true; // First user is auto-approved
     }
 
     // Create user
@@ -100,16 +102,28 @@ const register = async (req, res) => {
       createdAt: new Date(),
       lastLogin: null,
       isEmailVerified: false,
+      isApproved: isApproved
     });
+
+    // Send approval request email if not auto-approved
+    if (!isApproved) {
+      await sendApprovalRequest(user);
+    }
 
     // Log registration
     await AuditLog.create({
       action: "User Registered",
       performedBy: sanitizedEmail,
-      details: `New user registered: ${sanitizedName}`,
+      details: isApproved ? `New user registered (Auto-approved): ${sanitizedName}` : `New user registration request: ${sanitizedName}`,
       ip,
       createdAt: new Date(),
     });
+
+    if (!isApproved) {
+      return res.status(201).json({
+        message: "Registration request sent! Your account is pending approval by the core admin. You will be notified once it's active.",
+      });
+    }
 
     // create token pair and persist refresh token record
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
@@ -155,6 +169,11 @@ const login = async (req, res) => {
       return res.status(403).json({ message: `Account temporarily locked due to multiple failed attempts. Try again in ${waitMinutes} minutes.` });
     }
 
+    // Check if account is active
+    if (user.isActive === false) {
+      return res.status(403).json({ message: "Your account has been suspended by an administrator." });
+    }
+
     const isMatch = await bcrypt.compare(password, user.password);
 
     if (!isMatch) {
@@ -197,6 +216,11 @@ const login = async (req, res) => {
       if (!isVerified) {
         return res.status(400).json({ message: "Invalid 2FA token or backup code" });
       }
+    }
+
+    // Check if account is approved
+    if (!user.isApproved) {
+      return res.status(403).json({ message: "Your account is pending approval by the core admin." });
     }
 
     // Success logic
@@ -501,6 +525,122 @@ const promoteUser = async (req, res) => {
   }
 };
 
+// @desc    Demote Admin to Standard User (Admin only)
+// @route   PUT /api/auth/users/:id/demote
+// @access  Private/Admin
+const demoteUser = async (req, res) => {
+  try {
+    const userToDemote = await User.findById(req.params.id);
+    if (!userToDemote) return res.status(404).json({ message: "User not found" });
+
+    if (userToDemote.email === req.user.email) {
+      return res.status(400).json({ message: "You cannot demote yourself" });
+    }
+
+    userToDemote.role = "User";
+    await userToDemote.save();
+
+    await AuditLog.create({
+      action: "User Demoted",
+      performedBy: req.user.email,
+      details: `Demoted ${userToDemote.email} to Standard User`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ message: "User successfully demoted to Standard User", user: { _id: userToDemote._id, email: userToDemote.email, role: userToDemote.role } });
+  } catch (error) {
+    res.status(500).json({ message: "Error demoting user" });
+  }
+};
+
+// @desc    Suspend/Enable user account (Admin only)
+// @route   PUT /api/auth/users/:id/suspend
+// @access  Private/Admin
+const suspendUser = async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (user.email === req.user.email) {
+      return res.status(400).json({ message: "You cannot suspend yourself" });
+    }
+
+    user.isActive = isActive;
+    await user.save();
+
+    // If suspended, invalidate all refresh tokens
+    if (!isActive) {
+      await RefreshToken.deleteMany({ user: user._id });
+    }
+
+    await AuditLog.create({
+      action: isActive ? "Account Enabled" : "Account Suspended",
+      performedBy: req.user.email,
+      details: `${isActive ? "Enabled" : "Suspended"} account for ${user.email}`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ message: `User account successfully ${isActive ? "enabled" : "suspended"}` });
+  } catch (error) {
+    res.status(500).json({ message: "Error updating user status" });
+  }
+};
+
+// @desc    Admin Reset User Password (Admin only)
+// @route   PUT /api/auth/users/:id/reset-password
+// @access  Private/Admin
+const adminResetPassword = async (req, res) => {
+  try {
+    const { newPassword } = req.body;
+    if (!newPassword) return res.status(400).json({ message: "Provide a new password" });
+
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const salt = await bcrypt.genSalt(12);
+    user.password = await bcrypt.hash(newPassword, salt);
+    await user.save();
+
+    await AuditLog.create({
+      action: "Admin Password Reset",
+      performedBy: req.user.email,
+      details: `Reset password for ${user.email}`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ message: "Password reset successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Error resetting password" });
+  }
+};
+
+// @desc    Admin Disable 2FA for User (Admin only)
+// @route   PUT /api/auth/users/:id/disable-2fa
+// @access  Private/Admin
+const adminDisable2FA = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.isTwoFactorEnabled = false;
+    user.twoFactorSecret = undefined;
+    user.twoFactorBackupCodes = [];
+    await user.save();
+
+    await AuditLog.create({
+      action: "Admin 2FA Disabled",
+      performedBy: req.user.email,
+      details: `Disabled 2FA for ${user.email}`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ message: "2FA successfully disabled for the user" });
+  } catch (error) {
+    res.status(500).json({ message: "Error disabling 2FA" });
+  }
+};
+
 // @desc    Delete user (Admin only)
 // @route   DELETE /api/auth/users/:id
 // @access  Private/Admin
@@ -531,6 +671,69 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// @desc    Approve user account
+// @route   GET /api/auth/approve/:id
+// @access  Public (via secure link in email)
+const approveUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).send("<h1>User Not Found</h1><p>The user you are trying to approve does not exist.</p>");
+
+    if (user.isApproved) {
+      return res.send("<h1>Already Approved</h1><p>This user account has already been approved.</p>");
+    }
+
+    user.isApproved = true;
+    await user.save();
+
+    await AuditLog.create({
+      action: "Account Approved",
+      performedBy: "Core Admin (Email Link)",
+      details: `Approved account for ${user.email}`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.send(`
+      <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+        <h1 style="color: #28a745;">Success!</h1>
+        <p>Account for <strong>${user.email}</strong> has been successfully approved.</p>
+        <p>The user can now log in to the system.</p>
+      </div>
+    `);
+  } catch (error) {
+    res.status(500).send("<h1>Error</h1><p>An error occurred while approving the user.</p>");
+  }
+};
+
+// @desc    Reject user account
+// @route   GET /api/auth/reject/:id
+// @access  Public (via secure link in email)
+const rejectUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).send("<h1>User Not Found</h1><p>The user you are trying to reject does not exist.</p>");
+
+    const userEmail = user.email;
+    await User.findByIdAndDelete(req.params.id);
+
+    await AuditLog.create({
+      action: "Account Rejected",
+      performedBy: "Core Admin (Email Link)",
+      details: `Rejected and deleted account request for ${userEmail}`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.send(`
+      <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
+        <h1 style="color: #dc3545;">Account Rejected</h1>
+        <p>The account request for <strong>${userEmail}</strong> has been rejected and the record has been removed.</p>
+      </div>
+    `);
+  } catch (error) {
+    res.status(500).send("<h1>Error</h1><p>An error occurred while rejecting the user.</p>");
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -545,5 +748,11 @@ module.exports = {
   disable2FA,
   getAllUsers,
   promoteUser,
-  deleteUser
+  demoteUser,
+  suspendUser,
+  adminResetPassword,
+  adminDisable2FA,
+  deleteUser,
+  approveUser,
+  rejectUser
 };

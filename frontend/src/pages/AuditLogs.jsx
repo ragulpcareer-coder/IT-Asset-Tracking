@@ -142,10 +142,10 @@ export default function AuditLogs() {
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
       {/* Header */}
-      <div className="mb-8 px-2 pt-8 flex justify-between items-end">
+      <div className="mb-8 px-4 md:px-2 pt-4 md:pt-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
         <div>
-          <h1 className="text-3xl font-semibold tracking-tight mb-1">Audit Logs</h1>
-          <p className="text-gray-400 text-sm font-medium">Track all system activities and changes</p>
+          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight mb-1">Audit Logs</h1>
+          <p className="text-gray-400 text-xs md:text-sm font-medium">Track all system activities and changes</p>
         </div>
         <button
           onClick={handleExport}
@@ -157,7 +157,7 @@ export default function AuditLogs() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 px-4 md:px-0">
         <div className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl">
           <p className="text-xs font-medium text-gray-500 mb-2">Total Logs</p>
           <p className="text-2xl font-semibold text-white">{logs.length}</p>
@@ -168,14 +168,14 @@ export default function AuditLogs() {
             {logs.filter((l) => new Date(l.createdAt).toDateString() === new Date().toDateString()).length}
           </p>
         </div>
-        <div className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl">
+        <div className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl col-span-2 md:col-span-1">
           <p className="text-xs font-medium text-gray-500 mb-2">Unique Users</p>
           <p className="text-2xl font-semibold text-white">{new Set(logs.map((l) => l.performedBy)).size}</p>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4">
+      <div className="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4 mx-4 md:mx-0">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <input
             type="text"

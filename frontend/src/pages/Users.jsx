@@ -56,8 +56,8 @@ export default function Users() {
 
     return (
         <div className="pb-10 text-white">
-            <motion.div className="mb-8 px-2 pt-8" initial="hidden" animate="visible" variants={animationVariants.containerVariants}>
-                <motion.h1 variants={animationVariants.itemVariants} className="text-3xl font-semibold tracking-tight mb-1 flex items-center gap-3">
+            <motion.div className="mb-8 px-4 md:px-2 pt-4 md:pt-8" initial="hidden" animate="visible" variants={animationVariants.containerVariants}>
+                <motion.h1 variants={animationVariants.itemVariants} className="text-2xl md:text-3xl font-semibold tracking-tight mb-1 flex items-center gap-3">
                     <ProfessionalIcon name="shield" size={28} /> Zero-Trust User Management
                 </motion.h1>
                 <motion.p variants={animationVariants.itemVariants} className="text-gray-400 text-sm font-medium mt-1">

@@ -40,9 +40,8 @@ export const Button = ({
       type={type}
       onClick={onClick}
       disabled={disabled || loading}
-      className={`inline-flex items-center justify-center gap-2 transition-all font-medium ${sizes[size]} ${
-        variants[variant]
-      } ${disabled || loading ? "opacity-50 cursor-not-allowed" : ""} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 transition-all font-medium ${sizes[size]} ${variants[variant]
+        } ${disabled || loading ? "opacity-50 cursor-not-allowed" : ""} ${className}`}
       whileHover={!disabled && !loading ? { scale: 1.05, translateZ: 20 } : {}}
       whileTap={!disabled && !loading ? { scale: 0.95, translateZ: 0 } : {}}
       style={{ perspective: "1000px" }}
@@ -103,9 +102,13 @@ export const Input = ({
           disabled={disabled}
           onFocus={() => setIsFocused(true)}
           onBlur={() => setIsFocused(false)}
-          className={`w-full px-4 py-2.5 ${icon ? "pl-10" : "pl-4"} border-2 rounded-lg transition-all focus:outline-none ${
-            error ? "border-red-500 focus:border-red-600" : "border-gray-200 focus:border-blue-500"
-          } ${disabled ? "bg-gray-50 text-gray-400 cursor-not-allowed" : "bg-white"} ${className}`}
+          className={`w-full px-4 py-2.5 ${icon ? "pl-10" : "pl-4"} rounded-lg transition-all focus:outline-none ${error
+              ? "border-2 border-red-500 focus:border-red-600"
+              : (className.includes("border-") ? "" : "border-2 border-gray-200") + " focus:border-blue-500"
+            } ${disabled
+              ? "bg-gray-50 text-gray-400 cursor-not-allowed"
+              : (className.includes("bg-") ? "" : "bg-white")
+            } ${className.includes("text-") ? "" : "text-gray-900"} ${className}`}
           {...props}
         />
       </motion.div>
@@ -171,9 +174,8 @@ export const PasswordStrengthMeter = ({ password, requirements = [] }) => {
               animate={{ opacity: 1, x: 0 }}
             >
               <span
-                className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${
-                  req.check(password) ? "bg-green-500" : "bg-gray-300"
-                }`}
+                className={`w-4 h-4 rounded-full flex items-center justify-center text-white text-xs font-bold ${req.check(password) ? "bg-green-500" : "bg-gray-300"
+                  }`}
               >
                 {req.check(password) ? "✓" : "○"}
               </span>
@@ -205,9 +207,8 @@ export const Card = ({
 
   return (
     <motion.div
-      className={`rounded-xl p-6 transition-all ${variants[variant]} ${
-        onClick ? "cursor-pointer hover:shadow-lg" : ""
-      } ${className}`}
+      className={`rounded-xl p-6 transition-all ${variants[variant]} ${onClick ? "cursor-pointer hover:shadow-lg" : ""
+        } ${className}`}
       whileHover={onClick ? animationVariants.cardHover : {}}
       onClick={onClick}
       {...props}

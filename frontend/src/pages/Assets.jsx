@@ -206,7 +206,7 @@ export default function Assets() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 px-2"
+          className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 px-4 md:px-2"
         >
           <div>
             <h1 className="text-3xl font-semibold text-white tracking-tight mb-1">
@@ -267,7 +267,7 @@ export default function Assets() {
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.1 }}
-          className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8"
+          className="grid grid-cols-2 md:grid-cols-5 gap-3 md:gap-4 mb-8 px-4 md:px-0"
         >
           {[
             { label: "Total", value: stats.total },
@@ -286,13 +286,14 @@ export default function Assets() {
         </motion.div>
 
         {/* Filters Panel */}
-        <div className="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4">
+        <div className="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4 mx-4 md:mx-0">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div>
               <input
                 type="text"
                 placeholder="Search assets..."
-                className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all placeholder-gray-600 text-sm"
+                className="w-full bg-[#111] border border-white/10 text-white caret-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all placeholder-gray-600 text-sm"
+                style={{ color: 'white' }}
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
               />

@@ -111,7 +111,8 @@ export default function Settings() {
               value={profileData.name}
               onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
               required
-              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium"
+              style={{ color: 'white' }}
             />
           </div>
           <div>
@@ -141,7 +142,8 @@ export default function Settings() {
               placeholder="+1 (555) 000-0000"
               value={profileData.phone}
               onChange={(e) => setProfileData({ ...profileData, phone: e.target.value })}
-              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium"
+              style={{ color: 'white' }}
             />
           </div>
           <div>
@@ -156,7 +158,8 @@ export default function Settings() {
               placeholder="IT Support"
               value={profileData.department}
               onChange={(e) => setProfileData({ ...profileData, department: e.target.value })}
-              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
+              className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium"
+              style={{ color: 'white' }}
             />
           </div>
           <motion.div
@@ -226,7 +229,8 @@ export default function Settings() {
                 value={passwordData.currentPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
                 required
-                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
+                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium"
+                style={{ color: 'white' }}
               />
             </div>
             <div>
@@ -238,7 +242,8 @@ export default function Settings() {
                 value={passwordData.newPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, newPassword: e.target.value })}
                 required
-                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
+                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium"
+                style={{ color: 'white' }}
               />
             </div>
             <div>
@@ -250,7 +255,8 @@ export default function Settings() {
                 value={passwordData.confirmPassword}
                 onChange={(e) => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
                 required
-                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30"
+                className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium"
+                style={{ color: 'white' }}
               />
             </div>
             <button
@@ -322,7 +328,8 @@ export default function Settings() {
                     placeholder="000 000"
                     value={tfaSetup.token}
                     onChange={(e) => setTfaSetup({ ...tfaSetup, token: e.target.value })}
-                    className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white outline-none focus:border-white/30 tracking-widest text-center text-xl font-mono"
+                    className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 tracking-widest text-center text-xl font-mono"
+                    style={{ color: 'white' }}
                   />
                 </div>
                 <div className="flex gap-3">
@@ -554,14 +561,14 @@ export default function Settings() {
 
       {/* Page Header */}
       <motion.div
-        className="mb-8 px-2 pt-8"
+        className="mb-8 px-2 pt-4 md:pt-8"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
       >
-        <h1 className="text-3xl font-semibold tracking-tight mb-1">
+        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight mb-1">
           Settings
         </h1>
-        <p className="text-gray-400 text-sm font-medium mt-1">Manage your account, security, and preferences</p>
+        <p className="text-gray-400 text-xs md:text-sm font-medium mt-1">Manage your account, security, and preferences</p>
       </motion.div>
 
       {/* Tabs */}
@@ -570,12 +577,12 @@ export default function Settings() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
       >
-        <div className="flex border-b border-white/10 overflow-x-auto">
+        <div className="flex border-b border-white/10 overflow-x-auto scrollbar-hide no-scrollbar">
           {tabs.map((tab, idx) => (
             <motion.button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 min-w-max py-4 px-6 border-b-2 transition text-sm font-medium flex items-center justify-center gap-2 focus:outline-none ${activeTab === tab.id
+              className={`flex-1 min-w-max py-3 md:py-4 px-4 md:px-6 border-b-2 transition text-xs md:text-sm font-medium flex items-center justify-center gap-2 focus:outline-none whitespace-nowrap ${activeTab === tab.id
                 ? "text-white border-white bg-[#111]"
                 : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-[#0a0a0a]"
                 }`}
@@ -588,7 +595,7 @@ export default function Settings() {
         </div>
 
         {/* Tab Content */}
-        <div className="p-8 bg-[#000000]">
+        <div className="p-4 md:p-8 bg-[#000000]">
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}

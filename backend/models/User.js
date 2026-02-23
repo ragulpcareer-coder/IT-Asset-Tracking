@@ -14,13 +14,15 @@ const userSchema = new mongoose.Schema({
   twoFactorSecret: { type: String },
   twoFactorBackupCodes: [{ type: String }],
   isEmailVerified: { type: Boolean, default: false },
+  isApproved: { type: Boolean, default: false },
   emailVerificationToken: { type: String },
   emailVerificationExpires: { type: Date },
   passwordResetToken: { type: String },
   passwordResetExpires: { type: Date },
   failedLoginAttempts: { type: Number, default: 0 },
   lockUntil: { type: Date },
-  lastLogin: { type: Date }
+  lastLogin: { type: Date },
+  isActive: { type: Boolean, default: true }
 }, { timestamps: true });
 
 // DB ENCRYPTION FIX: Encrypt highly sensitive secrets at the database layer
