@@ -17,7 +17,7 @@ const {
     logoutAll, refresh, generate2FA, verify2FA, disable2FA,
     getAllUsers, promoteUser, demoteUser, suspendUser,
     adminResetPassword, adminDisable2FA, deleteUser,
-    approveUser, rejectUser, diagEmailTest,
+    approveUser, rejectUser, diagEmailTest, getUserActivity,
 } = require("../controllers/authController");
 
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
@@ -41,6 +41,7 @@ router.post("/logout", protect, logout);
 router.post("/logout-all", protect, logoutAll);
 router.post("/change-password", protect, changePassword);
 router.put("/profile", protect, updateProfile);
+router.get("/activity", protect, getUserActivity);
 
 // 2FA  (available to all authenticated users)
 router.post("/2fa/generate", protect, generate2FA);

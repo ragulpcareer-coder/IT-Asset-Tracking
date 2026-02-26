@@ -3,6 +3,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 const RefreshToken = require("../models/RefreshToken");
+const UserActivity = require("../models/UserActivity");
 const TokenManager = require("../utils/tokenManager");
 const speakeasy = require("speakeasy");
 const qrcode = require("qrcode");
@@ -24,6 +25,28 @@ const getCookieOptions = () => ({
   sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
   maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
 });
+
+// Helper for professional activity logging (§Category 4)
+const logUserActivity = async (userId, actionType, description, req) => {
+  try {
+    const ipAddress = req.ip || req.connection.remoteAddress;
+    const deviceInfo = {
+      userAgent: req.get('User-Agent'),
+      fingerprint: req.body.fingerprint || (req.headers && req.headers['x-agent-signature']) || 'unknown'
+    };
+
+    await UserActivity.create({
+      userId,
+      actionType,
+      description,
+      ipAddress,
+      deviceInfo
+    });
+  } catch (err) {
+    console.error("Failed to log user activity:", err.message);
+  }
+};
+
 
 // Create rate limiters
 const loginLimiter = new RateLimiter(5, 15 * 60 * 1000); // 5 attempts per 15 mins
@@ -300,6 +323,10 @@ const login = async (req, res) => {
     // Concurrent Session Control (Weakness 38) - Prevent multiple logins by invalidating old sessions
     await RefreshToken.deleteMany({ user: user._id });
 
+    // Enterprise Audit: Log successful authentication
+    await logUserActivity(user._id, "LOGIN", "Successful strategic authentication event.", req);
+
+
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
     await RefreshToken.create({
@@ -364,6 +391,9 @@ const changePassword = async (req, res) => {
     user.markModified("activityTimestamps");
     await user.save();
 
+    await logUserActivity(user._id, "PASSWORD_CHANGE", "User changed their password", req);
+
+
     res.json({ message: "Password changed successfully" });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -396,8 +426,8 @@ const updateProfile = async (req, res) => {
     user.activityTimestamps.profileUpdatedAt = Date.now();
     user.markModified("activityTimestamps");
 
-
     await user.save();
+    await logUserActivity(user._id, "PROFILE_UPDATE", "User updated their profile information", req);
 
     res.json(user);
   } catch (error) {
@@ -535,7 +565,9 @@ const verify2FA = async (req, res) => {
 
       if (!user.activityTimestamps) user.activityTimestamps = {};
       user.activityTimestamps.tfaEnabledAt = Date.now();
+      user.markModified("activityTimestamps");
       await user.save();
+      await logUserActivity(user._id, "2FA_ENABLE", "User enabled Two-Factor Authentication", req);
 
       res.json({ message: "Two-Factor authentication successfully enabled", backupCodes });
     } else {
@@ -556,7 +588,10 @@ const disable2FA = async (req, res) => {
     user.twoFactorSecret = undefined;
     if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.tfaEnabledAt = undefined;
+    user.markModified("activityTimestamps");
     await user.save();
+    await logUserActivity(user._id, "2FA_DISABLE", "User disabled Two-Factor Authentication", req);
+
 
     res.json({ message: "Two-Factor authentication disabled" });
   } catch (error) {
@@ -969,6 +1004,20 @@ const diagEmailTest = async (req, res) => {
   }
 };
 
+// @desc    Get user's activity logs
+// @route   GET /api/auth/activity
+// @access  Private
+const getUserActivity = async (req, res) => {
+  try {
+    const logs = await UserActivity.find({ userId: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(20);
+    res.json(logs);
+  } catch (err) {
+    res.status(500).json({ message: "Failed to fetch activity logs" });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -990,5 +1039,6 @@ module.exports = {
   deleteUser,
   approveUser,
   rejectUser,
-  diagEmailTest
+  diagEmailTest,
+  getUserActivity
 };

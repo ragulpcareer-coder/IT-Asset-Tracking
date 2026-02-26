@@ -42,6 +42,34 @@ export default function Settings() {
     isSettingUp: false
   });
 
+  const [realActivity, setRealActivity] = useState([]);
+
+  const timeAgo = (date) => {
+    if (!date) return "Never";
+    const seconds = Math.floor((new Date() - new Date(date)) / 1000);
+    if (seconds < 60) return "Just now";
+    let interval = seconds / 31536000;
+    if (interval > 1) return Math.floor(interval) + " years ago";
+    interval = seconds / 2592000;
+    if (interval > 1) return Math.floor(interval) + " months ago";
+    interval = seconds / 86400;
+    if (interval > 1) return Math.floor(interval) + " days ago";
+    interval = seconds / 3600;
+    if (interval > 1) return Math.floor(interval) + " hours ago";
+    interval = seconds / 60;
+    if (interval > 1) return Math.floor(interval) + " minutes ago";
+    return Math.floor(seconds) + " seconds ago";
+  };
+
+  const fetchActivity = async () => {
+    try {
+      const res = await axios.get("/auth/activity");
+      setRealActivity(res.data || []);
+    } catch (err) {
+      console.error("Failed to fetch activity logs");
+    }
+  };
+
   // Sync state with user context (§Category 4)
   React.useEffect(() => {
     if (user) {
@@ -63,8 +91,11 @@ export default function Settings() {
         sessionTimeout: user.preferences?.sessionTimeout || 30,
         twoFactorEnabled: user.isTwoFactorEnabled || false,
       });
+      fetchActivity(); // Initial fetch
     }
   }, [user]);
+
+
 
   const updatePreferences = async (newPrefs) => {
     try {
@@ -72,6 +103,7 @@ export default function Settings() {
       await axios.put("/auth/profile", { preferences: newPrefs });
       setPreferences(prev => ({ ...prev, ...newPrefs }));
       await refreshUser();
+      await fetchActivity(); // Sync logs after update
       toast.success("Preferences synchronized successfully.");
     } catch (error) {
       toast.error("Failed to sync preferences.");
@@ -79,6 +111,7 @@ export default function Settings() {
       setLoading(false);
     }
   };
+
 
   // Tabs Configuration
   const tabs = [
@@ -568,40 +601,65 @@ export default function Settings() {
       variants={animationVariants.containerVariants}
     >
       <motion.div variants={animationVariants.itemVariants}>
-        <h2 className="text-xl font-medium mb-6 text-white">
-          Activity Timeline
-        </h2>
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-xl font-medium text-white">
+            Forensic Activity Timeline
+          </h2>
+          <Button variant="outline" size="sm" onClick={fetchActivity}>
+            <ProfessionalIcon name="refresh" size={14} className="mr-2" />
+            Refresh
+          </Button>
+        </div>
 
-        <div className="space-y-3">
-          {[
-            { icon: "lock", action: "Password Changed", time: user?.activityTimestamps?.passwordChangedAt ? new Date(user.activityTimestamps.passwordChangedAt).toLocaleString() : "Sync history pending", status: user?.activityTimestamps?.passwordChangedAt ? "success" : "info" },
-            { icon: "user", action: "Profile Updated", time: user?.activityTimestamps?.profileUpdatedAt ? new Date(user.activityTimestamps.profileUpdatedAt).toLocaleString() : "No recent profile updates", status: user?.activityTimestamps?.profileUpdatedAt ? "info" : "neutral" },
-            { icon: "shield", action: "2FA Checked", time: user?.activityTimestamps?.tfaEnabledAt ? new Date(user.activityTimestamps.tfaEnabledAt).toLocaleString() : "Initial security check pending", status: user?.activityTimestamps?.tfaEnabledAt ? "success" : "neutral" },
-          ].map((activity, idx) => (
-
-            <motion.div
-              key={idx}
-              className="flex gap-4 p-4 rounded-xl border border-white/10 bg-[#0a0a0a] hover:bg-white/5 transition"
-              variants={animationVariants.itemVariants}
-            >
-              <div className="text-cyan-400 mt-1">
-                <ProfessionalIcon name={activity.icon} size={20} />
-              </div>
-              <div className="flex-1">
-                <p className="font-semibold text-white">{activity.action}</p>
-                <p className="text-sm text-gray-400">{activity.time}</p>
-              </div>
-              <div>
-                <span className={`px-2 py-1 text-xs rounded border ${activity.status === 'success' ? 'bg-green-500/10 text-green-400 border-green-500/20' : 'bg-blue-500/10 text-blue-400 border-blue-500/20'}`}>
-                  {activity.status === "success" ? "Done" : "Info"}
-                </span>
-              </div>
-            </motion.div>
-          ))}
+        <div className="space-y-4">
+          {realActivity.length === 0 ? (
+            <div className="text-center py-10 border border-white/5 bg-white/5 rounded-xl">
+              <p className="text-gray-500 italic">No security events recorded in this audit cycle.</p>
+            </div>
+          ) : (
+            realActivity.map((activity, idx) => (
+              <motion.div
+                key={activity._id || idx}
+                className="flex gap-4 p-4 rounded-xl border border-white/10 bg-[#0a0a0a] hover:bg-white/5 transition group"
+                variants={animationVariants.itemVariants}
+              >
+                <div className="text-cyan-400 mt-1">
+                  <ProfessionalIcon
+                    name={
+                      activity.actionType === "PASSWORD_CHANGE" ? "lock" :
+                        activity.actionType === "PROFILE_UPDATE" ? "user" :
+                          activity.actionType.includes("2FA") ? "shield" : "activity"
+                    }
+                    size={20}
+                  />
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <p className="font-semibold text-white">{activity.actionType.replace(/_/g, ' ')}</p>
+                    <span className="text-[10px] uppercase tracking-widest text-gray-500 font-bold group-hover:text-cyan-400 transition">
+                      IP: {activity.ipAddress || 'Internal'}
+                    </span>
+                  </div>
+                  <p className="text-sm text-gray-400 mt-0.5">{activity.description}</p>
+                  <p className="text-[11px] text-cyan-500/60 font-medium mt-1 uppercase tracking-wider">
+                    {timeAgo(activity.createdAt)}
+                  </p>
+                </div>
+                <div className="flex items-start">
+                  <span className={`px-2 py-0.5 text-[10px] rounded border uppercase font-black ${activity.status === 'success' ? 'bg-green-500/10 text-green-400 border-green-500/20' :
+                    'bg-red-500/10 text-red-400 border-red-500/20'
+                    }`}>
+                    {activity.status}
+                  </span>
+                </div>
+              </motion.div>
+            ))
+          )}
         </div>
       </motion.div>
     </motion.div>
   );
+
 
   return (
     <div className="pb-10 text-white">
