@@ -5,6 +5,18 @@ const crypto = require('crypto');
 const findLocalDevices = require('local-devices');
 const { sendSecurityAlert } = require('../utils/emailService');
 const net = require('net');
+const dns = require('dns').promises;
+const os = require('os');
+
+// Helper to resolve device name accurately (§2.4)
+const resolveDeviceName = async (ip) => {
+  try {
+    const hostnames = await dns.reverse(ip);
+    return hostnames && hostnames.length > 0 ? hostnames[0] : null;
+  } catch (_) {
+    return null;
+  }
+};
 
 // Simple TCP Port Scanner (Enterprise Weakness 12 Fix)
 const checkPort = (port, host) => {
@@ -429,18 +441,43 @@ const scanNetwork = async (req, res) => {
     let devices = [];
     try {
       devices = await findLocalDevices();
+
+      // Auto-populate own interfaces to ensure server is recognized (§2.4)
+      const interfaces = os.networkInterfaces();
+      for (let iface in interfaces) {
+        for (let detail of interfaces[iface]) {
+          if (detail.family === 'IPv4' && !detail.internal) {
+            if (!devices.some(d => d.ip === detail.address)) {
+              devices.push({
+                ip: detail.address,
+                mac: detail.mac,
+                name: os.hostname()
+              });
+            }
+          }
+        }
+      }
+
+      // Try to resolve names for all discovered devices (§2.4)
+      for (let device of devices) {
+        if (!device.name || device.name === '?') {
+          const resolvedName = await resolveDeviceName(device.ip);
+          if (resolvedName) device.name = resolvedName;
+        }
+      }
     } catch (scanErr) {
-      console.log("Local device scan failed, falling back to simulated discovery", scanErr.message);
-      devices = [{
-        ip: `192.168.1.${Math.floor(Math.random() * 255)}`,
-        mac: crypto.randomBytes(6).toString('hex').match(/.{1,2}/g).join(':')
-      }];
+      console.log("Local device scan failed:", scanErr.message);
+      return res.status(500).json({ message: "Network discovery service unavailable: " + scanErr.message });
     }
 
     let rogueDevicesFound = [];
     const io = req.app.get("io");
 
     for (const device of devices) {
+      // Filter out broadcast and multicast addresses (§1.3)
+      if (device.ip.endsWith('.255') || device.ip.startsWith('224.') || device.ip.startsWith('239.')) continue;
+      if (device.mac === 'ff:ff:ff:ff:ff:ff' || device.mac === '00:00:00:00:00:00') continue;
+
       // Check if device is known to our database by MAC or IP
       const existing = await Asset.findOne({
         $or: [
@@ -450,11 +487,24 @@ const scanNetwork = async (req, res) => {
       });
 
       if (!existing) {
-        // New Unauthorized Device Detected!
-        const serialNumber = `Rogue-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+        // TCP Port Scan for better classification (§2.4)
+        const commonPorts = [22, 80, 443, 3389, 8080, 5000, 3000];
+        let openPorts = [];
+        for (let port of commonPorts) {
+          const isOpen = await checkPort(port, device.ip);
+          if (isOpen) openPorts.push(port);
+        }
+
+        // Determine device type based on open ports
+        let guessedType = "Unknown";
+        if (openPorts.includes(3389)) guessedType = "Workstation";
+        if (openPorts.includes(22)) guessedType = "Server";
+        if (openPorts.includes(80) || openPorts.includes(443)) guessedType = "Network Device";
+
+        const serialNumber = `DISC-${Date.now()}-${device.ip.split('.').pop()}`;
         const assetData = {
-          name: `Unknown Device (${device.ip})`,
-          type: "Unknown",
+          name: device.name && device.name !== '?' ? device.name : `Discovered ${guessedType} (${device.ip})`,
+          type: guessedType,
           serialNumber: serialNumber,
           status: "available",
           ipAddress: device.ip,
@@ -465,32 +515,14 @@ const scanNetwork = async (req, res) => {
           },
           securityStatus: {
             isAuthorized: false,
-            riskLevel: "High",
-            remarks: "Detected during network-wide scan. Unauthorized device."
+            riskLevel: openPorts.length > 0 ? "High" : "Medium",
+            remarks: `Unauthorized device discovered during network scan. Open services: [${openPorts.join(', ') || 'none'}]`
           }
         };
 
-        // TCP Port Scan (Nmap integration replacement)
-        const commonPorts = [22, 80, 443, 3389, 8080];
-        let openPorts = [];
-        for (let port of commonPorts) {
-          const isOpen = await checkPort(port, device.ip);
-          if (isOpen) openPorts.push(port);
-        }
-        if (openPorts.length > 0) {
-          assetData.securityStatus.remarks += ` Warning: Vulnerable Open Ports Detected: [${openPorts.join(', ')}]`;
-          assetData.securityStatus.riskLevel = "Critical"; // Escalate risk if device listening on ports
-        }
-
-        const qrData = JSON.stringify({
-          id: "NEW",
-          serialNumber: assetData.serialNumber,
-          name: assetData.name
-        });
-        assetData.qrCode = await QRCode.toDataURL(qrData);
-
         const rogueAsset = await Asset.create(assetData);
 
+        // Finalize QR with ID
         rogueAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
           id: rogueAsset._id,
           serialNumber: rogueAsset.serialNumber,
@@ -498,17 +530,20 @@ const scanNetwork = async (req, res) => {
         }));
         await rogueAsset.save();
 
-        // Trigger Email Alert
+        // Trigger SIEM Alert
         await sendSecurityAlert(
-          `Unauthorized Device Detected on Network`,
-          `A new unknown device was detected on your network at IP: <b>${device.ip}</b> with MAC: <b>${device.mac}</b>.`
+          `UNAUTHORIZED DEVICE REGISTERED: ${rogueAsset.name}`,
+          `<b>SECURITY BREACH:</b> A new unknown device was detected at physical address <b>${device.mac}</b>. Access source: ${device.ip}. Integrity check pending.`
         );
 
         await AuditLog.create({
-          action: `SECURITY ALERT: Unauthorized device detected (${device.ip})`,
-          performedBy: "Network Nmap Scanner",
+          action: "SECURITY: Rogue Device Detected",
+          performedBy: "Network Discovery Monitor",
+          details: `Unregistered device ${rogueAsset.name} found on local segment. IP: ${device.ip}. MAC: ${device.mac}.`,
+          ip: device.ip,
         });
 
+        const io = req.app.get("io");
         io.emit("assetCreated", rogueAsset);
         io.emit("securityAlert", rogueAsset);
 

@@ -128,6 +128,9 @@ app.get("/api/csrf-token", csrfProtection, (req, res) => {
 // Data Sanitization against NoSQL query injection
 app.use(mongoSanitize());
 
+// Standard Health-Check Endpoint for Deployment Parity
+app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
+
 // Enterprise SIEM Logging Integration
 const logger = require('./utils/logger');
 app.use((req, res, next) => {

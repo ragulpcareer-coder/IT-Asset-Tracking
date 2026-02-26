@@ -324,11 +324,14 @@ a:focus {
 
   .app-sidebar.mobile-active {
     display: block !important;
-    position: static;
-    width: 0;
-    padding: 0;
-    min-width: 0;
-    border: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 280px;
+    z-index: 100;
+    box-shadow: 20px 0 50px rgba(0, 0, 0, 0.5);
+    border-right: 1px solid var(--border);
   }
 
   .app-content {

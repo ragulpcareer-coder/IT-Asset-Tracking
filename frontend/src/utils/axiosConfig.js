@@ -7,6 +7,7 @@ NProgress.configure({ showSpinner: false, speed: 400, minimum: 0.1 });
 
 // Detect if we are in production or local development
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+// Use the Render backend URL for all production environments (Vercel, Mobile, etc.)
 const baseURL = isLocal ? "http://localhost:5000/api" : "https://it-asset-tracking.onrender.com/api";
 
 const instance = axios.create({
