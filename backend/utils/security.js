@@ -143,6 +143,21 @@ const verifyRequestSignature = (req, secret) => {
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
 };
 
+// NoSQL/SQL Injection Guard (§Category 1-3)
+const detectMaliciousQuery = (input) => {
+  if (typeof input !== "string" && typeof input !== "object") return false;
+  const inputStr = typeof input === "string" ? input : JSON.stringify(input);
+
+  const patterns = [
+    /\$where/i, /\$ne/i, /\$gt/i, /\$lt/i, /\$regex/i, // NoSQL Injection
+    /UNION SELECT/i, /OR 1=1/i, /DROP TABLE/i, /--/i, // SQL Injection
+    /\{\"\$gt\"\: \"\"\}/i // Auth Bypass pattern
+  ];
+
+  return patterns.some(pattern => pattern.test(inputStr));
+};
+
+
 // LLM / AI SECURITY GUARDS (§Category 1-5)
 const detectPromptInjection = (input) => {
   if (typeof input !== "string" && typeof input !== "object") return false;
