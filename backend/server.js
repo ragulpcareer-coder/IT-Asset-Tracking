@@ -5,88 +5,69 @@ const cors = require("cors");
 const helmet = require("helmet");
 const rateLimit = require("express-rate-limit");
 const connectDB = require("./config/db");
-
 const fs = require('fs');
+const http = require("http");
+const { Server } = require("socket.io");
+const mongoSanitize = require("express-mongo-sanitize");
+const xss = require("xss-clean");
+const compression = require("compression");
+const cookieParser = require("cookie-parser");
+const csurf = require("csurf");
+const logger = require('./utils/logger');
 
-// Advanced Environment Configuration
+// 1. Environment Configuration
 const envPath = path.resolve(__dirname, "backend.env");
 if (fs.existsSync(envPath)) {
   dotenv.config({ path: envPath });
 } else {
-  // If backend.env doesn't exist, try standard .env or rely on environment variables (like in Render)
   dotenv.config();
 }
 
+// 2. Database Connection
 connectDB();
-
-const http = require("http");
-const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
 
-// Allow frontend origins (default to common Vite ports); can override with FRONTEND_URL env
+// 3. Trust Proxy for correct IP detection (Critical for Rate Limiting / GeoIP)
+app.set("trust proxy", 1);
+
+// 4. Security Networking (CORS) (§43, §44)
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:5175",
-  FRONTEND_URL
+  FRONTEND_URL,
+  "https://it-asset-tracking-ragul.vercel.app" // Add explicit production link
 ];
 
-const checkOrigin = function (origin, callback) {
-  // Allow all origins to bypass Render's strict CORS blocking from Vercel preview domains
-  return callback(null, true);
-  return callback(new Error("Not allowed by CORS"));
-};
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature"]
+}));
 
+// 5. Socket.io Configuration
 const io = new Server(server, {
   cors: {
-    origin: checkOrigin,
+    origin: FRONTEND_URL,
     methods: ["GET", "POST"],
+    credentials: true
   },
 });
-
-// Make io accessible to routes
 app.set("io", io);
 
-try {
-  require('./jobs/auditRetentionJob');
-} catch (err) {
-  console.warn('Could not start audit retention job', err.message);
-}
-
-try {
-  require('./jobs/warrantyJob');
-} catch (err) {
-  console.warn('Could not start warranty job', err.message);
-}
-
-try {
-  require('./jobs/backupJob');
-} catch (err) {
-  console.warn('Could not start professional backup job', err.message);
-}
-
-try {
-  require('./jobs/pingWatchdog');
-} catch (err) {
-  console.warn('Could not start ping watchdog job', err.message);
-}
-
-io.on("connection", (socket) => {
-  console.log("New client connected", socket.id);
-
-  socket.on("disconnect", () => {
-    console.log("Client disconnected");
-  });
-});
-
-const mongoSanitize = require("express-mongo-sanitize");
-const xss = require("xss-clean");
-const compression = require("compression");
-
-// Security & Networking Middlewares
+// 6. Security & Optimization Middlewares
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -100,19 +81,55 @@ app.use(helmet({
   },
   crossOriginEmbedderPolicy: false
 }));
-app.use(compression()); // Compress all responses for advanced networking efficiency
-app.use(
-  cors({
-    origin: checkOrigin,
-    credentials: true
-  })
-);
-const cookieParser = require("cookie-parser");
-const csurf = require("csurf");
-app.use(express.json({ limit: "10kb" })); // Body parser limit to prevent payload attacks
-app.use(cookieParser());
 
-// CSRF Protection configuration (Enterprise OWASP fix)
+app.use(compression());
+app.use(express.json({ limit: "10kb" })); // §46: Request size limit
+app.use(express.urlencoded({ extended: true, limit: "10kb" }));
+app.use(cookieParser());
+app.use(mongoSanitize()); // §41: NoSQL Injection Protection
+app.use(xss()); // §42: XSS Protection
+
+// 7. Rate Limiting Logic (§7, §8, §45)
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { message: "Too many requests from this IP, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: "Security Protocol: Too many authentication attempts. Please verify identity and try again in 15 mins." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use("/api/", globalLimiter);
+app.use("/api/auth/login", authLimiter);
+app.use("/api/auth/register", authLimiter);
+
+// 8. SIEM Logging Integration (§47)
+app.use((req, res, next) => {
+  logger.info(`TRAFFIC: ${req.method} ${req.url}`, {
+    ip: req.ip,
+    userAgent: req.get('User-Agent'),
+    origin: req.get('Origin')
+  });
+  next();
+});
+
+// 9. Deception System (Honeypot §23)
+app.use("/api/admin/config/v1/root", (req, res) => {
+  logger.warn(`HONEYPOT TRIGGERED: IP ${req.ip} accessed restricted root config.`);
+  setTimeout(() => res.status(404).json({ error: "System kernel failure." }), 5000);
+});
+
+// 10. API Routes (Enterprise Versioning §39)
+app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
+
+// CSRF Protection configuration
 const csrfProtection = csurf({
   cookie: {
     httpOnly: true,
@@ -120,116 +137,56 @@ const csrfProtection = csurf({
     sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict'
   }
 });
-// Apply to routes below, but add an endpoint to get the token
-app.get("/api/csrf-token", csrfProtection, (req, res) => {
+
+// Implementation of Versioned APIs (§39)
+const apiV1 = express.Router();
+
+apiV1.get("/csrf-token", csrfProtection, (req, res) => {
   res.json({ csrfToken: req.csrfToken() });
 });
 
-// Data Sanitization against NoSQL query injection
-app.use(mongoSanitize());
+// Mount V1 Modules
+apiV1.use("/auth", require("./routes/authRoutes"));
+apiV1.use("/assets", require("./routes/assetRoutes"));
+apiV1.use("/audit", require("./routes/auditRoutes"));
+apiV1.use("/tickets", require("./routes/ticketRoutes"));
+apiV1.use("/software", require("./routes/softwareRoutes"));
+apiV1.use("/keys", require("./routes/apiRoutes"));
+apiV1.use("/pending", require("./routes/pendingActionRoutes"));
+apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
 
-// Standard Health-Check Endpoint for Deployment Parity
-app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
+// Multi-version support (§39)
+app.use("/api/v1", apiV1);
+app.use("/api", apiV1); // Alias for legacy/standard support
 
-// Enterprise SIEM Logging Integration
-const logger = require('./utils/logger');
-app.use((req, res, next) => {
-  logger.info(`HTTP ${req.method} ${req.url}`, {
-    ip: req.ip,
-    method: req.method,
-    url: req.url,
-    userAgent: req.get('User-Agent')
-  });
-  const verifySignature = require("./middleware/signatureMiddleware");
+// 11. Strategic Config Audit (§49)
+const requiredEnv = ["JWT_SECRET", "MONGO_URI"];
+requiredEnv.forEach(v => {
+  if (!process.env[v]) {
+    logger.error(`BOOTSTRAP FATAL: Missing Critical Variable: ${v}`);
+    if (process.env.NODE_ENV === 'production') process.exit(1);
+  }
+});
 
-  // Deception System (§23): Honeypot for automated vulnerability scanners
-  app.use("/api/admin/config/v1/root", async (req, res) => {
-    const ip = req.ip || req.connection?.remoteAddress;
-    await AuditLog.create({
-      action: "DECEPTION: Honeypot Triggered",
-      performedBy: "Anonymous/Bot",
-      details: `Potential attacker hit the deception endpoint. IP ${ip} should be blacklisted.`,
-      ip: ip
-    });
-    // Slow down response (Tarpitting) to waste attacker resources
-    setTimeout(() => {
-      res.status(404).json({ message: "System failure. Configuration reset required." });
-    }, 5000);
-  });
 
-  // Cryptographic Execution Guard (§6.1)
-  // In a true high-assurance system, we apply this globally.
-  app.use("/api", verifySignature);
+// 11. Cron Jobs Integration
+try {
+  require('./jobs/auditRetentionJob');
+  require('./jobs/warrantyJob');
+  require('./jobs/backupJob');
+  require('./jobs/pingWatchdog');
+} catch (err) {
+  console.warn('Job Initialization Warning:', err.message);
+}
 
-  app.use((req, res, next) => {
+// 12. Global Error Handlers (§32, §35)
+const { notFound, errorHandler } = require("./middleware/errorMiddleware");
+app.use(notFound);
+app.use(errorHandler);
 
-    // Data Sanitization against XSS
-    app.use(xss());
-
-    // Advanced Rate Limiting
-    const globalLimiter = rateLimit({
-      windowMs: 1 * 60 * 1000,
-      max: 100, // Policy (§7.4)
-      message: "Too many requests from this IP, please try again later",
-      standardHeaders: true,
-      legacyHeaders: false,
-    });
-
-    const authLimiter = rateLimit({
-      windowMs: 15 * 60 * 1000,
-      max: 10,
-      message: "Too many login attempts, your account has been temporarily restricted.",
-      standardHeaders: true,
-      legacyHeaders: false,
-    });
-
-    app.use("/api/", globalLimiter);
-    app.use("/api/auth/login", authLimiter);
-
-    // Note: In an extreme Enterprise setting, we'd apply csrfProtection globally to all state-changing routes
-    // Here we apply it selectively or pass it based on frontend capabilities. To strictly enforce:
-    // app.use("/api/", csrfProtection); 
-
-    app.use("/api/auth", require("./routes/authRoutes"));
-    app.use("/api/assets", require("./routes/assetRoutes"));
-    app.use("/api/audit", require("./routes/auditRoutes"));
-    // Advanced Modules
-    app.use("/api/tickets", require("./routes/ticketRoutes"));
-    app.use("/api/software", require("./routes/softwareRoutes"));
-    app.use("/api/keys", require("./routes/apiRoutes"));
-    app.use("/api/pending", require("./routes/pendingActionRoutes"));
-    app.use("/api/maintenance", require("./routes/maintenanceRoutes"));
-
-    // Centralized Enterprise Error Handlers
-    const { notFound, errorHandler } = require("./middleware/errorMiddleware");
-    app.use(notFound);
-    app.use(errorHandler);
-
-    const PORT = process.env.PORT || 5000;
-
-    // Try to listen on the configured port. If it's in use, fall back to an ephemeral port.
-    const tryListen = (port) => {
-      const onError = (err) => {
-        if (err && err.code === 'EADDRINUSE') {
-          console.warn(`Port ${port} is in use — trying a random available port instead...`);
-          // Remove this error listener before trying again to avoid recursion
-          server.removeListener('error', onError);
-          // Listen on port 0 to let OS pick a free port
-          server.listen(0);
-          return;
-        }
-        console.error('Server error:', err);
-        process.exit(1);
-      };
-
-      server.on('error', onError);
-
-      server.listen(port, () => {
-        console.log(`🚀 Server running on port ${server.address().port}`);
-        // once we've successfully started, remove the error listener
-        server.removeListener('error', onError);
-      });
-    };
-
-    tryListen(PORT);
-
+// 13. Server Bootstrap
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () => {
+  console.log(`🚀 ENTERPRISE SERVER ACTIVE ON PORT ${PORT}`);
+  logger.info(`SERVER_START: Node ${process.version}, Environment ${process.env.NODE_ENV}`);
+});

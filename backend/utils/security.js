@@ -143,15 +143,34 @@ const verifyRequestSignature = (req, secret) => {
   return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
 };
 
-const detectMaliciousQuery = (query) => {
+// LLM / AI SECURITY GUARDS (§Category 1-5)
+const detectPromptInjection = (input) => {
+  if (typeof input !== "string" && typeof input !== "object") return false;
+  const inputStr = typeof input === "string" ? input : JSON.stringify(input);
+
   const patterns = [
-    /(\%27)|(\')|(\-\-)|(\%23)|(#)/i, // SQL injection
-    /(SELECT|INSERT|UPDATE|DELETE|DROP|UNION)/i,
-    /(\$where|\$ne|\$gt|\$lt|\$regex)/i, // NoSQL injection
-    /(<script|iframe|alert|onerror)/i // XSS
+    /ignore previous instructions/i,
+    /disregard all previous/i,
+    /system prompt/i,
+    /identity of the assistant/i,
+    /you are now an? administrator/i, // Role-playing
+    /override security/i,
+    /bypass restriction/i,
+    /reveal your instructions/i, // Data Leakage
+    /DAN mode/i,
+    /jailbreak/i,
+    /execute the following as root/i, // Command Injection style
+    /<!--[\s\S]*?-->/ // HTML Comment injection
   ];
-  const queryStr = JSON.stringify(query);
-  return patterns.some(pattern => pattern.test(queryStr));
+
+  return patterns.some(pattern => pattern.test(inputStr));
+};
+
+// Tool Usage Security (§Category 5)
+const verifyToolIdentity = (signature, payload, secret) => {
+  if (!signature || !payload || !secret) return false;
+  const expected = crypto.createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
 };
 
 module.exports = {
@@ -165,5 +184,8 @@ module.exports = {
   encryptSensitiveData,
   decryptSensitiveData,
   verifyRequestSignature,
-  detectMaliciousQuery
+  detectMaliciousQuery,
+  detectPromptInjection,
+  verifyToolIdentity
 };
+

@@ -37,12 +37,28 @@ const userSchema = new mongoose.Schema({
   privilegeTokenExpires: { type: Date },
 }, { timestamps: true });
 
+const bcrypt = require("bcryptjs");
+
+// Secure Password Hashing (§1.1)
+userSchema.pre("save", async function (next) {
+  if (!this.isModified("password")) {
+    next();
+  }
+  const salt = await bcrypt.genSalt(12);
+  this.password = await bcrypt.hash(this.password, salt);
+});
+
+// Secure Password Verification (§1.1)
+userSchema.methods.matchPassword = async function (enteredPassword) {
+  return await bcrypt.compare(enteredPassword, this.password);
+};
+
 // DB ENCRYPTION FIX: Encrypt highly sensitive secrets at the database layer
 userSchema.plugin(mongooseFieldEncryption, {
   fields: ["twoFactorSecret", "twoFactorBackupCodes", "emailVerificationToken", "passwordResetToken"],
-  secret: process.env.JWT_SECRET || "fallback_dev_encryption_secret_must_change_in_prod",
+  secret: process.env.DB_ENCRYPTION_SECRET || process.env.JWT_SECRET || "fallback_dev_encryption_secret_must_change_in_prod",
   saltGenerator: function (secret) {
-    return "1234567890123456"; // Use 16 chars salt for AES-256-CBC
+    return require('crypto').createHash('sha256').update(secret).digest('hex').substring(0, 16);
   },
 });
 

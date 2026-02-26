@@ -3,15 +3,19 @@ import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
-import { Button, Card, Badge } from "../components/UI";
-import { ProfessionalIcon } from "../components/ProfessionalIcons";
-import { animationVariants } from "../utils/animations";
+import { Button, Card, Badge, ConfirmModal } from "../components/UI";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 
+/**
+ * Enterprise Identity & Access Management (IAM)
+ * Features: Zero-Trust user oversight, Account state monitoring, Privilege escalation management.
+ */
+
 export default function Users() {
-    const { user } = useContext(AuthContext);
+    const { user: currentUser } = useContext(AuthContext);
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [actionUser, setActionUser] = useState(null); // { id, email, actionType }
 
     const fetchUsers = async () => {
         try {
@@ -19,7 +23,7 @@ export default function Users() {
             const res = await axios.get("/auth/users");
             setUsers(res.data);
         } catch (err) {
-            toast.error("Failed to load users");
+            toast.error("Failed to sync IAM registry");
         } finally {
             setLoading(false);
         }
@@ -29,130 +33,148 @@ export default function Users() {
         fetchUsers();
     }, []);
 
-    const handlePromote = async (id, name) => {
-        if (!window.confirm(`Are you sure you want to promote ${name} to Admin?`)) return;
+    const handleConfirmAction = async () => {
+        if (!actionUser) return;
+        const { id, actionType, email, name } = actionUser;
+
         try {
-            await axios.put(`/auth/users/${id}/promote`);
-            toast.success(`${name} has been promoted to Admin`);
+            if (actionType === "promote") {
+                await axios.put(`/auth/users/${id}/promote`);
+                toast.success(`${name} elevated to Administrative Clearance.`);
+            } else if (actionType === "terminate") {
+                await axios.delete(`/auth/users/${id}`);
+                toast.success(`Identity ${email} has been decommissioned.`);
+            }
             fetchUsers();
         } catch (err) {
-            toast.error("Failed to promote user");
+            toast.error(err.response?.data?.message || "Protocol rejection: Action denied.");
+        } finally {
+            setActionUser(null);
         }
     };
 
-    const handleDelete = async (id, email) => {
-        if (email === user.email) {
-            toast.error("You cannot delete your own account");
-            return;
-        }
-        if (!window.confirm(`Are you sure you want to completely remove ${email}? This action acts as an instant ban & wipes all sessions.`)) return;
-        try {
-            await axios.delete(`/auth/users/${id}`);
-            toast.success(`User ${email} has been terminated.`);
-            fetchUsers();
-        } catch (err) {
-            toast.error(err.response?.data?.message || "Failed to delete user");
-        }
-    };
+    if (!currentUser || !["Super Admin", "Admin"].includes(currentUser.role)) {
+        return (
+            <div className="flex-center min-h-[60vh] flex-col text-center card bg-slate-900/50 border-red-500/20">
+                <div className="text-5xl mb-6">🔒</div>
+                <h2 className="text-2xl font-black text-white px-2">Access Denied: IAM Restricted</h2>
+                <p className="text-slate-500 max-w-md mt-4 px-4 text-sm font-medium">
+                    The Identity & Access Management console is restricted to Level 2 Administrators.
+                    Attempts to bypass this gateway are logged as Critical Violations.
+                </p>
+            </div>
+        );
+    }
 
     return (
-        <div className="pb-10 text-white">
-            <motion.div className="mb-8 px-4 md:px-2 pt-4 md:pt-8" initial="hidden" animate="visible" variants={animationVariants.containerVariants}>
-                <motion.h1 variants={animationVariants.itemVariants} className="text-2xl md:text-3xl font-semibold tracking-tight mb-1 flex items-center gap-3">
-                    <ProfessionalIcon name="shield" size={28} /> Zero-Trust User Management
-                </motion.h1>
-                <motion.p variants={animationVariants.itemVariants} className="text-gray-400 text-sm font-medium mt-1">
-                    Monitor exactly who currently holds access logically inside the environment.
-                </motion.p>
-            </motion.div>
+        <div className="fade-in pb-12">
+            <div className="mb-10">
+                <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Identity Registry</h1>
+                <p className="text-slate-500 font-medium mt-1 text-xs tracking-widest uppercase italic">
+                    Zero-Trust Oversight & Privilege Management (§3.1)
+                </p>
+            </div>
 
-            <motion.div initial="hidden" animate="visible" variants={animationVariants.containerVariants}>
-                <Card>
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="border-b border-white/10 text-gray-500 text-sm">
-                                    <th className="py-4 px-4 font-medium">User Profile</th>
-                                    <th className="py-4 px-4 font-medium">Clearance Level</th>
-                                    <th className="py-4 px-4 font-medium">Failed Logins</th>
-                                    <th className="py-4 px-4 font-medium">2FA Status</th>
-                                    <th className="py-4 px-4 font-medium text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <AnimatePresence>
-                                    {loading ? (
-                                        <tr>
-                                            <td colSpan="5" className="py-8"><LoadingSpinner message="Scanning network users..." /></td>
-                                        </tr>
-                                    ) : users.length === 0 ? (
-                                        <tr>
-                                            <td colSpan="5" className="py-8 text-center text-gray-500">No users found.</td>
-                                        </tr>
-                                    ) : (
-                                        users.map((u) => (
-                                            <motion.tr
-                                                key={u._id}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                exit={{ opacity: 0, x: -20 }}
-                                                className="border-b border-white/5 hover:bg-white/5 transition"
-                                            >
-                                                <td className="py-4 px-4">
-                                                    <div className="flex items-center gap-3">
-                                                        <div className="w-10 h-10 rounded-full bg-[#111] border border-white/10 flex items-center justify-center font-bold text-gray-300">
-                                                            {u.name.charAt(0).toUpperCase()}
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-semibold text-white text-sm">{u.name} {u.email === user.email && "(You)"}</div>
-                                                            <div className="text-xs text-gray-500 mt-0.5">{u.email}</div>
-                                                        </div>
+            <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40">
+                <div className="table-container border-none rounded-none">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Identity Identity</th>
+                                <th>Clearance</th>
+                                <th>Account Status</th>
+                                <th>2FA Core</th>
+                                <th className="text-right">IAM Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <AnimatePresence>
+                                {loading ? (
+                                    <tr>
+                                        <td colSpan="5" className="py-20 text-center"><LoadingSpinner message="Scanning IAM Database..." /></td>
+                                    </tr>
+                                ) : users.length === 0 ? (
+                                    <tr>
+                                        <td colSpan="5" className="py-20 text-center text-slate-500 font-bold italic uppercase tracking-widest text-sm">No active identities found.</td>
+                                    </tr>
+                                ) : (
+                                    users.map((u) => (
+                                        <motion.tr
+                                            key={u._id}
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            className="hover:bg-white/5 transition-all"
+                                        >
+                                            <td>
+                                                <div className="flex items-center gap-4">
+                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-950 border border-white/10 flex items-center justify-center font-bold text-white shadow-lg">
+                                                        {u.name.charAt(0).toUpperCase()}
                                                     </div>
-                                                </td>
-                                                <td className="py-4 px-4">
-                                                    <Badge variant={["Super Admin", "Admin"].includes(u.role) ? "success" : "neutral"} size="sm">
-                                                        {u.role.toUpperCase()}
-                                                    </Badge>
-                                                </td>
-                                                <td className="py-4 px-4">
-                                                    {u.lockUntil && new Date(u.lockUntil) > new Date() ? (
-                                                        <span className="text-red-400 text-xs font-bold uppercase tracking-wider bg-red-500/10 px-2 py-1 rounded">LOCKED OUT</span>
-                                                    ) : u.failedLoginAttempts > 0 ? (
-                                                        <span className="text-orange-400 text-xs font-bold">{u.failedLoginAttempts} ATTEMPTS</span>
-                                                    ) : (
-                                                        <span className="text-gray-600 text-xs font-bold">CLEAR</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-4 px-4">
-                                                    {u.isTwoFactorEnabled ? (
-                                                        <span className="text-green-400 text-xs font-bold bg-green-500/10 px-2 py-1 rounded">SECURED</span>
-                                                    ) : (
-                                                        <span className="text-gray-500 text-xs">Unsecured</span>
-                                                    )}
-                                                </td>
-                                                <td className="py-4 px-4 text-right">
-                                                    <div className="flex justify-end gap-2">
-                                                        {!["Super Admin", "Admin"].includes(u.role) && (
-                                                            <Button variant="secondary" size="sm" onClick={() => handlePromote(u._id, u.name)}>
-                                                                Promote
-                                                            </Button>
-                                                        )}
-                                                        {u.email !== user.email && (
-                                                            <Button variant="danger" size="sm" onClick={() => handleDelete(u._id, u.email)}>
-                                                                Terminate
-                                                            </Button>
-                                                        )}
+                                                    <div>
+                                                        <div className="font-bold text-slate-100 text-sm">
+                                                            {u.name} {u.email === currentUser.email && <Badge variant="info" className="ml-2 py-0">SELF</Badge>}
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-tighter">{u.email}</div>
                                                     </div>
-                                                </td>
-                                            </motion.tr>
-                                        ))
-                                    )}
-                                </AnimatePresence>
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
-            </motion.div>
+                                                </div>
+                                            </td>
+                                            <td>
+                                                <Badge variant={["Super Admin", "Admin"].includes(u.role) ? "info" : "neutral"} className="font-bold px-2 py-0.5">
+                                                    {u.role.toUpperCase()}
+                                                </Badge>
+                                            </td>
+                                            <td>
+                                                {u.lockUntil && new Date(u.lockUntil) > new Date() ? (
+                                                    <Badge variant="danger" className="animate-pulse">ACCOUNT LOCKED</Badge>
+                                                ) : u.failedLoginAttempts > 0 ? (
+                                                    <div className="text-amber-500 text-[10px] font-black uppercase tracking-widest">{u.failedLoginAttempts} Failed Attempts</div>
+                                                ) : (
+                                                    <div className="text-green-500 text-[10px] font-black uppercase tracking-widest">Nominal / Secure</div>
+                                                )}
+                                            </td>
+                                            <td>
+                                                {u.isTwoFactorEnabled ? (
+                                                    <Badge variant="success" className="font-bold">2FA ENABLED</Badge>
+                                                ) : (
+                                                    <Badge variant="neutral" className="opacity-40">NOT CONFIGURED</Badge>
+                                                )}
+                                            </td>
+                                            <td className="text-right">
+                                                <div className="flex justify-end gap-2">
+                                                    {!["Super Admin", "Admin"].includes(u.role) && (
+                                                        <Button variant="ghost" size="sm" onClick={() => setActionUser({ ...u, actionType: 'promote' })}>
+                                                            Elevate Role
+                                                        </Button>
+                                                    )}
+                                                    {u.email !== currentUser.email && (
+                                                        <Button variant="danger" size="sm" onClick={() => setActionUser({ ...u, actionType: 'terminate' })}>
+                                                            Terminate
+                                                        </Button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </motion.tr>
+                                    ))
+                                )}
+                            </AnimatePresence>
+                        </tbody>
+                    </table>
+                </div>
+            </Card>
+
+            {/* IAM Action Confirmation */}
+            <ConfirmModal
+                isOpen={!!actionUser}
+                title={actionUser?.actionType === 'promote' ? "Elevate Clearance?" : "Terminate Identity?"}
+                message={actionUser?.actionType === 'promote'
+                    ? `Are you sure you want to promote ${actionUser?.name} to Administrative Clearance? This grants access to the Forensic Ledger and IAM controls.`
+                    : `This initiates an immediate Decommission Protocol for ${actionUser?.email}. All active sessions will be purged and authentication tokens revoked.`
+                }
+                confirmText={actionUser?.actionType === 'promote' ? "Execute Elevation" : "Execute Termination"}
+                type={actionUser?.actionType === 'promote' ? "primary" : "danger"}
+                onConfirm={handleConfirmAction}
+                onCancel={() => setActionUser(null)}
+            />
         </div>
     );
 }

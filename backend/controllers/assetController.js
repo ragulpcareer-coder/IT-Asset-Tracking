@@ -60,16 +60,20 @@ const getAssets = async (req, res) => {
 
     const query = {};
 
-    // RBAC ENFORCEMENT
-    if (!["Super Admin", "Admin", "Manager", "Auditor"].includes(req.user.role)) {
-      // Employee (Standard User): only assets where assignedTo matches their email or name
-      query.$or = [
-        { assignedTo: req.user.email },
-        { assignedTo: req.user.name },
-      ];
-      // Employee cannot apply asset-wide filters across all records
-      // (search/status/type filters still apply on top of their scope)
+    // 5. ZONAL ACCESS CONTROL (§Category 5/10)
+    if (!["Super Admin", "Admin", "Auditor"].includes(req.user.role)) {
+      if (req.user.role === "Manager" || req.user.role === "Asset Manager") {
+        // Zonal View: Can only see assets in their department
+        query.department = req.user.department;
+      } else {
+        // Employee (Standard User): strictly assigned nodes only
+        query.$or = [
+          { assignedTo: req.user.email },
+          { assignedTo: req.user.name },
+        ];
+      }
     }
+
 
     if (search) {
       query.name = { $regex: search, $options: "i" };
@@ -124,93 +128,89 @@ const getAssetById = async (req, res) => {
 
 // CREATE asset — Admin only (enforced at route + here for defence-in-depth)
 const createAsset = async (req, res) => {
-  // Defence-in-depth role check
-  // Defence-in-depth role check
-  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only administrators can create assets." });
+  if (!req.user || !["Super Admin", "Admin", "Asset Manager"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Strategic Violation: Role lacks provisioning authority." });
   }
   try {
-    const assetData = req.body;
-    // Generate QR Code containing the Serial Number (or a link to the asset)
-    const qrData = JSON.stringify({
-      id: "NEW", // Will be replaced by actual ID if we do it after save, but let's just use serialNumber
-      serialNumber: assetData.serialNumber,
-      name: assetData.name
-    });
+    // SECURITY: Explicit mapping to prevent Mass Assignment (§Item 30 / §3.1)
+    const { name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location } = req.body;
+
+    const qrData = JSON.stringify({ id: "NEW", serialNumber, name });
     const qrCodeDataUrl = await QRCode.toDataURL(qrData);
-    assetData.qrCode = qrCodeDataUrl;
 
-    const asset = await Asset.create(assetData);
-
-    // Re-generate QR with actual ID
-    const updatedQrData = JSON.stringify({
-      id: asset._id,
-      serialNumber: asset.serialNumber,
-      name: asset.name
+    const asset = await Asset.create({
+      name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location,
+      qrCode: qrCodeDataUrl,
+      securityStatus: { isAuthorized: true, riskLevel: 'Low', remarks: 'Provisioned via Core Admin Registry' }
     });
-    asset.qrCode = await QRCode.toDataURL(updatedQrData);
+
+    // Finalize QR with permanent reference
+    asset.qrCode = await QRCode.toDataURL(JSON.stringify({ id: asset._id, serialNumber, name }));
     await asset.save();
 
     await AuditLog.create({
-      action: `Created asset: ${asset.name}`,
-      performedBy: req.user?.email || "Unknown",
+      action: `NODE_PROVISIONED: ${asset.name}`,
+      performedBy: req.user.email,
+      details: `Asset ${serialNumber} added to global registry cluster.`,
+      ip: req.ip || req.connection?.remoteAddress
     });
-
-    // Real-time update
-    const io = req.app.get("io");
-    io.emit("assetCreated", asset);
 
     res.status(201).json(asset);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error("Provisioning Error:", error);
+    res.status(500).json({ message: "Registry error: Node creation rejected." });
   }
 };
 
-// UPDATE asset — Admin only
 const updateAsset = async (req, res) => {
-  // Business Logic Security (§15): Block User assigning asset to self without approval
-  if (req.body.assignedTo === req.user.email && req.user.role === "Employee") {
-    return res.status(403).json({ message: "Security Violation: Self-assignment of assets is strictly prohibited." });
-  }
-
   if (!req.user || !["Super Admin", "Admin", "Asset Manager"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only authorized roles can update assets." });
+    return res.status(403).json({ message: "Strategic Error: Authorization insufficient for metadata modification." });
   }
   try {
-    const assetData = req.body;
+    const asset = await Asset.findById(req.params.id);
+    if (!asset) return res.status(404).json({ message: "Registry Error: Node not found." });
 
-    // Regenerate QR code just in case name or serial changed
-    const qrData = JSON.stringify({
-      id: req.params.id,
-      serialNumber: assetData.serialNumber || "unknown",
-      name: assetData.name || "unknown" // Might be undefined if partial update, but we assume full object
-    });
-    assetData.qrCode = await QRCode.toDataURL(qrData);
+    // SECURITY: Explicit property mapping (§Item 30 / §3.1)
+    const { name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location } = req.body;
 
-    const updatedAsset = await Asset.findByIdAndUpdate(
-      req.params.id,
-      assetData,
-      { new: true }
-    );
+    if (name) asset.name = name;
+    if (type) asset.type = type;
+    if (serialNumber) asset.serialNumber = serialNumber;
+    if (classification) asset.classification = classification;
+    if (status) asset.status = status;
+    if (assignedTo !== undefined) asset.assignedTo = assignedTo;
+    if (purchasePrice !== undefined) asset.purchasePrice = purchasePrice;
+    if (usefulLifeYears !== undefined) asset.usefulLifeYears = usefulLifeYears;
+    if (location) asset.location = { ...asset.location, ...location };
 
-    if (!updatedAsset) {
-      return res.status(404).json({ message: "Asset not found" });
+    // Regenerate QR if critical identifiers changed
+    if (name || serialNumber) {
+      asset.qrCode = await QRCode.toDataURL(JSON.stringify({
+        id: asset._id,
+        serialNumber: asset.serialNumber,
+        name: asset.name
+      }));
     }
 
+    await asset.save();
+
     await AuditLog.create({
-      action: `Updated asset: ${updatedAsset.name}`,
-      performedBy: req.user?.email || "Unknown",
+      action: `METADATA_MODIFIED: ${asset.name}`,
+      performedBy: req.user.email,
+      details: `Asset ${asset.serialNumber} registry updated.`,
+      ip: req.ip || req.connection?.remoteAddress
     });
 
-    // Real-time update
     const io = req.app.get("io");
-    io.emit("assetUpdated", updatedAsset);
+    if (io) io.emit("assetUpdated", asset);
 
-    res.json(updatedAsset);
+    res.json(asset);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    logger.error("Registry Sync Failure:", error);
+    res.status(500).json({ message: "Strategic Error: Asset modification protocol failed." });
   }
 };
+
 
 // DELETE asset — Admin only
 const deleteAsset = async (req, res) => {
@@ -359,8 +359,22 @@ const bulkUploadAssets = async (req, res) => {
       .on("end", async () => {
         for (const row of results) {
           try {
+            // AI SECURITY: Detect Prompt Injection inside documents (§Category 1)
+            const { detectPromptInjection } = require("../utils/security");
+            if (detectPromptInjection(row)) {
+              await AuditLog.create({
+                action: "SECURITY ALERT: Adversarial Macro Blocked",
+                performedBy: req.user.email,
+                details: `Quarantined CSV Row: Prompt Injection attempt detected in ${row.name || 'unnamed row'}.`,
+                ip: req.ip || req.connection?.remoteAddress
+              });
+              errors.push(`Row Rejected: High-Risk Adversarial Pattern Detected (${row.serialNumber || 'unknown'}).`);
+              continue;
+            }
+
             // validate required
             if (!row.name || !row.type || !row.serialNumber) {
+
               errors.push(`Row missing required fields: ${JSON.stringify(row)}`);
               continue;
             }
@@ -646,26 +660,36 @@ const agentReport = async (req, res) => {
       asset.hardwareFingerprint = req.body.hardwareFingerprint;
     }
 
-    // Auto-update IP/MAC if it changed
+    // 7. Detection Engineering: Analysis of incoming telemetry (Category 3/4)
+    const detectionEngine = require("../utils/detectionEngine");
+    await detectionEngine.analyzeEndpointTelemetry(asset, req.body);
+
+    // Auto-update top-level IP/MAC if it changed (§Category 7)
     if (networkStatus?.ipAddress) asset.ipAddress = networkStatus.ipAddress;
     if (networkStatus?.macAddress) asset.macAddress = networkStatus.macAddress;
 
+    const isNewlyCreated = asset.isNew;
     await asset.save();
 
     // update qr id if it was newly created
-    if (asset.isNew) {
+    if (isNewlyCreated) {
       asset.qrCode = await QRCode.toDataURL(JSON.stringify({
         id: asset._id,
         serialNumber: asset.serialNumber,
         name: asset.name
       }));
       await asset.save();
+    }
 
-      const io = req.app.get("io");
-      io.emit("assetCreated", asset);
+    // REAL-TIME SYNC (§Category 4)
+    const io = req.app.get("io");
+    if (io) {
+      if (isNewlyCreated) io.emit("assetCreated", asset);
+      else io.emit("assetUpdated", asset);
     }
 
     res.json({ message: "Telemetry received" });
+
   } catch (error) {
     res.status(500).json({ message: "Error processing report" });
   }

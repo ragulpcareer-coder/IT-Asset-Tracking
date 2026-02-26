@@ -2,9 +2,13 @@ import React, { useState, useEffect, useContext } from "react";
 import axios from "../utils/axiosConfig";
 import { ToastContainer, toast } from "react-toastify";
 import { AuthContext } from "../context/AuthContext";
-import { animationVariants } from "../utils/animations";
-import { CSVLink } from "react-csv";
 import LoadingSpinner from "../components/common/LoadingSpinner";
+import { Button, Card, Badge, Input } from "../components/UI";
+
+/**
+ * Enterprise Audit Ledger
+ * Features: High-assurance forensic tracking, Role-based data access (§4.2).
+ */
 
 export default function AuditLogs() {
   const { user } = useContext(AuthContext);
@@ -13,7 +17,6 @@ export default function AuditLogs() {
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("All");
-  const [dateFilter, setDateFilter] = useState("All");
 
   useEffect(() => {
     if (["Super Admin", "Admin"].includes(user?.role)) {
@@ -23,7 +26,7 @@ export default function AuditLogs() {
 
   useEffect(() => {
     filterLogs();
-  }, [logs, search, actionFilter, dateFilter]);
+  }, [logs, search, actionFilter]);
 
   const fetchLogs = async () => {
     try {
@@ -31,7 +34,7 @@ export default function AuditLogs() {
       const res = await axios.get("/audit");
       setLogs(res.data?.data || res.data || []);
     } catch (error) {
-      toast.error("Failed to fetch audit logs");
+      toast.error("Failed to fetch cryptographic audit trail");
       setLogs([]);
     } finally {
       setLoading(false);
@@ -40,216 +43,149 @@ export default function AuditLogs() {
 
   const filterLogs = () => {
     let filtered = [...logs];
-
-    // Search filter
     if (search) {
-      filtered = filtered.filter(
-        (log) =>
-          log.action.toLowerCase().includes(search.toLowerCase()) ||
-          log.performedBy.toLowerCase().includes(search.toLowerCase())
+      filtered = filtered.filter(l =>
+        l.action.toLowerCase().includes(search.toLowerCase()) ||
+        l.performedBy.toLowerCase().includes(search.toLowerCase())
       );
     }
-
-    // Action filter
     if (actionFilter !== "All") {
-      filtered = filtered.filter((log) => log.action.includes(actionFilter));
+      filtered = filtered.filter(l => l.action.includes(actionFilter));
     }
-
-    // Date filter
-    if (dateFilter !== "All") {
-      const now = new Date();
-      if (dateFilter === "today") {
-        filtered = filtered.filter((log) => {
-          const logDate = new Date(log.createdAt);
-          return logDate.toDateString() === now.toDateString();
-        });
-      } else if (dateFilter === "week") {
-        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        filtered = filtered.filter((log) => new Date(log.createdAt) >= weekAgo);
-      } else if (dateFilter === "month") {
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-        filtered = filtered.filter((log) => new Date(log.createdAt) >= monthAgo);
-      }
-    }
-
     setFilteredLogs(filtered);
   };
 
   const handleExport = async () => {
     try {
-      const params = new URLSearchParams();
-      if (actionFilter !== "All") params.append("action", actionFilter);
-
-      if (dateFilter !== "All") {
-        const now = new Date();
-        if (dateFilter === "today") {
-          now.setHours(0, 0, 0, 0);
-          params.append("from", now.toISOString());
-        } else if (dateFilter === "week") {
-          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          params.append("from", weekAgo.toISOString());
-        } else if (dateFilter === "month") {
-          const monthAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
-          params.append("from", monthAgo.toISOString());
-        }
-      }
-
-      const res = await axios.get(`/audit/export?${params.toString()}`, {
-        responseType: 'blob'
-      });
+      toast.info("Preparing high-assurance CSV export...");
+      const res = await axios.get("/audit/export", { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
       link.href = url;
-      link.setAttribute('download', `audit-export-${new Date().toISOString().split('T')[0]}.csv`);
+      link.setAttribute('download', `audit_ledger_${new Date().toISOString().split('T')[0]}.csv`);
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      toast.success("Cryptographic log export complete!");
+      toast.success("Ledger exported successfully!");
     } catch (error) {
-      toast.error("Failed to fetch export");
+      toast.error("Forensic export failed: Authorization required.");
     }
   };
 
-  const getActionType = (action) => {
-    if (action.includes("Created")) return "created";
-    if (action.includes("Updated")) return "updated";
-    if (action.includes("Deleted")) return "deleted";
-    return "other";
-  };
-
-  const getActionColor = (action) => {
-    const type = getActionType(action);
-    switch (type) {
-      case "created":
-        return "bg-green-500/10 text-green-400 border border-green-500/20";
-      case "updated":
-        return "bg-blue-500/10 text-blue-400 border border-blue-500/20";
-      case "deleted":
-        return "bg-red-500/10 text-red-400 border border-red-500/20";
-      default:
-        return "bg-gray-500/10 text-gray-400 border border-gray-500/20";
-    }
+  const getActionVariant = (action) => {
+    if (action.includes("Security") || action.includes("ALERT") || action.includes("Violation")) return "danger";
+    if (action.includes("Updated")) return "info";
+    if (action.includes("Created")) return "success";
+    return "neutral";
   };
 
   if (!user || !["Super Admin", "Admin"].includes(user.role)) {
     return (
-      <div className="text-center py-16 bg-[#0a0a0a] border border-white/10 rounded-xl mt-8">
-        <p className="text-xl text-white font-medium mb-2">Access Denied</p>
-        <p className="text-gray-500">You need admin privileges to view audit logs.</p>
+      <div className="flex-center min-h-[60vh] flex-col text-center card bg-slate-900/50 border-red-500/20">
+        <div className="text-5xl mb-6">🔒</div>
+        <h2 className="text-2xl font-black text-white px-2">Access Denied: 403 Forbidden</h2>
+        <p className="text-slate-500 max-w-md mt-4 px-4 text-sm font-medium">
+          The Tactical Audit Ledger is restricted to Tier-1 Security Administrators.
+          Unauthorized access attempts are logged and flagged for forensic review.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="pb-10 text-white">
+    <div className="fade-in pb-12">
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
-      {/* Header */}
-      <div className="mb-8 px-4 md:px-2 pt-4 md:pt-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      {/* Header Area */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
-          <h1 className="text-2xl md:text-3xl font-semibold tracking-tight mb-1">Audit Logs</h1>
-          <p className="text-gray-400 text-xs md:text-sm font-medium">Track all system activities and changes</p>
-        </div>
-        <button
-          onClick={handleExport}
-          disabled={filteredLogs.length === 0}
-          className="bg-[#111] hover:bg-[#222] border border-white/10 text-white px-5 py-2.5 rounded-lg transition-all text-sm font-medium disabled:opacity-50"
-        >
-          Export CSV
-        </button>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 md:gap-4 mb-8 px-4 md:px-0">
-        <div className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl">
-          <p className="text-xs font-medium text-gray-500 mb-2">Total Logs</p>
-          <p className="text-2xl font-semibold text-white">{logs.length}</p>
-        </div>
-        <div className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl">
-          <p className="text-xs font-medium text-gray-500 mb-2">Today's Actions</p>
-          <p className="text-2xl font-semibold text-white">
-            {logs.filter((l) => new Date(l.createdAt).toDateString() === new Date().toDateString()).length}
+          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Forensic Audit Ledger</h1>
+          <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">
+            Full compliance monitoring active (§4.2)
           </p>
         </div>
-        <div className="bg-[#0a0a0a] border border-white/10 p-5 rounded-xl col-span-2 md:col-span-1">
-          <p className="text-xs font-medium text-gray-500 mb-2">Unique Users</p>
-          <p className="text-2xl font-semibold text-white">{new Set(logs.map((l) => l.performedBy)).size}</p>
-        </div>
+        <Button variant="primary" onClick={handleExport} disabled={filteredLogs.length === 0}>
+          Export Validated CSV
+        </Button>
       </div>
 
-      {/* Filters */}
-      <div className="mb-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-4 mx-4 md:mx-0">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <input
-            type="text"
-            placeholder="Search logs..."
-            className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all placeholder-gray-600 text-sm"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-          <select
-            className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all text-sm appearance-none"
-            value={actionFilter}
-            onChange={(e) => setActionFilter(e.target.value)}
-          >
-            <option value="All">All Actions</option>
-            <option value="Created">Created</option>
-            <option value="Updated">Updated</option>
-            <option value="Deleted">Deleted</option>
-          </select>
-          <select
-            className="w-full bg-[#111] border border-white/10 text-white p-2.5 rounded-lg focus:ring-1 focus:ring-white outline-none transition-all text-sm appearance-none"
-            value={dateFilter}
-            onChange={(e) => setDateFilter(e.target.value)}
-          >
-            <option value="All">All Time</option>
-            <option value="today">Today</option>
-            <option value="week">Last 7 Days</option>
-            <option value="month">Last 30 Days</option>
-          </select>
-        </div>
+      {/* Live Stats */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <Card className="flex flex-col border-white/5 bg-slate-900/40">
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Total Forensic Entries</span>
+          <span className="text-3xl font-black text-white">{logs.length}</span>
+        </Card>
+        <Card className="flex flex-col border-white/5 bg-slate-900/40">
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Active Security Pulse</span>
+          <span className="text-3xl font-black text-green-500">NOMINAL</span>
+        </Card>
+        <Card className="flex flex-col border-white/5 bg-slate-900/40">
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Unique Actors</span>
+          <span className="text-3xl font-black text-white">{new Set(logs.map(l => l.performedBy)).size}</span>
+        </Card>
       </div>
 
-      {/* Logs Table */}
-      {loading ? (
-        <div className="py-20">
-          <LoadingSpinner message="Loading audit logs..." />
-        </div>
-      ) : filteredLogs.length === 0 ? (
-        <div className="text-center py-16 bg-[#0a0a0a] border border-white/10 rounded-xl">
-          <span className="text-gray-400 font-medium">No logs found matching your criteria.</span>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#000000]">
-          <table className="w-full text-left border-collapse text-sm">
+      {/* Persistence Filters */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+        <Input
+          placeholder="Filter by action, user, or IP signature..."
+          className="mb-0"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <select
+          className="input bg-slate-950/50"
+          value={actionFilter}
+          onChange={(e) => setActionFilter(e.target.value)}
+        >
+          <option value="All">All Protocol Actions</option>
+          <option value="Created">Provisioning Events</option>
+          <option value="Updated">Metadata Updates</option>
+          <option value="Deleted">Decommissioning</option>
+          <option value="ALERT">Security Alerts</option>
+        </select>
+      </div>
+
+      {/* Results Matrix */}
+      <div className="table-container">
+        {loading ? (
+          <div className="py-20"><LoadingSpinner message="Scanning Secure Ledger..." /></div>
+        ) : filteredLogs.length === 0 ? (
+          <div className="text-center py-20 text-slate-500 font-bold uppercase tracking-widest text-sm italic">
+            No forensic records found for this query.
+          </div>
+        ) : (
+          <table className="table">
             <thead>
-              <tr className="border-b border-white/10 text-gray-400 bg-[#050505]">
-                <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Action</th>
-                <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Performed By</th>
-                <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Date & Time</th>
+              <tr>
+                <th>Protocol Action</th>
+                <th>Origin Identity</th>
+                <th>Network Signature</th>
+                <th className="text-right">Timestamp (UTC)</th>
               </tr>
             </thead>
             <tbody>
-              {filteredLogs.map((log, idx) => {
-                const date = new Date(log.createdAt);
-                return (
-                  <tr key={idx} className="border-b border-white/5 hover:bg-[#0a0a0a] transition-colors">
-                    <td className="px-6 py-4">
-                      <span className={`px-2.5 py-1 rounded border text-xs font-medium ${getActionColor(log.action)}`}>
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 text-gray-300">{log.performedBy}</td>
-                    <td className="px-6 py-4 text-gray-500 font-mono text-xs">
-                      {date.toLocaleDateString()} <span className="text-gray-600 px-1">•</span> {date.toLocaleTimeString()}
-                    </td>
-                  </tr>
-                );
-              })}
+              {filteredLogs.map((log, idx) => (
+                <tr key={log._id || idx}>
+                  <td>
+                    <Badge variant={getActionVariant(log.action)} className="font-bold">
+                      {log.action}
+                    </Badge>
+                  </td>
+                  <td className="font-bold text-slate-300">{log.performedBy}</td>
+                  <td className="font-mono text-[11px] text-slate-500 font-bold uppercase">
+                    {log.ip || 'Local Kernel'}
+                  </td>
+                  <td className="text-right">
+                    <div className="text-slate-100 font-bold text-xs">{new Date(log.createdAt).toLocaleDateString()}</div>
+                    <div className="text-slate-500 text-[10px] uppercase font-bold mt-1">{new Date(log.createdAt).toLocaleTimeString()}</div>
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

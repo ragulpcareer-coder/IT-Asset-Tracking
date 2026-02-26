@@ -1,152 +1,156 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { Badge, Button, ConfirmModal, PermissionGuard } from "./UI";
+
+/**
+ * Enterprise Asset Inventory Table
+ * Features: Role-based filtering, Action protection (Dual-Auth), Inline QR preview.
+ */
 
 export default function AssetTable({ assets, onEdit, onDelete, user }) {
     const [selectedQr, setSelectedQr] = useState(null);
+    const [deleteId, setDeleteId] = useState(null);
 
-    if (!assets.length) {
+    if (!assets || assets.length === 0) {
         return (
-            <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="text-center py-16 bg-[#0a0a0a] border border-white/10 rounded-xl"
-            >
-                <span className="text-gray-400 font-medium">No assets found matching your criteria.</span>
-            </motion.div>
+            <div className="card text-center py-20 bg-slate-900 border-white/5">
+                <p className="text-slate-500 font-medium">No assets found matching your criteria.</p>
+            </div>
         );
     }
 
-    const getStatusStyle = (status) => {
+    const getStatusVariant = (status) => {
         switch (status) {
-            case "available": return "bg-green-500/10 text-green-400 border-green-500/20";
-            case "assigned": return "bg-blue-500/10 text-blue-400 border-blue-500/20";
-            case "maintenance": return "bg-yellow-500/10 text-yellow-500 border-yellow-500/20";
-            case "retired": return "bg-red-500/10 text-red-400 border-red-500/20";
-            default: return "bg-gray-500/10 text-gray-400 border-gray-500/20";
+            case "available": return "success";
+            case "assigned": return "info";
+            case "maintenance": return "warning";
+            case "retired": return "danger";
+            default: return "neutral";
         }
     };
 
     return (
-        <>
-            <div className="overflow-x-auto rounded-xl border border-white/10 bg-[#000000]">
-                <table className="w-full text-left border-collapse text-sm">
-                    <thead>
-                        <tr className="border-b border-white/10 text-gray-400 bg-[#050505]">
-                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Asset</th>
-                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Classification</th>
-                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Type</th>
-                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Status</th>
-                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Assigned To</th>
-                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs text-center">QR</th>
-                            {["Super Admin", "Admin"].includes(user?.role) && <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs text-right">Actions</th>}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <AnimatePresence>
-                            {assets.map((asset, idx) => (
-                                <motion.tr
-                                    key={asset._id}
-                                    initial={{ opacity: 0 }}
-                                    animate={{ opacity: 1 }}
-                                    exit={{ opacity: 0 }}
-                                    transition={{ delay: idx * 0.03 }}
-                                    className="border-b border-white/5 hover:bg-[#0a0a0a] transition-colors"
-                                >
-                                    <td className="px-6 py-4">
-                                        <div className="text-white font-medium">{asset.name}</div>
-                                        <div className="text-[10px] text-gray-500 mt-1 font-mono uppercase tracking-tighter">UUID: {asset.uuid || "LEGACY-ID"}</div>
-                                        <div className="text-xs text-blue-400 mt-1 font-mono">SN: {asset.serialNumber}</div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${asset.classification === "Restricted" ? "bg-red-500/10 text-red-500 border-red-500/20" :
-                                                asset.classification === "Confidential" ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
-                                                    asset.classification === "Internal" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
-                                                        "bg-gray-500/10 text-gray-400 border-gray-500/20"
-                                            }`}>
-                                            {asset.classification || "Internal"}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <span
-                                            className={`px-2.5 py-1 inline-flex text-xs font-semibold rounded-full border ${getStatusStyle(asset.status)}`}
+        <div className="table-container fade-in">
+            <table className="table">
+                <thead>
+                    <tr>
+                        <th>Asset Details</th>
+                        <th>Classification</th>
+                        <th>Status</th>
+                        <th>Assignee</th>
+                        <th className="text-center">QR Code</th>
+                        <PermissionGuard roles={["Super Admin", "Admin", "Asset Manager"]} userRole={user?.role}>
+                            <th className="text-right">Management</th>
+                        </PermissionGuard>
+                    </tr>
+                </thead>
+                <tbody>
+                    {assets.map((asset, idx) => (
+                        <tr key={asset._id || idx}>
+                            <td>
+                                <div className="font-bold text-slate-100">{asset.name}</div>
+                                <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1 font-mono">
+                                    UUID: {asset.uuid || "LEGACY-NODE"}
+                                </div>
+                                <div className="text-[11px] text-primary mt-1 font-mono font-bold">
+                                    SN: {asset.serialNumber}
+                                </div>
+                            </td>
+                            <td>
+                                <Badge variant={
+                                    asset.classification === "Restricted" ? "danger" :
+                                        asset.classification === "Confidential" ? "warning" :
+                                            asset.classification === "Internal" ? "info" : "neutral"
+                                }>
+                                    {asset.classification || "Internal"}
+                                </Badge>
+                            </td>
+                            <td>
+                                <Badge variant={getStatusVariant(asset.status)}>
+                                    {asset.status}
+                                </Badge>
+                            </td>
+                            <td className="text-slate-400 font-medium">
+                                {asset.assignedTo || "—"}
+                            </td>
+                            <td className="text-center">
+                                {asset.qrCode ? (
+                                    <img
+                                        onClick={() => setSelectedQr(asset)}
+                                        src={asset.qrCode}
+                                        alt="Asset QR"
+                                        className="w-10 h-10 inline-block cursor-pointer rounded bg-white p-1 opacity-80 hover:opacity-100 hover:scale-110 transition-all shadow-lg"
+                                    />
+                                ) : <span className="text-slate-600">—</span>}
+                            </td>
+                            <td className="text-right">
+                                <div className="flex justify-end gap-2">
+                                    <PermissionGuard roles={["Super Admin", "Admin", "Asset Manager"]} userRole={user?.role}>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => onEdit && onEdit(asset)}
                                         >
-                                            {asset.status.charAt(0).toUpperCase() + asset.status.slice(1)}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-4 text-gray-400 text-sm">
-                                        {asset.assignedTo || "—"}
-                                    </td>
-                                    <td className="px-6 py-4 text-center">
-                                        {asset.qrCode ? (
-                                            <img
-                                                onClick={() => setSelectedQr(asset)}
-                                                src={asset.qrCode}
-                                                alt="QR Code"
-                                                className="w-8 h-8 inline-block cursor-pointer rounded bg-white p-0.5 opacity-80 hover:opacity-100 transition-opacity"
-                                            />
-                                        ) : (
-                                            <span className="text-xs text-gray-600">N/A</span>
-                                        )}
-                                    </td>
-                                    {["Super Admin", "Admin"].includes(user?.role) && (
-                                        <td className="px-6 py-4 text-right">
-                                            <div className="flex justify-end gap-2 text-sm">
-                                                <button
-                                                    onClick={() => onEdit(asset)}
-                                                    className="px-3 py-1.5 rounded bg-transparent text-gray-300 hover:text-white hover:bg-white/10 transition-colors"
-                                                >
-                                                    Edit
-                                                </button>
-                                                <button
-                                                    onClick={() => onDelete(asset._id)}
-                                                    className="px-3 py-1.5 rounded bg-transparent text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-colors"
-                                                >
-                                                    Delete
-                                                </button>
-                                            </div>
-                                        </td>
-                                    )}
-                                </motion.tr>
-                            ))}
-                        </AnimatePresence>
-                    </tbody>
-                </table>
-            </div>
+                                            Metadata
+                                        </Button>
+                                    </PermissionGuard>
+                                    <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
+                                        <Button
+                                            variant="danger"
+                                            size="sm"
+                                            onClick={() => setDeleteId(asset._id)}
+                                        >
+                                            Decommission
+                                        </Button>
+                                    </PermissionGuard>
+                                </div>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
 
+            {/* QR Modal Preview */}
             <AnimatePresence>
                 {selectedQr && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
+                    <div
+                        className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl"
                         onClick={() => setSelectedQr(null)}
                     >
                         <motion.div
-                            initial={{ scale: 0.95, y: 10 }}
-                            animate={{ scale: 1, y: 0 }}
-                            exit={{ scale: 0.95, y: 10 }}
-                            className="bg-[#111] border border-white/10 p-8 rounded-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto"
+                            initial={{ scale: 0.95, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            className="card w-full max-w-sm text-center bg-slate-900 border-white/10"
                             onClick={e => e.stopPropagation()}
                         >
-                            <h3 className="text-lg font-medium text-white mb-6 text-center">{selectedQr.name}</h3>
-                            <div className="bg-white p-4 rounded-xl flex justify-center mb-6">
-                                <img src={selectedQr.qrCode} alt="Large QR" className="w-48 h-48" />
+                            <h3 className="text-white font-bold text-lg mb-6">{selectedQr.name}</h3>
+                            <div className="bg-white p-6 rounded-xl inline-block mb-6 shadow-2xl">
+                                <img src={selectedQr.qrCode} alt="Large QR" className="w-56 h-56" />
                             </div>
-                            <div className="text-center mb-8">
-                                <p className="text-xs text-gray-500 uppercase tracking-widest mb-1">Serial Number</p>
-                                <p className="font-mono text-gray-300">{selectedQr.serialNumber}</p>
+                            <div className="mb-8">
+                                <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Serial Authority</div>
+                                <div className="font-mono text-slate-300 text-sm font-bold">{selectedQr.serialNumber}</div>
                             </div>
-                            <button
-                                onClick={() => setSelectedQr(null)}
-                                className="w-full py-2.5 rounded-lg bg-white/10 hover:bg-white/20 text-white transition-colors font-medium text-sm"
-                            >
-                                Close
-                            </button>
+                            <Button variant="secondary" className="w-full" onClick={() => setSelectedQr(null)}>
+                                Dismiss Archive
+                            </Button>
                         </motion.div>
-                    </motion.div>
+                    </div>
                 )}
             </AnimatePresence>
-        </>
+
+            {/* Confirmation Modal (UX Requirement) */}
+            <ConfirmModal
+                isOpen={!!deleteId}
+                title="Decommission Asset?"
+                message="This action initiates a Decommission Protocol. For high-value assets, this may trigger a Dual-Authorization requirement (4-Eyes Principle)."
+                confirmText="Initiate Protocol"
+                onConfirm={() => {
+                    onDelete && onDelete(deleteId);
+                    setDeleteId(null);
+                }}
+                onCancel={() => setDeleteId(null)}
+            />
+        </div>
     );
 }

@@ -79,13 +79,8 @@ const register = async (req, res) => {
       return res.status(400).json({ message: "Name must be between 2 and 100 characters" });
     }
 
-    // Hash password with strong salt
-    const salt = await bcrypt.genSalt(12);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // PRIVILEGE ESCALATION PREVENTION (Policy §11 & §16)
+    // PRIVILEGE ESCALATION PREVENTION (Policy §11 & §16 / §19 / §30)
     // Role is NEVER trusted from the client. Backend assigns it unconditionally.
-    // The ONLY exception: if this is the very first user (no users exist), grant Admin.
     const totalUsers = await User.countDocuments();
     let assignedRole = "Employee"; // Always default to least privilege
     let isApproved = false;
@@ -95,11 +90,11 @@ const register = async (req, res) => {
       isApproved = true;      // Auto-approved so the system can be bootstrapped
     }
 
-    // Create user
+    // Create user (Model pre-save will hash the password)
     const user = await User.create({
       name: sanitizedName,
       email: sanitizedEmail,
-      password: hashedPassword,
+      password: password, // Raw password sent, model hashes it (§1.1)
       role: assignedRole,
       createdAt: new Date(),
       lastLogin: null,
@@ -110,12 +105,9 @@ const register = async (req, res) => {
     // Send approval request email if not auto-approved
     if (!isApproved) {
       try {
-        console.log(`[Registration] Triggering approval email for ${sanitizedEmail}`);
         await sendApprovalRequest(user);
       } catch (emailErr) {
-        console.error(`[Registration] Email failed for ${sanitizedEmail}:`, emailErr.message);
-        // We don't fail the whole registration if just the email fails, 
-        // but we should probably tell the user or log it.
+        logger.error(`[Registration] Email failed for ${sanitizedEmail}:`, emailErr.message);
       }
     }
 
@@ -130,7 +122,7 @@ const register = async (req, res) => {
 
     if (!isApproved) {
       return res.status(201).json({
-        message: "Registration request sent! Your account is pending approval by the core admin. You will be notified once it's active.",
+        message: "Registration successfully initialized. Compliance pending approval.",
       });
     }
 
@@ -151,15 +143,14 @@ const register = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
-      message: "Registration successful! Welcome to Asset Tracker.",
+      message: "Node Provisioned: Registration successful.",
     });
   } catch (error) {
-    console.error("Registration error:", error);
-    res.status(500).json({ message: "Registration failed. Please try again." });
+    logger.error("Registration Core Error:", error);
+    res.status(500).json({ message: "Strategic registration failure. Forensic log captured." });
   }
 };
+
 
 const login = async (req, res) => {
   try {
@@ -180,27 +171,28 @@ const login = async (req, res) => {
 
     // Check if account is active
     if (user.isActive === false) {
-      return res.status(403).json({ message: "Your account has been suspended by an administrator." });
+      return res.status(403).json({ message: "Identity Decommissioned: Access is permanently suspended." });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const isMatch = await user.matchPassword(password);
 
     if (!isMatch) {
       // Handle failed attempt
       user.failedLoginAttempts += 1;
       if (user.failedLoginAttempts >= 5) {
-        user.lockUntil = Date.now() + 15 * 60 * 1000; // Lock for 15 minutes
+        user.lockUntil = Date.now() + 15 * 60 * 1000; // 15 mins
 
         await AuditLog.create({
-          action: "Security Alert: Account Lockout",
-          performedBy: "System",
-          details: `Account locked due to consecutive failed logins for ${user.email}`,
+          action: "SECURITY ALERT: Force Lockout",
+          performedBy: user.email,
+          details: `Consecutive authentication failure leading to node lockout.`,
           ip: req.ip || req.connection.remoteAddress,
         });
       }
       await user.save();
-      return res.status(400).json({ message: "Invalid credentials" });
+      return res.status(400).json({ message: "Registry error: Invalid credentials provided." });
     }
+
 
     // Two-Factor Authentication Logic
     if (user.isTwoFactorEnabled) {
@@ -553,12 +545,30 @@ const disable2FA = async (req, res) => {
 // @access  Private/Admin
 const getAllUsers = async (req, res) => {
   try {
-    const users = await User.find({}).select("-password");
-    res.json(users);
+    const page = parseInt(req.query.page, 10) || 1;
+    let limit = parseInt(req.query.limit, 10) || 20;
+    if (limit > 100) limit = 100; // Security Cap
+
+    const users = await User.find({})
+      .select("-password")
+      .limit(limit)
+      .skip((page - 1) * limit)
+      .sort({ createdAt: -1 });
+
+    const total = await User.countDocuments();
+
+    res.json({
+      users,
+      total,
+      pages: Math.ceil(total / limit),
+      currentPage: page
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error fetching users" });
+    logger.error("IAM Fetch Registry Error:", error);
+    res.status(500).json({ message: "Strategic Error: Failed to synchronize identity registry." });
   }
 };
+
 
 const PendingAction = require("../models/PendingAction");
 

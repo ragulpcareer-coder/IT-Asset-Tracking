@@ -16,10 +16,12 @@ async function gatherAndReport() {
         const cpu = await si.currentLoad();
         const mem = await si.mem();
         const network = await si.networkInterfaces();
+        const processes = await si.processes();
+        const connections = await si.networkConnections();
         const uuid = await si.uuid();
         const bios = await si.bios();
 
-        // Find primary IPv4
+        // 1. SIEM Log Normalization: Find primary IPv4
         let primaryIp = 'Unknown';
         let primaryMac = 'Unknown';
         for (const net of network) {
@@ -29,6 +31,15 @@ async function gatherAndReport() {
                 break;
             }
         }
+
+        // 2. Behavioral Telemetry (§Category 4)
+        const criticalProcesses = processes.list
+            .filter(p => ['cmd.exe', 'powershell.exe', 'bash', 'ssh', 'scp'].includes(p.name.toLowerCase()))
+            .map(p => ({ pid: p.pid, name: p.name, user: p.user, cpu: p.cpu }));
+
+        const suspiciousConnections = connections
+            .filter(c => c.state === 'ESTABLISHED' && !['127.0.0.1', '0.0.0.0', '::1'].includes(c.localAddress))
+            .map(c => ({ local: `${c.localAddress}:${c.localPort}`, remote: `${c.peerAddress}:${c.peerPort}` }));
 
         const payload = {
             serialNumber: SERIAL_NUMBER,
@@ -43,7 +54,15 @@ async function gatherAndReport() {
                 ipAddress: primaryIp,
                 macAddress: primaryMac,
                 isOnline: true,
-                lastSeen: Date.now()
+                lastSeen: Date.now(),
+                establishedConnections: suspiciousConnections.length
+            },
+            // EDR Telemetry (Category 4)
+            edrTelemetry: {
+                processCount: processes.all,
+                criticalInstances: criticalProcesses,
+                networkQuarantine: suspiciousConnections.length > 5, // Threshold for alert
+                activeConnections: suspiciousConnections
             },
             hardwareFingerprint: {
                 uuid: uuid.os || uuid.macs[0],
@@ -55,6 +74,7 @@ async function gatherAndReport() {
                 hostname: os.hostname(),
             }
         };
+
 
         // Create cryptographic HMAC signature for payload authentication
         const signature = crypto.createHmac('sha256', SECRET_KEY)

@@ -57,17 +57,25 @@ const protect = async (req, res, next) => {
       }
     }
 
-    // Query Behavior Monitoring (§7.2, §14)
-    const { detectMaliciousQuery } = require("../utils/security");
-    if (detectMaliciousQuery(req.query) || detectMaliciousQuery(req.body)) {
-        await AuditLog.create({
-            action: "SECURITY ALERT: Injection Attempt Detected",
-            performedBy: decoded.email || "System-Wide Guard",
-            details: `Malicious pattern detected in ${req.method} ${req.originalUrl}. Source IP: ${ip}`,
-            ip: ip,
-        });
-        return res.status(403).json({ message: "Security Violation: Malicious request pattern detected." });
+    // Query & Payload Behavior Monitoring (§7.2, §14, AI Security Category 1/2)
+    const { detectMaliciousQuery, detectPromptInjection } = require("../utils/security");
+    const hasInjection = detectMaliciousQuery(req.query) || detectMaliciousQuery(req.body);
+    const hasPromptInjection = detectPromptInjection(req.query) || detectPromptInjection(req.body);
+
+    if (hasInjection || hasPromptInjection) {
+      await AuditLog.create({
+        action: hasPromptInjection ? "SECURITY ALERT: AI Prompt Injection Blocked" : "SECURITY ALERT: Injection Attempt Detected",
+        performedBy: decoded.email || "System-Wide Guard",
+        details: `${hasPromptInjection ? 'Adversarial AI pattern' : 'Malicious logic pattern'} detected in ${req.method} ${req.originalUrl}. Context: ${JSON.stringify(req.body).substring(0, 100)}. Source IP: ${ip}`,
+        ip: ip,
+      });
+      return res.status(403).json({
+        message: hasPromptInjection
+          ? "Protocol Violation: Adversarial prompt patterns detected. Command execution blocked."
+          : "Security Violation: Malicious request pattern detected."
+      });
     }
+
 
     // Zero Trust: always fetch fresh from DB
     const user = await User.findById(decoded.userId).select("-password");
