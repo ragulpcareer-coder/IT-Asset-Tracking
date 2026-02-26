@@ -359,7 +359,9 @@ const changePassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
     user.password = hashedPassword;
+    if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.passwordChangedAt = Date.now();
+    user.markModified("activityTimestamps");
     await user.save();
 
     res.json({ message: "Password changed successfully" });
@@ -384,12 +386,17 @@ const updateProfile = async (req, res) => {
 
     if (preferences) {
       user.preferences = {
-        ...user.preferences,
+        ...(user.preferences || {}),
         ...preferences
       };
+      user.markModified("preferences");
     }
 
+    if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.profileUpdatedAt = Date.now();
+    user.markModified("activityTimestamps");
+
+
     await user.save();
 
     res.json(user);
@@ -526,8 +533,10 @@ const verify2FA = async (req, res) => {
       const backupCodes = Array.from({ length: 10 }, () => crypto.randomBytes(4).toString('hex'));
       user.twoFactorBackupCodes = backupCodes;
 
+      if (!user.activityTimestamps) user.activityTimestamps = {};
       user.activityTimestamps.tfaEnabledAt = Date.now();
       await user.save();
+
       res.json({ message: "Two-Factor authentication successfully enabled", backupCodes });
     } else {
       res.status(400).json({ message: "Invalid authentication code" });
@@ -545,8 +554,10 @@ const disable2FA = async (req, res) => {
     const user = await User.findById(req.user._id);
     user.isTwoFactorEnabled = false;
     user.twoFactorSecret = undefined;
+    if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.tfaEnabledAt = undefined;
     await user.save();
+
     res.json({ message: "Two-Factor authentication disabled" });
   } catch (error) {
     res.status(500).json({ message: "Error disabling 2FA" });

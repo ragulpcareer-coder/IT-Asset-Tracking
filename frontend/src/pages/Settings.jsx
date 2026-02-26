@@ -574,9 +574,9 @@ export default function Settings() {
 
         <div className="space-y-3">
           {[
-            { icon: "lock", action: "Password Changed", time: user?.activityTimestamps?.passwordChangedAt ? new Date(user.activityTimestamps.passwordChangedAt).toLocaleString() : "Never", status: user?.activityTimestamps?.passwordChangedAt ? "success" : "info" },
-            { icon: "user", action: "Profile Updated", time: user?.activityTimestamps?.profileUpdatedAt ? new Date(user.activityTimestamps.profileUpdatedAt).toLocaleString() : "Never", status: user?.activityTimestamps?.profileUpdatedAt ? "info" : "neutral" },
-            { icon: "shield", action: "2FA Checked", time: user?.activityTimestamps?.tfaEnabledAt ? new Date(user.activityTimestamps.tfaEnabledAt).toLocaleString() : "Never", status: user?.activityTimestamps?.tfaEnabledAt ? "success" : "neutral" },
+            { icon: "lock", action: "Password Changed", time: user?.activityTimestamps?.passwordChangedAt ? new Date(user.activityTimestamps.passwordChangedAt).toLocaleString() : "Sync history pending", status: user?.activityTimestamps?.passwordChangedAt ? "success" : "info" },
+            { icon: "user", action: "Profile Updated", time: user?.activityTimestamps?.profileUpdatedAt ? new Date(user.activityTimestamps.profileUpdatedAt).toLocaleString() : "No recent profile updates", status: user?.activityTimestamps?.profileUpdatedAt ? "info" : "neutral" },
+            { icon: "shield", action: "2FA Checked", time: user?.activityTimestamps?.tfaEnabledAt ? new Date(user.activityTimestamps.tfaEnabledAt).toLocaleString() : "Initial security check pending", status: user?.activityTimestamps?.tfaEnabledAt ? "success" : "neutral" },
           ].map((activity, idx) => (
 
             <motion.div
