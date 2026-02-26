@@ -84,16 +84,20 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ message: "Not authorized, user not found" });
     }
 
-    // Session Binding to IP (§11.1) - Extreme Defense Mode
+    // Session Binding to IP (§11.1) - Relaxed for Cloud (Render/Vercel Proxy hops)
     if (user.lastLoginIp && user.lastLoginIp !== ip) {
+      // Just log the anomaly for investigation rather than blocking the user
       await AuditLog.create({
-        action: "SECURITY: Session Hijack Detection",
+        action: "SECURITY ANOMALY: Session IP Shift",
         performedBy: user.email,
-        details: `Session IP mismatch. Expected: ${user.lastLoginIp}, Got: ${ip}. Terminating context.`,
+        details: `Session IP variation detected. Initial: ${user.lastLoginIp}, Current: ${ip}. Monitoring for high-velocity shifts.`,
         ip: ip,
       });
-      return res.status(401).json({ message: "Session invalid: Location change detected mid-session." });
+      // Optionally update the IP to follow the user
+      user.lastLoginIp = ip;
+      await user.save();
     }
+
 
     // Time-Based Access Control (§12.1)
     if (user.role === "Employee") {
