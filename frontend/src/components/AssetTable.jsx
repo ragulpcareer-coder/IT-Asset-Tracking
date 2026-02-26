@@ -33,11 +33,12 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                     <thead>
                         <tr className="border-b border-white/10 text-gray-400 bg-[#050505]">
                             <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Asset</th>
+                            <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Classification</th>
                             <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Type</th>
                             <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Status</th>
                             <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs">Assigned To</th>
                             <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs text-center">QR</th>
-                            {user?.role === "Admin" && <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs text-right">Actions</th>}
+                            {["Super Admin", "Admin"].includes(user?.role) && <th className="px-6 py-4 font-medium uppercase tracking-wider text-xs text-right">Actions</th>}
                         </tr>
                     </thead>
                     <tbody>
@@ -53,11 +54,16 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                 >
                                     <td className="px-6 py-4">
                                         <div className="text-white font-medium">{asset.name}</div>
-                                        <div className="text-xs text-gray-500 mt-1 font-mono">SN: {asset.serialNumber}</div>
+                                        <div className="text-[10px] text-gray-500 mt-1 font-mono uppercase tracking-tighter">UUID: {asset.uuid || "LEGACY-ID"}</div>
+                                        <div className="text-xs text-blue-400 mt-1 font-mono">SN: {asset.serialNumber}</div>
                                     </td>
-                                    <td className="px-6 py-4 text-gray-300">
-                                        <span className="px-2.5 py-1 rounded bg-[#111] border border-white/10 text-xs">
-                                            {asset.type}
+                                    <td className="px-6 py-4">
+                                        <span className={`px-2 py-0.5 rounded text-[10px] uppercase font-bold border ${asset.classification === "Restricted" ? "bg-red-500/10 text-red-500 border-red-500/20" :
+                                                asset.classification === "Confidential" ? "bg-orange-500/10 text-orange-400 border-orange-500/20" :
+                                                    asset.classification === "Internal" ? "bg-blue-500/10 text-blue-400 border-blue-500/20" :
+                                                        "bg-gray-500/10 text-gray-400 border-gray-500/20"
+                                            }`}>
+                                            {asset.classification || "Internal"}
                                         </span>
                                     </td>
                                     <td className="px-6 py-4">
@@ -82,7 +88,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                             <span className="text-xs text-gray-600">N/A</span>
                                         )}
                                     </td>
-                                    {user?.role === "Admin" && (
+                                    {["Super Admin", "Admin"].includes(user?.role) && (
                                         <td className="px-6 py-4 text-right">
                                             <div className="flex justify-end gap-2 text-sm">
                                                 <button

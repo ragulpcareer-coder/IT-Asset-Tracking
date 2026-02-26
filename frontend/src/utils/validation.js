@@ -6,7 +6,7 @@ export const checkPasswordStrength = (password) => {
     color: "#ef4444",
     feedback: [],
     metrics: {
-      length: password.length >= 8,
+      length: password.length >= 12,   // Enterprise policy: 12-char minimum
       uppercase: /[A-Z]/.test(password),
       lowercase: /[a-z]/.test(password),
       numbers: /[0-9]/.test(password),
@@ -22,7 +22,7 @@ export const checkPasswordStrength = (password) => {
   if (result.metrics.numbers) result.score++;
   if (result.metrics.specialChars) result.score++;
 
-  // Determine level
+  // Determine level (max score is now 6)
   if (result.score <= 1) {
     result.level = "Very Weak";
     result.color = "#ef4444";
@@ -45,15 +45,15 @@ export const checkPasswordStrength = (password) => {
 
   // Generate feedback
   if (!result.metrics.length)
-    result.feedback.push("Use at least 8 characters");
+    result.feedback.push("Minimum 12 characters required");
   if (!result.metrics.uppercase)
-    result.feedback.push("Add uppercase letters");
+    result.feedback.push("Add at least one uppercase letter");
   if (!result.metrics.lowercase)
-    result.feedback.push("Add lowercase letters");
+    result.feedback.push("Add at least one lowercase letter");
   if (!result.metrics.numbers)
-    result.feedback.push("Add numbers");
+    result.feedback.push("Add at least one number");
   if (!result.metrics.specialChars)
-    result.feedback.push("Add special characters");
+    result.feedback.push("Add at least one special character (!@#$%^&*)");
 
   return result;
 };
@@ -72,8 +72,12 @@ export const validateFormField = (field, value) => {
       error: "Please enter a valid email address",
     }),
     password: (val) => ({
-      valid: val.length >= 8,
-      error: "Password must be at least 8 characters",
+      valid: val.length >= 12 &&
+        /[A-Z]/.test(val) &&
+        /[a-z]/.test(val) &&
+        /[0-9]/.test(val) &&
+        /[!@#$%^&*()_+\-=\[\]{};':\"\\|,.<>\/?]/.test(val),
+      error: "Password must be 12+ chars with uppercase, lowercase, number & symbol",
     }),
     confirmPassword: (val, compareWith) => ({
       valid: val === compareWith,
@@ -133,12 +137,12 @@ export const generateStrongPassword = (length = 12) => {
     .join("");
 };
 
-// Format password requirements
+// Format password requirements (Enterprise Policy: 12 char minimum)
 export const getPasswordRequirements = () => [
-  { id: "length", label: "At least 8 characters", check: (pwd) => pwd.length >= 8 },
-  { id: "uppercase", label: "One uppercase letter", check: (pwd) => /[A-Z]/.test(pwd) },
-  { id: "lowercase", label: "One lowercase letter", check: (pwd) => /[a-z]/.test(pwd) },
-  { id: "number", label: "At least one number", check: (pwd) => /[0-9]/.test(pwd) },
+  { id: "length", label: "Minimum 12 characters", check: (pwd) => pwd.length >= 12 },
+  { id: "uppercase", label: "At least one uppercase letter (A-Z)", check: (pwd) => /[A-Z]/.test(pwd) },
+  { id: "lowercase", label: "At least one lowercase letter (a-z)", check: (pwd) => /[a-z]/.test(pwd) },
+  { id: "number", label: "At least one number (0-9)", check: (pwd) => /[0-9]/.test(pwd) },
   {
     id: "special",
     label: "One special character (!@#$%^&*)",

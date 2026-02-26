@@ -31,8 +31,14 @@ const backupTask = cron.schedule('0 2 * * *', async () => {
             }
         };
 
-        fs.writeFileSync(backupFile, JSON.stringify(backupData, null, 2));
-        console.log(`✅ Local backup successfully created at: ${backupFile}`);
+        const { encryptSensitiveData } = require('../utils/security');
+        const backupSecret = process.env.BACKUP_SECRET || process.env.JWT_SECRET || 'emergency_backup_key_32_chars_long!!';
+
+        const jsonData = JSON.stringify(backupData);
+        const encryptedData = encryptSensitiveData(jsonData, backupSecret);
+
+        fs.writeFileSync(backupFile, encryptedData);
+        console.log(`✅ Local Encrypted backup successfully created at: ${backupFile} (Policy §19)`);
 
         // Cloud Backup to AWS S3 (Cybersecurity Enterprise Feature)
         try {

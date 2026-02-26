@@ -7,9 +7,17 @@ const userSchema = new mongoose.Schema({
   password: { type: String, required: true },
   role: {
     type: String,
-    enum: ["Admin", "User"],
-    default: "User"
+    enum: ["Super Admin", "Admin", "Asset Manager", "Security Auditor", "Manager", "Employee", "Guest"],
+    default: "Employee"
   },
+  department: { type: String, default: "General" },
+  location: { type: String, default: "Headquarters" },
+  devices: [{
+    ip: String,
+    userAgent: String,
+    fingerprint: String,
+    lastLogin: Date
+  }],
   isTwoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String },
   twoFactorBackupCodes: [{ type: String }],
@@ -22,7 +30,11 @@ const userSchema = new mongoose.Schema({
   failedLoginAttempts: { type: Number, default: 0 },
   lockUntil: { type: Date },
   lastLogin: { type: Date },
-  isActive: { type: Boolean, default: true }
+  isActive: { type: Boolean, default: true },
+  lastLoginIp: { type: String },
+  lastLoginGeo: { type: mongoose.Schema.Types.Mixed }, // { country, city, coordinates }
+  privilegeToken: { type: String },
+  privilegeTokenExpires: { type: Date },
 }, { timestamps: true });
 
 // DB ENCRYPTION FIX: Encrypt highly sensitive secrets at the database layer

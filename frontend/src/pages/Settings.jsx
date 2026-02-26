@@ -559,6 +559,32 @@ export default function Settings() {
     <div className="pb-10 text-white">
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
+      {/* ── Admin 2FA Security Policy Banner ──────────────────────────────── */}
+      {["Super Admin", "Admin"].includes(user?.role) && !preferences.twoFactorEnabled && (
+        <div
+          className="mb-6 flex items-start gap-4 p-4 rounded-xl border border-amber-500/40 bg-amber-500/10 text-amber-300"
+          role="alert"
+        >
+          <div className="text-2xl shrink-0">⚠️</div>
+          <div className="flex-1">
+            <p className="font-bold text-amber-200 text-base mb-1">
+              Security Policy Violation — 2FA Required for Administrators
+            </p>
+            <p className="text-sm text-amber-300/80">
+              Your account has <strong>Administrator</strong> privileges. The enterprise security
+              policy mandates Two-Factor Authentication (2FA) for all admin accounts.
+              You will be blocked from performing privileged actions until 2FA is enabled.
+            </p>
+          </div>
+          <button
+            onClick={() => setActiveTab("security")}
+            className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm rounded-lg transition"
+          >
+            Enable 2FA Now →
+          </button>
+        </div>
+      )}
+
       {/* Page Header */}
       <motion.div
         className="mb-8 px-2 pt-4 md:pt-8"

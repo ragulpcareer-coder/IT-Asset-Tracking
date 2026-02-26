@@ -2,6 +2,8 @@ import React, { useState, useEffect, useContext } from "react";
 import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
 import { socket } from "../services/socket";
+import LoadingSpinner from "../components/common/LoadingSpinner";
+
 function Cybersecurity() {
     const { user } = useContext(AuthContext);
     const [alerts, setAlerts] = useState([]);
@@ -48,7 +50,7 @@ function Cybersecurity() {
         }
     };
 
-    if (!user || user.role !== "Admin") {
+    if (!user || !["Super Admin", "Admin"].includes(user.role)) {
         return <div className="p-6 text-center text-red-500">Access Denied</div>;
     }
 
@@ -84,7 +86,7 @@ function Cybersecurity() {
                 </div>
             )}
 
-            <div className="card-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", marginBottom: 32 }}>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8">
                 <div className="stat-card">
                     <div className="stat-title text-red-400">Active High Risk Alerts</div>
                     <div className="stat-value text-red-500">{alerts.filter(a => a.securityStatus?.riskLevel === 'High' || a.securityStatus?.riskLevel === 'Critical').length}</div>
@@ -99,14 +101,14 @@ function Cybersecurity() {
                 <h2 style={{ fontSize: '18px', fontWeight: 600, marginBottom: 16 }}>Live Security Alerts & Rogue Devices</h2>
 
                 {loading ? (
-                    <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5 }}>Loading security dashboard...</div>
+                    <div className="py-20"><LoadingSpinner message="Loading security dashboard..." /></div>
                 ) : alerts.length === 0 ? (
                     <div style={{ textAlign: 'center', padding: '40px 0', opacity: 0.5, border: '1px dashed rgba(255,255,255,0.1)', borderRadius: 8 }}>
                         No immediate security threats detected on network.
                     </div>
                 ) : (
-                    <div className="data-table-container">
-                        <table className="data-table">
+                    <div className="overflow-x-auto w-full">
+                        <table className="data-table w-full whitespace-nowrap">
                             <thead>
                                 <tr>
                                     <th>Device / Asset</th>

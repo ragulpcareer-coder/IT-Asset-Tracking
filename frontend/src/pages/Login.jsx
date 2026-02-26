@@ -62,7 +62,14 @@ export default function Login() {
 
     try {
       setLoading(true);
-      await login(email, password, token2FA);
+      // Enterprise Device Fingerprinting (Policy §2.4)
+      const fingerprint = {
+        browser: navigator.userAgent,
+        language: navigator.language,
+        resolution: `${window.screen.width}x${window.screen.height}`,
+        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+      };
+      await login(email, password, token2FA, fingerprint);
       navigate("/");
     } catch (err) {
       if (err.response?.data?.requires2FA) {

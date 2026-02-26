@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
 import { socket } from "../services/socket";
+import LoadingSpinner from "../components/common/LoadingSpinner";
 import { ProfessionalIcon } from "../components/ProfessionalIcons";
 import { theme } from "../config/theme";
 import {
@@ -35,7 +36,7 @@ export default function Dashboard() {
       setLoading(true);
       const [assetsRes, logsRes] = await Promise.all([
         axios.get("/assets"),
-        user?.role === "Admin" ? axios.get("/audit") : Promise.resolve({ data: { data: [] } }),
+        ["Super Admin", "Admin"].includes(user?.role) ? axios.get("/audit") : Promise.resolve({ data: { data: [] } }),
       ]);
 
       setAssets(assetsRes.data.assets || assetsRes.data || []);
@@ -129,22 +130,7 @@ export default function Dashboard() {
   };
 
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-blue-900 to-teal-900">
-        <motion.div
-          className="text-center"
-          animate={{ scale: [1, 1.1, 1] }}
-          transition={{ duration: 2, repeat: Infinity }}
-        >
-          <motion.div
-            className="w-16 h-16 border-4 border-teal-400/20 border-t-teal-400 rounded-full mx-auto mb-4"
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-          />
-          <p className="text-teal-200 font-semibold text-lg">Loading Dashboard...</p>
-        </motion.div>
-      </div>
-    );
+    return <LoadingSpinner fullScreen message="Loading Dashboard..." />;
   }
 
   const metricCards = [
@@ -160,6 +146,31 @@ export default function Dashboard() {
       <div className="relative z-10 pb-10">
         <ToastContainer position="top-right" autoClose={3000} />
 
+        {/* ── Admin 2FA Warning Banner ─────────────────────────────────────── */}
+        {["Super Admin", "Admin"].includes(user?.role) && !user?.isTwoFactorEnabled && (
+          <div
+            className="mx-4 md:mx-6 mb-6 flex items-center gap-4 p-4 rounded-xl border border-amber-500/40 bg-amber-500/10"
+            role="alert"
+          >
+            <span className="text-2xl shrink-0">⚠️</span>
+            <div className="flex-1">
+              <p className="font-bold text-amber-200 text-sm mb-0.5">
+                Action Required: Enable 2FA for Your Admin Account
+              </p>
+              <p className="text-xs text-amber-300/80">
+                Enterprise security policy requires 2FA for all administrator accounts.
+                Privileged actions are blocked until 2FA is configured.
+              </p>
+            </div>
+            <a
+              href="/settings"
+              className="shrink-0 px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs rounded-lg transition"
+            >
+              Enable Now →
+            </a>
+          </div>
+        )}
+
         {/* Welcome Section */}
         <motion.div
           className="mb-8 px-4 md:px-6 pt-4 md:pt-8"
@@ -168,10 +179,12 @@ export default function Dashboard() {
           transition={{ duration: 0.4 }}
         >
           <h1 className="text-3xl font-semibold text-white tracking-tight mb-1">
-            Overview
+            {["Super Admin", "Admin"].includes(user?.role) ? "Admin Dashboard" : "My Dashboard"}
           </h1>
           <p className="text-gray-400 text-sm font-medium">
-            Good to see you, {user?.name}. Here's what's happening.
+            {["Super Admin", "Admin"].includes(user?.role)
+              ? `Welcome back, ${user?.name}. Here's the full system overview.`
+              : `Good to see you, ${user?.name}. Here are your assigned assets.`}
           </p>
         </motion.div>
 
@@ -288,7 +301,7 @@ export default function Dashboard() {
         </div>
 
         {/* Admin Section */}
-        {user?.role === "Admin" && (
+        {["Super Admin", "Admin"].includes(user?.role) && (
           <div className="px-4 md:px-6 mb-10">
             <motion.div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               {/* Audit Stats */}
@@ -381,62 +394,64 @@ export default function Dashboard() {
           </div>
         )}
 
-        {/* Recent Activities */}
-        <div className="px-4 md:px-6 mb-10">
-          <div className="card">
-            <motion.div className="p-6">
-              <h2 className="text-xl font-bold text-white mb-4">Recent Activities</h2>
-              {logs.length === 0 ? (
-                <motion.p className="text-blue-100 text-center py-8">
-                  No recent activities
-                </motion.p>
-              ) : (
-                <div className="space-y-2">
-                  {logs.slice(0, 10).map((log, idx) => {
-                    const date = new Date(log.createdAt);
-                    const actionType = log.action.includes("Created")
-                      ? "created"
-                      : log.action.includes("Updated")
-                        ? "updated"
-                        : "deleted";
-                    const colors = {
-                      created: "from-green-500/30 to-green-600/30 border-green-500/30",
-                      updated: "from-blue-500/30 to-blue-600/30 border-blue-500/30",
-                      deleted: "from-red-500/30 to-red-600/30 border-red-500/30",
-                    };
-                    return (
-                      <motion.div
-                        key={idx}
-                        className={`flex items-center gap-4 p-3 rounded-lg bg-gradient-to-r ${colors[actionType]} border backdrop-blur-md`}
-                        initial={{ x: -20, opacity: 0 }}
-                        animate={{ x: 0, opacity: 1 }}
-                        transition={{ delay: 1 + idx * 0.05 }}
-                        whileHover={{ x: 4 }}
-                      >
-                        <motion.span
-                          className={`px-3 py-1 rounded-full text-xs font-semibold ${actionType === "created"
-                            ? "bg-green-500/50 text-green-100"
-                            : actionType === "updated"
-                              ? "bg-blue-500/50 text-blue-100"
-                              : "bg-red-500/50 text-red-100"
-                            }`}
-                          whileHover={{ scale: 1.1 }}
+        {/* Recent Activities — Admin only (§4 Standard User cannot view logs) */}
+        {["Super Admin", "Admin"].includes(user?.role) && (
+          <div className="px-4 md:px-6 mb-10">
+            <div className="card">
+              <motion.div className="p-6">
+                <h2 className="text-xl font-bold text-white mb-4">Recent Activities</h2>
+                {logs.length === 0 ? (
+                  <motion.p className="text-blue-100 text-center py-8">
+                    No recent activities
+                  </motion.p>
+                ) : (
+                  <div className="space-y-2">
+                    {logs.slice(0, 10).map((log, idx) => {
+                      const date = new Date(log.createdAt);
+                      const actionType = log.action.includes("Created")
+                        ? "created"
+                        : log.action.includes("Updated")
+                          ? "updated"
+                          : "deleted";
+                      const colors = {
+                        created: "from-green-500/30 to-green-600/30 border-green-500/30",
+                        updated: "from-blue-500/30 to-blue-600/30 border-blue-500/30",
+                        deleted: "from-red-500/30 to-red-600/30 border-red-500/30",
+                      };
+                      return (
+                        <motion.div
+                          key={idx}
+                          className={`flex items-center gap-4 p-3 rounded-lg bg-gradient-to-r ${colors[actionType]} border backdrop-blur-md`}
+                          initial={{ x: -20, opacity: 0 }}
+                          animate={{ x: 0, opacity: 1 }}
+                          transition={{ delay: 1 + idx * 0.05 }}
+                          whileHover={{ x: 4 }}
                         >
-                          {actionType.toUpperCase()}
-                        </motion.span>
-                        <div className="flex-1">
-                          <p className="font-semibold text-white">{log.action}</p>
-                          <p className="text-sm text-blue-200">{log.performedBy}</p>
-                        </div>
-                        <span className="text-xs text-blue-300 whitespace-nowrap">{date.toLocaleString()}</span>
-                      </motion.div>
-                    );
-                  })}
-                </div>
-              )}
-            </motion.div>
+                          <motion.span
+                            className={`px-3 py-1 rounded-full text-xs font-semibold ${actionType === "created"
+                              ? "bg-green-500/50 text-green-100"
+                              : actionType === "updated"
+                                ? "bg-blue-500/50 text-blue-100"
+                                : "bg-red-500/50 text-red-100"
+                              }`}
+                            whileHover={{ scale: 1.1 }}
+                          >
+                            {actionType.toUpperCase()}
+                          </motion.span>
+                          <div className="flex-1">
+                            <p className="font-semibold text-white">{log.action}</p>
+                            <p className="text-sm text-blue-200">{log.performedBy}</p>
+                          </div>
+                          <span className="text-xs text-blue-300 whitespace-nowrap">{date.toLocaleString()}</span>
+                        </motion.div>
+                      );
+                    })}
+                  </div>
+                )}
+              </motion.div>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* System Status */}
         <div className="px-4 md:px-6">

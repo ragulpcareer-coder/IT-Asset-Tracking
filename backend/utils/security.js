@@ -37,7 +37,7 @@ class RateLimiter {
   }
 }
 
-// Password strength validator
+// Password strength validator (Enterprise Grade: 12 chars, Upper, Lower, Number, Symbol)
 const validatePasswordStrength = (password) => {
   const strength = {
     score: 0,
@@ -45,24 +45,28 @@ const validatePasswordStrength = (password) => {
     isStrong: false,
   };
 
-  if (password.length >= 8) strength.score += 1;
-  else strength.feedback.push("At least 8 characters");
+  // Length 14+ (Policy §2.2)
+  if (password.length >= 14) strength.score += 1;
+  else strength.feedback.push("Minimum 14 characters required");
 
-  if (password.length >= 12) strength.score += 1;
-
+  // Uppercase
   if (/[A-Z]/.test(password)) strength.score += 1;
-  else strength.feedback.push("Add uppercase letters");
+  else strength.feedback.push("Must contain at least one uppercase letter");
 
+  // Lowercase
   if (/[a-z]/.test(password)) strength.score += 1;
-  else strength.feedback.push("Add lowercase letters");
+  else strength.feedback.push("Must contain at least one lowercase letter");
 
+  // Number
   if (/[0-9]/.test(password)) strength.score += 1;
-  else strength.feedback.push("Add numbers");
+  else strength.feedback.push("Must contain at least one number");
 
+  // Special Char
   if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) strength.score += 1;
-  else strength.feedback.push("Add special characters");
+  else strength.feedback.push("Must contain at least one symbol (!@#$%^&* etc.)");
 
-  strength.isStrong = strength.score >= 4;
+  // Enterprise requirement: All 5 checks must pass
+  strength.isStrong = strength.score === 5;
 
   return strength;
 };
@@ -129,6 +133,27 @@ const decryptSensitiveData = (encrypted, key) => {
   return decrypted;
 };
 
+const verifyRequestSignature = (req, secret) => {
+  const signature = req.headers['x-request-signature'];
+  const timestamp = req.headers['x-request-timestamp'];
+  if (!signature || !timestamp) return false;
+
+  const payload = `${req.method}|${req.originalUrl}|${timestamp}|${JSON.stringify(req.body)}`;
+  const expectedSignature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+};
+
+const detectMaliciousQuery = (query) => {
+  const patterns = [
+    /(\%27)|(\')|(\-\-)|(\%23)|(#)/i, // SQL injection
+    /(SELECT|INSERT|UPDATE|DELETE|DROP|UNION)/i,
+    /(\$where|\$ne|\$gt|\$lt|\$regex)/i, // NoSQL injection
+    /(<script|iframe|alert|onerror)/i // XSS
+  ];
+  const queryStr = JSON.stringify(query);
+  return patterns.some(pattern => pattern.test(queryStr));
+};
+
 module.exports = {
   RateLimiter,
   validatePasswordStrength,
@@ -139,4 +164,6 @@ module.exports = {
   sendResponse,
   encryptSensitiveData,
   decryptSensitiveData,
+  verifyRequestSignature,
+  detectMaliciousQuery
 };

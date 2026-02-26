@@ -34,7 +34,7 @@ const registerLimiter = new RateLimiter(3, 60 * 60 * 1000); // 3 attempts per ho
 // @access  Public
 const register = async (req, res) => {
   try {
-    const { name, email, password, role } = req.body;
+    const { name, email, password } = req.body; // role is NEVER accepted from client
     const ip = req.ip || req.connection.remoteAddress;
 
     // Rate limiting
@@ -83,14 +83,16 @@ const register = async (req, res) => {
     const salt = await bcrypt.genSalt(12);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    // Zero Trust Admin Enforcement
+    // PRIVILEGE ESCALATION PREVENTION (Policy §11 & §16)
+    // Role is NEVER trusted from the client. Backend assigns it unconditionally.
+    // The ONLY exception: if this is the very first user (no users exist), grant Admin.
     const totalUsers = await User.countDocuments();
-    let assignedRole = role || "User"; // Allow specifying role but default to User
+    let assignedRole = "Employee"; // Always default to least privilege
     let isApproved = false;
 
     if (totalUsers === 0) {
-      assignedRole = "Admin"; // First ever user gets Admin privileges
-      isApproved = true; // First user is auto-approved
+      assignedRole = "Super Admin"; // First-ever account becomes the super admin
+      isApproved = true;      // Auto-approved so the system can be bootstrapped
     }
 
     // Create user
@@ -225,24 +227,80 @@ const login = async (req, res) => {
       }
     }
 
-    // Check if account is approved
-    if (!user.isApproved) {
+    // Enterprise Behavioral Monitoring & SIEM Anomaly Detection (§12.1)
+    const currentHour = new Date().getHours();
+    if (currentHour >= 0 && currentHour <= 5) {
+      await AuditLog.create({
+        action: "SECURITY ANOMALY: Unusual Login Time",
+        performedBy: user.email,
+        details: `User logged in during restricted/unusual hours: ${currentHour}:00 AM`,
+        ip: req.ip || req.connection?.remoteAddress,
+      });
+    }
+
+    // Check if account is approved (Admins inherently bypass this)
+    if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
       return res.status(403).json({ message: "Your account is pending approval by the core admin." });
     }
 
-    // Success logic
+    // Enterprise Device Fingerprinting & SIEM Detection (Policy §2.4)
+    const ip = req.ip || req.connection.remoteAddress;
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const deviceFingerprint = req.body.fingerprint || 'unknown'; // Derived from frontend
+    const geo = geoip.lookup(ip);
+
+    // Impossible Travel Detection (§2.1) & Concurrent Session Control (§2.2)
+    if (geo && user.lastLoginGeo && user.lastLogin) {
+      const lastGeo = user.lastLoginGeo;
+      const timeDiffMinutes = (Date.now() - new Date(user.lastLogin).getTime()) / 60000;
+
+      // If country changed and time < 60 mins (Simplified "Impossible Travel")
+      if (geo.country !== lastGeo.country && timeDiffMinutes < 60) {
+        user.isActive = false; // Instant Lock (§2.1 / §2.2)
+        await user.save();
+        await AuditLog.create({
+          action: "SECURITY ALERT: Impossible Travel Detected",
+          performedBy: user.email,
+          details: `Account auto-locked. Prev: ${lastGeo.country} (${user.lastLoginIp}). Current: ${geo.country} (${ip}). Velocity violation.`,
+          ip: ip,
+        });
+        return res.status(403).json({ message: "Security Violation: Impossible travel velocity detected. Account locked." });
+      }
+    }
+
+    const isExistingDevice = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
+    if (!isExistingDevice) {
+      // Log "New Device Detected" in Audit Logs for Security Monitoring
+      await AuditLog.create({
+        action: "SECURITY ALERT: New Device Detected",
+        performedBy: user.email,
+        details: `A new device logged in. IP: ${ip}, Browser: ${userAgent}, Location: ${geo?.country || 'Unknown'}`,
+        ip: ip,
+      });
+
+      // Add to user's known devices list
+      user.devices.push({
+        ip,
+        userAgent,
+        fingerprint: deviceFingerprint,
+        lastLogin: Date.now()
+      });
+
+      // Enterprise Alert logic (sending email alert for new login)
+      // Typically integrated with a notification service
+    } else {
+      // Update last seen for existing device
+      const devIdx = user.devices.findIndex(d => d.ip === ip && d.userAgent === userAgent);
+      if (devIdx !== -1) user.devices[devIdx].lastLogin = Date.now();
+    }
+
+    // Success login cleanup
     user.failedLoginAttempts = 0;
     user.lockUntil = undefined;
     user.lastLogin = Date.now();
+    user.lastLoginIp = ip;
+    user.lastLoginGeo = geo; // Store for next travel check
     await user.save();
-
-    // Geo-Location Login Detection (Weakness 39)
-    const ip = req.ip || req.connection.remoteAddress;
-    const geo = geoip.lookup(ip);
-    if (geo) {
-      console.log(`[Security] User ${user.email} logged in from ${geo.city}, ${geo.country}`);
-      // Enterprise systems typically alert on unusual countries, but we log the context for the SIEM.
-    }
 
     // Concurrent Session Control (Weakness 38) - Prevent multiple logins by invalidating old sessions
     await RefreshToken.deleteMany({ user: user._id });
@@ -502,7 +560,9 @@ const getAllUsers = async (req, res) => {
   }
 };
 
-// @desc    Promote user to Admin (Admin only)
+const PendingAction = require("../models/PendingAction");
+
+// @desc    Promote user to Admin (Now requires Dual-Auth §3.1)
 // @route   PUT /api/auth/users/:id/promote
 // @access  Private/Admin
 const promoteUser = async (req, res) => {
@@ -510,25 +570,64 @@ const promoteUser = async (req, res) => {
     const userToPromote = await User.findById(req.params.id);
     if (!userToPromote) return res.status(404).json({ message: "User not found" });
 
-    userToPromote.role = "Admin";
-    await userToPromote.save();
+    // Privilege Abuse Detection (§5.3)
+    if (userToPromote._id.toString() === req.user._id.toString()) {
+      return res.status(403).json({ message: "Security Violation: Self-elevation is forbidden (§5.3)." });
+    }
+
+    if (userToPromote.role === "Super Admin" || userToPromote.role === "Admin") {
+      return res.status(403).json({ message: "User is already an Admin or Super Admin" });
+    }
+
+    const { approvalId } = req.query; // Check if Approval token is provided (§3.1)
+
+    if (approvalId) {
+      // SECOND ADMIN APPROVER LOGIC
+      const approvedAction = await PendingAction.findById(approvalId);
+      if (approvedAction && approvedAction.status === "APPROVED" && approvedAction.data.targetUserId === req.params.id) {
+
+        // Verify it was approved by someone ELSE (§3.1)
+        if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
+          return res.status(403).json({ message: "4-Eyes Principle: You cannot approve your own promotion request." });
+        }
+
+        userToPromote.role = "Admin";
+        await userToPromote.save();
+
+        approvedAction.status = "EXECUTED";
+        await approvedAction.save();
+
+        await AuditLog.create({
+          action: "DUAL-AUTH: User Promoted",
+          performedBy: req.user.email,
+          details: `Admin role GAINED by ${userToPromote.email} via Dual Authorization. Executed by ${req.user.email}.`,
+          ip: req.ip || req.connection?.remoteAddress
+        });
+
+        return res.json({ message: "Action Executed: User successfully promoted via Dual Authorization." });
+      }
+    }
+
+    // If no approved action exists, create a pending one (§3.1)
+    const pending = await PendingAction.create({
+      actionType: "PROMOTE_USER",
+      data: { targetUserId: userToPromote._id, targetEmail: userToPromote.email, requestedRole: "Admin" },
+      createdBy: req.user._id
+    });
 
     await AuditLog.create({
-      action: "User Promoted",
+      action: "SECURITY: Promotion Requested",
       performedBy: req.user.email,
-      details: `Promoted ${userToPromote.email} to Admin`,
+      details: `Admin promotion requested for ${userToPromote.email}. Penting 4-Eyes approval.`,
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    // Enterprise Privilege Escalation Monitoring Alert (Weakness 7)
-    await sendSecurityAlert(
-      `Critical Privilege Escalation Detected`,
-      `User <b>${userToPromote.email}</b> was just promoted to Super Admin level by <b>${req.user.email}</b>. If this was not authorized, please lock down the system immediately.`
-    );
-
-    res.json({ message: "User successfully promoted to Admin", user: { _id: userToPromote._id, email: userToPromote.email, role: userToPromote.role } });
+    res.status(202).json({
+      message: "Dual Authorization Required: This critical role change requires a second administrator's approval.",
+      pendingActionId: pending._id
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error promoting user" });
+    res.status(500).json({ message: "Error in promotion procedure: " + error.message });
   }
 };
 
@@ -544,17 +643,24 @@ const demoteUser = async (req, res) => {
       return res.status(400).json({ message: "You cannot demote yourself" });
     }
 
-    userToDemote.role = "User";
+    if (userToDemote.role === "Super Admin" && req.user.role !== "Super Admin") {
+      return res.status(403).json({ message: "Only a Super Admin can demote a Super Admin" });
+    }
+    if (userToDemote.role === "Admin" && req.user.role !== "Super Admin") {
+      return res.status(403).json({ message: "Only a Super Admin can demote an Admin" });
+    }
+
+    userToDemote.role = "Employee";
     await userToDemote.save();
 
     await AuditLog.create({
       action: "User Demoted",
       performedBy: req.user.email,
-      details: `Demoted ${userToDemote.email} to Standard User`,
+      details: `Demoted ${userToDemote.email} to Employee`,
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.json({ message: "User successfully demoted to Standard User", user: { _id: userToDemote._id, email: userToDemote.email, role: userToDemote.role } });
+    res.json({ message: "User successfully demoted to Employee", user: { _id: userToDemote._id, email: userToDemote.email, role: userToDemote.role } });
   } catch (error) {
     res.status(500).json({ message: "Error demoting user" });
   }
@@ -571,6 +677,10 @@ const suspendUser = async (req, res) => {
 
     if (user.email === req.user.email) {
       return res.status(400).json({ message: "You cannot suspend yourself" });
+    }
+
+    if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
+      return res.status(403).json({ message: "Cannot suspend a Super Admin" });
     }
 
     user.isActive = isActive;
@@ -605,6 +715,10 @@ const adminResetPassword = async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
+      return res.status(403).json({ message: "Cannot reset password for a Super Admin" });
+    }
+
     const salt = await bcrypt.genSalt(12);
     user.password = await bcrypt.hash(newPassword, salt);
     await user.save();
@@ -630,6 +744,10 @@ const adminDisable2FA = async (req, res) => {
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
+      return res.status(403).json({ message: "Cannot disable 2FA for a Super Admin" });
+    }
+
     user.isTwoFactorEnabled = false;
     user.twoFactorSecret = undefined;
     user.twoFactorBackupCodes = [];
@@ -648,7 +766,7 @@ const adminDisable2FA = async (req, res) => {
   }
 };
 
-// @desc    Delete user (Admin only)
+// @desc    Delete user account (Now requires Dual-Auth §3.1)
 // @route   DELETE /api/auth/users/:id
 // @access  Private/Admin
 const deleteUser = async (req, res) => {
@@ -656,25 +774,67 @@ const deleteUser = async (req, res) => {
     const userToDelete = await User.findById(req.params.id);
     if (!userToDelete) return res.status(404).json({ message: "User not found" });
 
+    // Self-elevation / Abuse check (§5.3)
     if (userToDelete.email === req.user.email) {
-      return res.status(400).json({ message: "You cannot delete yourself" });
+      return res.status(400).json({ message: "Self-deletion is restricted for continuity and forensics." });
     }
 
-    await User.findByIdAndDelete(req.params.id);
+    // Role-based protection: Standard admin cannot delete Super Admin/Admin without Dual-Auth
+    if (userToDelete.role === "Super Admin" || userToDelete.role === "Admin") {
+      if (req.user.role !== "Super Admin") {
+        return res.status(403).json({ message: "Security Violation: Only a Super Admin can initiate deletion of administrative accounts." });
+      }
+    }
 
-    // Invalidate sessions
-    await RefreshToken.deleteMany({ user: req.params.id });
+    const { approvalId } = req.query; // Check for Dual-Auth approval (§3.1)
 
-    await AuditLog.create({
-      action: "User Deleted",
-      performedBy: req.user.email,
-      details: `Deleted user ${userToDelete.email}`,
-      ip: req.ip || req.connection.remoteAddress,
+    if (approvalId) {
+      const approvedAction = await PendingAction.findById(approvalId);
+      if (approvedAction && approvedAction.status === "APPROVED" && approvedAction.data.targetUserId === req.params.id) {
+
+        // 4-Eyes Check: Approver must be DIFFERENT from the final executor
+        if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
+          return res.status(403).json({ message: "Security Violation: Executioner cannot be the same as the Approver (§3.1)." });
+        }
+
+        // Invalidate sessions and delete
+        await RefreshToken.deleteMany({ user: userToDelete._id });
+        await userToDelete.deleteOne();
+
+        approvedAction.status = "EXECUTED";
+        await approvedAction.save();
+
+        await AuditLog.create({
+          action: "DUAL-AUTH: User Deleted",
+          performedBy: req.user.email,
+          details: `User account ${userToDelete.email} permanently removed after Dual Authorization. Action requested by UserID: ${approvedAction.createdBy}`,
+          ip: req.ip || req.connection?.remoteAddress
+        });
+
+        return res.json({ message: "User account successfully removed through Dual Authorization process." });
+      }
+    }
+
+    // Otherwise, create a pending request (§3.1)
+    const pending = await PendingAction.create({
+      actionType: "MASS_USER_DELETE",
+      data: { targetUserId: userToDelete._id, targetEmail: userToDelete.email },
+      createdBy: req.user._id
     });
 
-    res.json({ message: "User deleted and disconnected successfully" });
+    await AuditLog.create({
+      action: "SECURITY: Deletion Requested",
+      performedBy: req.user.email,
+      details: `Requested deletion of user account: ${userToDelete.email}. Pending secondary admin consent.`,
+      ip: req.ip || req.connection?.remoteAddress,
+    });
+
+    res.status(202).json({
+      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (§3.1).",
+      pendingActionId: pending._id
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error deleting user" });
+    res.status(500).json({ message: "High-assurance deletion system error: " + error.message });
   }
 };
 

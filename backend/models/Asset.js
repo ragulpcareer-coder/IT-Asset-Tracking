@@ -15,9 +15,19 @@ const assetSchema = new mongoose.Schema(
       unique: true,
       required: true,
     },
+    uuid: {
+      type: String,
+      unique: true,
+      default: () => require('crypto').randomUUID()
+    },
+    classification: {
+      type: String,
+      enum: ["Public", "Internal", "Confidential", "Restricted"],
+      default: "Internal"
+    },
     status: {
       type: String,
-      enum: ["available", "assigned", "maintenance", "retired"],
+      enum: ["available", "assigned", "maintenance", "lost", "retired"],
       default: "available",
     },
     assignedTo: {
@@ -81,7 +91,8 @@ const assetSchema = new mongoose.Schema(
       isAuthorized: { type: Boolean, default: true },
       riskLevel: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Low' },
       remarks: { type: String, default: '' }
-    }
+    },
+    integrityHash: { type: String }, // SHA-256 integrity check (§4.1)
   },
   {
     timestamps: true,
@@ -89,5 +100,59 @@ const assetSchema = new mongoose.Schema(
     toObject: { virtuals: true }
   }
 );
+
+const crypto = require("crypto");
+
+assetSchema.pre('save', function (next) {
+  // Generate integrity hash of the critical record sections (§4.1)
+  const payload = `${this.name}|${this.type}|${this.serialNumber}|${this.status}|${this.assignedTo}`;
+  this.integrityHash = crypto.createHash("sha256").update(payload).digest("hex");
+  next();
+});
+
+// Enterprise Asset Lifecycle Management (Policy §6.4)
+assetSchema.pre('save', function (next) {
+  if (this.isModified('status')) {
+    // If it's a new asset, any initial state is fine (usually available)
+    if (this.isNew) return next();
+
+    // Check transition rules
+    const oldStatus = this._previousStatus; // We need to capture this or fetch it
+    // For simplicity, we can fetch it if needed, but Mongoose doesn't store OLD value easily without a plugin
+    // Alternatively, we use the controller, but a schema-level check is safer.
+    // Let's implement a small hack to store previous status:
+  }
+  next();
+});
+
+// Capture status for transition validation
+assetSchema.post('init', function (doc) {
+  doc._previousStatus = doc.status;
+});
+
+assetSchema.pre('save', function (next) {
+  if (!this.isNew && this.isModified('status')) {
+    // Rule: Retired -> Assigned = BLOCKED
+    if (this._previousStatus === 'retired' && this.status === 'assigned') {
+      return next(new Error('Illegal Asset Lifecycle Transition: Retired assets cannot be reassigned.'));
+    }
+    // Rule: Lost -> Assigned = BLOCKED (must be found/verified first)
+    if (this._previousStatus === 'lost' && this.status === 'assigned') {
+      return next(new Error('Illegal Asset Lifecycle Transition: Lost assets must be marked available before assignment.'));
+    }
+  }
+  next();
+});
+
+const mongooseFieldEncryption = require("mongoose-field-encryption").fieldEncryption;
+
+// DB ENCRYPTION: Encrypt sensitive asset data at rest (§4.1)
+assetSchema.plugin(mongooseFieldEncryption, {
+  fields: ["serialNumber", "assignedTo", "ipAddress", "macAddress"],
+  secret: process.env.JWT_SECRET || "fallback_asset_key_must_be_stable",
+  saltGenerator: function (secret) {
+    return "1234567890123456"; // stable 16 char salt
+  },
+});
 
 module.exports = mongoose.model("Asset", assetSchema);

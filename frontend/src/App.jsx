@@ -64,11 +64,11 @@ export default function App() {
           <Route
             path="/audit-logs"
             element={
-              <PrivateRoute>
+              <AdminRoute>
                 <Layout>
                   <AuditLogs />
                 </Layout>
-              </PrivateRoute>
+              </AdminRoute>
             }
           />
           <Route

@@ -8,7 +8,7 @@ const AuditLog = require("../models/AuditLog");
 const getTickets = async (req, res) => {
     try {
         const filters = {};
-        if (req.user.role !== "Admin") {
+        if (!["Super Admin", "Admin", "Manager", "Auditor"].includes(req.user.role)) {
             filters.reportedBy = req.user._id;
         }
         const tickets = await Ticket.find(filters).populate("assetId", "name serialNumber").populate("reportedBy", "name email").sort({ createdAt: -1 });

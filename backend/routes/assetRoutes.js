@@ -1,10 +1,31 @@
+/**
+ * Asset Routes — IT Asset Tracking System
+ *
+ * RBAC Policy:
+ *  GET /         → All authenticated users (controller filters by role)
+ *  GET /export   → Admin only + 2FA
+ *  GET /security-alerts → Admin only + 2FA
+ *  POST /                → Admin only + 2FA  (create asset)
+ *  POST /bulk-upload     → Admin only + 2FA
+ *  POST /scan-network    → Admin only + 2FA
+ *  PUT  /:id             → Admin only + 2FA  (update asset)
+ *  DELETE /:id           → Admin only + 2FA  (delete asset)
+ *  POST /agent-report    → Secured by HMAC agent signature (no user auth)
+ */
+
+"use strict";
+
 const express = require("express");
 const router = express.Router();
-const { protect } = require("../middleware/authMiddleware");
-const authorizeRoles = require("../middleware/roleMiddleware");
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
+
+const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
+const { requireAdmin2FA, verifyABAC } = require("../middleware/rbacMiddleware");
 
 const {
   getAssets,
+  getAssetById,
   createAsset,
   updateAsset,
   deleteAsset,
@@ -15,35 +36,23 @@ const {
   agentReport,
 } = require("../controllers/assetController");
 
-const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
-
-// GET all (Filtered by user/role in controller)
+// ── Standard User + Admin (Scoped by ABAC) ─────────────────────
 router.get("/", protect, getAssets);
+router.get("/:id", protect, verifyABAC, getAssetById);
 
-// EXPORT
-router.get("/export", protect, authorizeRoles("Admin"), exportAssets);
+// ── Admin Only (protect + admin + 2FA) ──────────────────────
+router.get("/export", protect, admin, requireAdmin2FA, exportAssets);
+router.get("/security-alerts", protect, admin, requireAdmin2FA, getSecurityAlerts);
+router.post("/scan-network", protect, admin, requireAdmin2FA, scanNetwork);
+router.post("/bulk-upload", protect, admin, requireAdmin2FA, upload.single("file"), bulkUploadAssets);
+router.post("/", protect, admin, requireAdmin2FA, createAsset);
+router.put("/:id", protect, admin, requireAdmin2FA, updateAsset);
 
-// GET Security Alerts
-router.get("/security-alerts", protect, authorizeRoles("Admin"), getSecurityAlerts);
+// STEP-UP AUTH REQUIRED FOR DELETE (§3.4)
+router.delete("/:id", protect, admin, requireAdmin2FA, requireReAuth, deleteAsset);
 
-// SCAN Network
-router.post("/scan-network", protect, authorizeRoles("Admin"), scanNetwork);
 
-// BULK UPLOAD
-router.post("/bulk-upload", protect, authorizeRoles("Admin"), upload.single("file"), bulkUploadAssets);
-
-// CREATE
-router.post("/", protect, authorizeRoles("Admin"), createAsset);
-
-// UPDATE
-router.put("/:id", protect, authorizeRoles("Admin"), updateAsset);
-
-// DELETE
-router.delete("/:id", protect, authorizeRoles("Admin"), deleteAsset);
-
-// AGENT REPORT (Open endpoint, but secured by secret in body)
+// ── Agent (HMAC-signed, no user session) ────────────────────
 router.post("/agent-report", agentReport);
 
 module.exports = router;
-

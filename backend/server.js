@@ -137,76 +137,96 @@ app.use((req, res, next) => {
     url: req.url,
     userAgent: req.get('User-Agent')
   });
-  next();
-});
+  const verifySignature = require("./middleware/signatureMiddleware");
 
-// Data Sanitization against XSS
-app.use(xss());
-
-// Advanced Rate Limiting
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 300,
-  message: "Too many requests from this IP, please try again later",
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: "Too many login attempts, your account has been temporarily restricted.",
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use("/api/", globalLimiter);
-app.use("/api/auth/login", authLimiter);
-
-// Note: In an extreme Enterprise setting, we'd apply csrfProtection globally to all state-changing routes
-// Here we apply it selectively or pass it based on frontend capabilities. To strictly enforce:
-// app.use("/api/", csrfProtection); 
-
-app.use("/api/auth", require("./routes/authRoutes"));
-app.use("/api/assets", require("./routes/assetRoutes"));
-app.use("/api/audit", require("./routes/auditRoutes"));
-// Advanced Modules
-app.use("/api/tickets", require("./routes/ticketRoutes"));
-app.use("/api/software", require("./routes/softwareRoutes"));
-app.use("/api/keys", require("./routes/apiRoutes"));
-
-// Centralized Error Handler
-app.use((err, req, res, next) => {
-  res.status(err.status || 500).json({
-    message: err.message || "Server Error",
+  // Deception System (§23): Honeypot for automated vulnerability scanners
+  app.use("/api/admin/config/v1/root", async (req, res) => {
+    const ip = req.ip || req.connection?.remoteAddress;
+    await AuditLog.create({
+      action: "DECEPTION: Honeypot Triggered",
+      performedBy: "Anonymous/Bot",
+      details: `Potential attacker hit the deception endpoint. IP ${ip} should be blacklisted.`,
+      ip: ip
+    });
+    // Slow down response (Tarpitting) to waste attacker resources
+    setTimeout(() => {
+      res.status(404).json({ message: "System failure. Configuration reset required." });
+    }, 5000);
   });
-});
 
-const PORT = process.env.PORT || 5000;
+  // Cryptographic Execution Guard (§6.1)
+  // In a true high-assurance system, we apply this globally.
+  app.use("/api", verifySignature);
 
-// Try to listen on the configured port. If it's in use, fall back to an ephemeral port.
-const tryListen = (port) => {
-  const onError = (err) => {
-    if (err && err.code === 'EADDRINUSE') {
-      console.warn(`Port ${port} is in use — trying a random available port instead...`);
-      // Remove this error listener before trying again to avoid recursion
-      server.removeListener('error', onError);
-      // Listen on port 0 to let OS pick a free port
-      server.listen(0);
-      return;
-    }
-    console.error('Server error:', err);
-    process.exit(1);
-  };
+  app.use((req, res, next) => {
 
-  server.on('error', onError);
+    // Data Sanitization against XSS
+    app.use(xss());
 
-  server.listen(port, () => {
-    console.log(`🚀 Server running on port ${server.address().port}`);
-    // once we've successfully started, remove the error listener
-    server.removeListener('error', onError);
-  });
-};
+    // Advanced Rate Limiting
+    const globalLimiter = rateLimit({
+      windowMs: 1 * 60 * 1000,
+      max: 100, // Policy (§7.4)
+      message: "Too many requests from this IP, please try again later",
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
 
-tryListen(PORT);
+    const authLimiter = rateLimit({
+      windowMs: 15 * 60 * 1000,
+      max: 10,
+      message: "Too many login attempts, your account has been temporarily restricted.",
+      standardHeaders: true,
+      legacyHeaders: false,
+    });
+
+    app.use("/api/", globalLimiter);
+    app.use("/api/auth/login", authLimiter);
+
+    // Note: In an extreme Enterprise setting, we'd apply csrfProtection globally to all state-changing routes
+    // Here we apply it selectively or pass it based on frontend capabilities. To strictly enforce:
+    // app.use("/api/", csrfProtection); 
+
+    app.use("/api/auth", require("./routes/authRoutes"));
+    app.use("/api/assets", require("./routes/assetRoutes"));
+    app.use("/api/audit", require("./routes/auditRoutes"));
+    // Advanced Modules
+    app.use("/api/tickets", require("./routes/ticketRoutes"));
+    app.use("/api/software", require("./routes/softwareRoutes"));
+    app.use("/api/keys", require("./routes/apiRoutes"));
+    app.use("/api/pending", require("./routes/pendingActionRoutes"));
+    app.use("/api/maintenance", require("./routes/maintenanceRoutes"));
+
+    // Centralized Enterprise Error Handlers
+    const { notFound, errorHandler } = require("./middleware/errorMiddleware");
+    app.use(notFound);
+    app.use(errorHandler);
+
+    const PORT = process.env.PORT || 5000;
+
+    // Try to listen on the configured port. If it's in use, fall back to an ephemeral port.
+    const tryListen = (port) => {
+      const onError = (err) => {
+        if (err && err.code === 'EADDRINUSE') {
+          console.warn(`Port ${port} is in use — trying a random available port instead...`);
+          // Remove this error listener before trying again to avoid recursion
+          server.removeListener('error', onError);
+          // Listen on port 0 to let OS pick a free port
+          server.listen(0);
+          return;
+        }
+        console.error('Server error:', err);
+        process.exit(1);
+      };
+
+      server.on('error', onError);
+
+      server.listen(port, () => {
+        console.log(`🚀 Server running on port ${server.address().port}`);
+        // once we've successfully started, remove the error listener
+        server.removeListener('error', onError);
+      });
+    };
+
+    tryListen(PORT);
 

@@ -6,6 +6,7 @@ import { toast } from "react-toastify";
 import { Button, Card, Badge } from "../components/UI";
 import { ProfessionalIcon } from "../components/ProfessionalIcons";
 import { animationVariants } from "../utils/animations";
+import LoadingSpinner from "../components/common/LoadingSpinner";
 
 export default function Users() {
     const { user } = useContext(AuthContext);
@@ -82,7 +83,7 @@ export default function Users() {
                                 <AnimatePresence>
                                     {loading ? (
                                         <tr>
-                                            <td colSpan="5" className="py-8 text-center text-gray-500">Scanning network users...</td>
+                                            <td colSpan="5" className="py-8"><LoadingSpinner message="Scanning network users..." /></td>
                                         </tr>
                                     ) : users.length === 0 ? (
                                         <tr>
@@ -109,7 +110,7 @@ export default function Users() {
                                                     </div>
                                                 </td>
                                                 <td className="py-4 px-4">
-                                                    <Badge variant={u.role === "Admin" ? "success" : "neutral"} size="sm">
+                                                    <Badge variant={["Super Admin", "Admin"].includes(u.role) ? "success" : "neutral"} size="sm">
                                                         {u.role.toUpperCase()}
                                                     </Badge>
                                                 </td>
@@ -131,7 +132,7 @@ export default function Users() {
                                                 </td>
                                                 <td className="py-4 px-4 text-right">
                                                     <div className="flex justify-end gap-2">
-                                                        {u.role !== "Admin" && (
+                                                        {!["Super Admin", "Admin"].includes(u.role) && (
                                                             <Button variant="secondary" size="sm" onClick={() => handlePromote(u._id, u.name)}>
                                                                 Promote
                                                             </Button>

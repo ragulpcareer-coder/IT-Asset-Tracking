@@ -27,19 +27,36 @@ const checkPort = (port, host) => {
 };
 
 // GET all assets with pagination, sorting, and filtering
+// RBAC: Admins see all assets. Standard Users ONLY see assets assigned to them.
 const getAssets = async (req, res) => {
   try {
     const { search, status, type, sort } = req.query;
     const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
+    let limit = parseInt(req.query.limit, 10) || 10;
+
+    // Mass Data Extraction Detection (§7.2 / §17)
+    if (limit > 1000) {
+      await AuditLog.create({
+        action: "SECURITY ALERT: Mass Data Extraction Attempt",
+        performedBy: req.user.email,
+        details: `User attempted to fetch ${limit} records in a single call. SIEM threshold exceeded (§7.2).`,
+        ip: req.ip || req.connection?.remoteAddress
+      });
+      return res.status(403).json({ message: "Security Violation: Large-scale data extraction is restricted. Please use smaller page sizes." });
+    }
+    if (limit > 100) limit = 100; // Hard cap for performance/security
+
     const query = {};
 
-    // RBAC: Standard Users can only see assets assigned to them
-    if (req.user.role !== "Admin") {
+    // RBAC ENFORCEMENT
+    if (!["Super Admin", "Admin", "Manager", "Auditor"].includes(req.user.role)) {
+      // Employee (Standard User): only assets where assignedTo matches their email or name
       query.$or = [
         { assignedTo: req.user.email },
-        { assignedTo: req.user.name }
+        { assignedTo: req.user.name },
       ];
+      // Employee cannot apply asset-wide filters across all records
+      // (search/status/type filters still apply on top of their scope)
     }
 
     if (search) {
@@ -74,8 +91,32 @@ const getAssets = async (req, res) => {
   }
 };
 
-// CREATE asset
+const getAssetById = async (req, res) => {
+  try {
+    const asset = await Asset.findById(req.params.id);
+    if (!asset) return res.status(404).json({ message: "Asset not found" });
+
+    // Scoped check: Standard users can only view their assigned assets
+    if (!["Super Admin", "Admin", "Asset Manager", "Security Auditor"].includes(req.user.role)) {
+      if (asset.assignedTo !== req.user.email && asset.assignedTo !== req.user.name) {
+        return res.status(403).json({ message: "Access Denied: This asset is not assigned to you." });
+      }
+    }
+
+    res.json(asset);
+  } catch (error) {
+    res.status(500).json({ message: "Error retrieving asset details" });
+  }
+};
+
+
+// CREATE asset — Admin only (enforced at route + here for defence-in-depth)
 const createAsset = async (req, res) => {
+  // Defence-in-depth role check
+  // Defence-in-depth role check
+  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only administrators can create assets." });
+  }
   try {
     const assetData = req.body;
     // Generate QR Code containing the Serial Number (or a link to the asset)
@@ -113,8 +154,16 @@ const createAsset = async (req, res) => {
   }
 };
 
-// UPDATE asset
+// UPDATE asset — Admin only
 const updateAsset = async (req, res) => {
+  // Business Logic Security (§15): Block User assigning asset to self without approval
+  if (req.body.assignedTo === req.user.email && req.user.role === "Employee") {
+    return res.status(403).json({ message: "Security Violation: Self-assignment of assets is strictly prohibited." });
+  }
+
+  if (!req.user || !["Super Admin", "Admin", "Asset Manager"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only authorized roles can update assets." });
+  }
   try {
     const assetData = req.body;
 
@@ -151,32 +200,79 @@ const updateAsset = async (req, res) => {
   }
 };
 
-// DELETE asset
+// DELETE asset — Admin only
 const deleteAsset = async (req, res) => {
+  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only administrators can delete assets." });
+  }
   try {
-    const asset = await Asset.findByIdAndDelete(req.params.id);
+    const assetId = req.params.id;
+    const asset = await Asset.findById(assetId);
+    if (!asset) return res.status(404).json({ message: "Asset not found" });
 
-    if (!asset) {
-      return res.status(404).json({ message: "Asset not found" });
+    const PendingAction = require("../models/PendingAction");
+    const { approvalId } = req.query;
+
+    // Check if this action is already approved by another admin (§3.1)
+    if (approvalId) {
+      const approvedAction = await PendingAction.findById(approvalId);
+      if (approvedAction && approvedAction.status === "APPROVED" && approvedAction.data.assetId === assetId) {
+        // Verify it was approved by someone ELSE
+        if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
+          return res.status(403).json({ message: "Security Violation: You cannot approve your own deletion request (4-Eyes Principle)." });
+        }
+
+        await asset.deleteOne();
+        approvedAction.status = "EXECUTED";
+        await approvedAction.save();
+
+        await AuditLog.create({
+          action: "DUAL-AUTH: Asset Deleted",
+          performedBy: req.user.email,
+          details: `Asset ${asset.name} permanently removed after Dual authorization. Requested by UserID: ${approvedAction.createdBy}`,
+          ip: req.ip || req.connection?.remoteAddress,
+        });
+
+        const io = req.app.get("io");
+        io.emit("assetDeleted", assetId);
+        return res.json({ message: "Asset deleted successfully via Dual Authorization." });
+      }
     }
 
-    await AuditLog.create({
-      action: `Deleted asset: ${asset?.name}`,
-      performedBy: req.user?.email || "Unknown",
+    // Otherwise, create a pending request (§3.1)
+    const existingPending = await PendingAction.findOne({ "data.assetId": assetId, status: "PENDING" });
+    if (existingPending) {
+      return res.status(409).json({ message: "A deletion request for this asset is already pending approval.", pendingActionId: existingPending._id });
+    }
+
+    const pending = await PendingAction.create({
+      actionType: "DELETE_ASSET",
+      data: { assetId, assetName: asset.name },
+      createdBy: req.user._id
     });
 
-    // Real-time update
-    const io = req.app.get("io");
-    io.emit("assetDeleted", req.params.id);
+    await AuditLog.create({
+      action: "SECURITY: Deletion Requested",
+      performedBy: req.user.email,
+      details: `Requested deletion of asset: ${asset.name}. Penting Dual Authorization.`,
+      ip: req.ip || req.connection?.remoteAddress,
+    });
 
-    res.json({ message: "Asset deleted successfully" });
+    res.status(202).json({
+      message: "Dual Authorization Required: A secondary administrator must approve this deletion for safety.",
+      pendingActionId: pending._id
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// EXPORT assets to CSV
+// EXPORT assets to CSV — Admin only
 const exportAssets = async (req, res) => {
+  if (!req.user || !["Super Admin", "Admin", "Security Auditor"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only authorized roles can export inventory data." });
+  }
+
   try {
     const { status, type } = req.query;
     const query = {};
@@ -184,6 +280,17 @@ const exportAssets = async (req, res) => {
     if (type && type !== "All") query.type = type;
 
     const assets = await Asset.find(query).sort({ createdAt: -1 }).lean();
+
+    // Mass Export Alert (§5.1 / §17)
+    if (assets.length > 50) {
+      await AuditLog.create({
+        action: "SECURITY ALERT: Mass Data Export",
+        performedBy: req.user.email,
+        details: `Potential Inventory Exfiltration: User exported ${assets.length} assets. SIEM Threshold: 50.`,
+        ip: req.ip || req.connection?.remoteAddress,
+        meta: { count: assets.length }
+      });
+    }
 
     const fields = ['_id', 'name', 'type', 'serialNumber', 'status', 'assignedTo', 'purchaseDate', 'warrantyExpiry'];
 
@@ -220,8 +327,11 @@ const exportAssets = async (req, res) => {
 const fs = require("fs");
 const csv = require("csv-parser");
 
-// BULK UPLOAD assets from CSV
+// BULK UPLOAD assets from CSV — Admin only
 const bulkUploadAssets = async (req, res) => {
+  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only administrators can bulk upload assets." });
+  }
   try {
     if (!req.file) {
       return res.status(400).json({ message: "No file uploaded" });
@@ -309,8 +419,11 @@ const bulkUploadAssets = async (req, res) => {
   }
 };
 
-// Network Scan using actual local-devices ARP discovery (Cybersecurity Feature)
+// Network Scan — Admin only
 const scanNetwork = async (req, res) => {
+  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only administrators can run network scans." });
+  }
   try {
     // 1. Run actual ARP network scan
     let devices = [];
@@ -416,8 +529,11 @@ const scanNetwork = async (req, res) => {
   }
 };
 
-// GET Security Alerts
+// GET Security Alerts — Admin only
 const getSecurityAlerts = async (req, res) => {
+  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only administrators can view security alerts." });
+  }
   try {
     const alerts = await Asset.find({
       $or: [
@@ -520,8 +636,42 @@ const agentReport = async (req, res) => {
   }
 };
 
+// VERIFY ASSET INTEGRITY — Secure verification of row-level data (§4.1)
+const verifyAssetIntegrity = async (req, res) => {
+  try {
+    const asset = await Asset.findById(req.params.id);
+    if (!asset) return res.status(404).json({ message: "Asset not found" });
+
+    // Recalculate hash for verification (§4.1)
+    const payload = `${asset.name}|${asset.type}|${asset.serialNumber}|${asset.status}|${asset.assignedTo}`;
+    const calculatedHash = crypto.createHash("sha256").update(payload).digest("hex");
+
+    const isTampered = asset.integrityHash !== calculatedHash;
+
+    if (isTampered) {
+      await AuditLog.create({
+        action: "SECURITY ALERT: Record Tampering Detected",
+        performedBy: req.user?.email || "System-Monitor",
+        details: `Integrity check FAILED for Asset ID ${asset._id} (${asset.name}). Database mismatch detected (§4.1).`,
+        ip: req.ip || req.connection?.remoteAddress
+      });
+    }
+
+    res.json({
+      assetId: asset._id,
+      isIntegrityValid: !isTampered,
+      storedHash: asset.integrityHash,
+      calculatedHash: calculatedHash,
+      status: isTampered ? "SECURITY BREACH DETECTED" : "VERIFIED SAFE"
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Integrity verification system failure." });
+  }
+};
+
 module.exports = {
   getAssets,
+  getAssetById,
   createAsset,
   updateAsset,
   deleteAsset,
@@ -530,4 +680,5 @@ module.exports = {
   scanNetwork,
   getSecurityAlerts,
   agentReport,
+  verifyAssetIntegrity,
 };

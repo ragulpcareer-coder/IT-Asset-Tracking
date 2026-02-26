@@ -7,6 +7,8 @@ import AssetTable from "../components/AssetTable";
 import { motion } from "framer-motion";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
+import { socket } from "../services/socket";
+import LoadingSpinner from "../components/common/LoadingSpinner";
 import { useDropzone } from "react-dropzone";
 
 import { useLocation } from "react-router-dom";
@@ -232,7 +234,7 @@ export default function Assets() {
             >
               Export CSV
             </motion.button>
-            {user?.role === "Admin" && (
+            {["Super Admin", "Admin"].includes(user?.role) && (
               <>
                 <motion.button
                   whileHover={{ scale: 1.02 }}
@@ -340,16 +342,18 @@ export default function Assets() {
           transition={{ delay: 0.6 }}
         >
           {loading ? (
-            <div className="flex justify-center py-20">
-              <div className="w-16 h-16 border-4 border-[#00d4ff]/20 border-t-[#00d4ff] rounded-full animate-spin"></div>
+            <div className="py-20">
+              <LoadingSpinner message="Loading assets..." />
             </div>
           ) : (
-            <AssetTable
-              assets={assets}
-              onEdit={user?.role === "Admin" ? openEditModal : null}
-              onDelete={user?.role === "Admin" ? handleDelete : null}
-              user={user}
-            />
+            <div className="overflow-x-auto w-full">
+              <AssetTable
+                assets={assets}
+                onEdit={["Super Admin", "Admin"].includes(user?.role) ? openEditModal : null}
+                onDelete={["Super Admin", "Admin"].includes(user?.role) ? handleDelete : null}
+                user={user}
+              />
+            </div>
           )}
         </motion.div>
       </div>

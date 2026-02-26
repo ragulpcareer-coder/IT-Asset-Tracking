@@ -8,7 +8,7 @@ const User = require("../models/User");
 const getSoftware = async (req, res) => {
     try {
         const query = {};
-        if (req.user.role !== "Admin") {
+        if (!["Super Admin", "Admin", "Manager", "Auditor"].includes(req.user.role)) {
             query.assignedUsers = req.user._id;
         }
         const licenses = await SoftwareLicense.find(query).populate("assignedUsers", "name email");

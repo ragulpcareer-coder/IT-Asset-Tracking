@@ -12,9 +12,9 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
   const navItems = [
     { label: "Dashboard", icon: "🏠", path: "/" },
     { label: "Assets", icon: "💾", path: "/assets" },
-    ...(user?.role === "Admin" ? [{ label: "Cybersecurity Tracker", icon: "🛡️", path: "/security" }] : []),
-    ...(user?.role === "Admin" ? [{ label: "Users", icon: "👥", path: "/users" }] : []),
-    ...(user?.role === "Admin" ? [{ label: "Audit Logs", icon: "📋", path: "/audit-logs" }] : []),
+    ...(["Super Admin", "Admin"].includes(user?.role) ? [{ label: "Cybersecurity Tracker", icon: "🛡️", path: "/security" }] : []),
+    ...(["Super Admin", "Admin"].includes(user?.role) ? [{ label: "Users", icon: "👥", path: "/users" }] : []),
+    ...(["Super Admin", "Admin"].includes(user?.role) ? [{ label: "Audit Logs", icon: "📋", path: "/audit-logs" }] : []),
     { label: "Settings", icon: "⚙", path: "/settings" },
   ];
 

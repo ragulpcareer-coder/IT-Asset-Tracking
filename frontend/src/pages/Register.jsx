@@ -46,8 +46,8 @@ export default function Register() {
       isValid = false;
     }
 
-    if (!formData.password || formData.password.length < 8) {
-      newErrors.password = "Password must be at least 8 characters";
+    if (!formData.password || formData.password.length < 12) {
+      newErrors.password = "Password must be at least 12 characters (uppercase, lowercase, number, symbol required)";
       isValid = false;
     }
 
@@ -65,18 +65,55 @@ export default function Register() {
     return isValid;
   };
 
+  const handleNext = () => {
+    const newErrors = { ...errors };
+    let isValid = true;
+
+    if (activeStep === 1) {
+      if (!formData.name || formData.name.trim().length < 2) {
+        newErrors.name = "Name must be at least 2 characters";
+        isValid = false;
+      } else newErrors.name = "";
+
+      if (!formData.email || !validateEmail(formData.email)) {
+        newErrors.email = "Please enter a valid email address";
+        isValid = false;
+      } else newErrors.email = "";
+
+      setErrors(newErrors);
+      if (isValid) setActiveStep(2);
+    } else if (activeStep === 2) {
+      if (!formData.password || formData.password.length < 12) {
+        newErrors.password = "Password must be at least 12 characters";
+        isValid = false;
+      } else newErrors.password = "";
+
+      if (formData.password !== formData.confirmPassword) {
+        newErrors.confirmPassword = "Passwords do not match";
+        isValid = false;
+      } else newErrors.confirmPassword = "";
+
+      setErrors(newErrors);
+      if (isValid) setActiveStep(3);
+    }
+  };
+
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
+  const submitLock = React.useRef(false);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submitLock.current) return;
     setError("");
 
     if (!validateForm()) return;
 
     try {
+      submitLock.current = true;
       setLoading(true);
       const data = await register(
         formData.name,
@@ -92,6 +129,7 @@ export default function Register() {
       }
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed. Please try again.");
+      submitLock.current = false;
     } finally {
       setLoading(false);
     }
@@ -306,20 +344,6 @@ export default function Register() {
                         {errors.email && <p className="text-red-400 text-xs mt-1">{errors.email}</p>}
                       </div>
 
-                      <div>
-                        <label className="block text-sm font-semibold text-blue-100 mb-2">
-                          User Role
-                        </label>
-                        <select
-                          name="role"
-                          value={formData.role}
-                          onChange={handleChange}
-                          className="w-full px-4 py-2.5 bg-gray-900 text-white rounded-lg border border-blue-500/30 focus:border-blue-500 focus:ring-2 focus:ring-blue-500/50 transition backdrop-blur-md appearance-none"
-                        >
-                          <option value="User" className="bg-gray-900 text-white">Regular User</option>
-                          <option value="Admin" className="bg-gray-900 text-white">Administrator</option>
-                        </select>
-                      </div>
                     </motion.div>
                   )}
 
@@ -402,7 +426,7 @@ export default function Register() {
                           </div>
                           <div className="flex justify-between items-center py-2">
                             <span className="text-blue-200">Role:</span>
-                            <span className="text-white font-semibold">{formData.role}</span>
+                            <span className="text-white font-semibold">User (assigned by admin)</span>
                           </div>
                         </div>
                       </div>
@@ -463,7 +487,7 @@ export default function Register() {
                           type="button"
                           variant="primary"
                           size="lg"
-                          onClick={() => setActiveStep(activeStep + 1)}
+                          onClick={handleNext}
                           className="w-full bg-gradient-to-r from-blue-600 via-teal-500 to-blue-600"
                         >
                           Next

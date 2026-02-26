@@ -2,6 +2,9 @@ import React, { useState, useEffect, useContext } from "react";
 import axios from "../utils/axiosConfig";
 import { ToastContainer, toast } from "react-toastify";
 import { AuthContext } from "../context/AuthContext";
+import { animationVariants } from "../utils/animations";
+import { CSVLink } from "react-csv";
+import LoadingSpinner from "../components/common/LoadingSpinner";
 
 export default function AuditLogs() {
   const { user } = useContext(AuthContext);
@@ -13,7 +16,7 @@ export default function AuditLogs() {
   const [dateFilter, setDateFilter] = useState("All");
 
   useEffect(() => {
-    if (user?.role === "Admin") {
+    if (["Super Admin", "Admin"].includes(user?.role)) {
       fetchLogs();
     }
   }, [user]);
@@ -128,7 +131,7 @@ export default function AuditLogs() {
     }
   };
 
-  if (!user || user.role !== "Admin") {
+  if (!user || !["Super Admin", "Admin"].includes(user.role)) {
     return (
       <div className="text-center py-16 bg-[#0a0a0a] border border-white/10 rounded-xl mt-8">
         <p className="text-xl text-white font-medium mb-2">Access Denied</p>
@@ -209,8 +212,8 @@ export default function AuditLogs() {
 
       {/* Logs Table */}
       {loading ? (
-        <div className="flex justify-center py-20">
-          <div className="w-10 h-10 border-4 border-white/10 border-t-white rounded-full animate-spin"></div>
+        <div className="py-20">
+          <LoadingSpinner message="Loading audit logs..." />
         </div>
       ) : filteredLogs.length === 0 ? (
         <div className="text-center py-16 bg-[#0a0a0a] border border-white/10 rounded-xl">
