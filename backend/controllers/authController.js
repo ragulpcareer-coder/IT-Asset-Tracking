@@ -356,6 +356,7 @@ const changePassword = async (req, res) => {
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
     user.password = hashedPassword;
+    user.activityTimestamps.passwordChangedAt = Date.now();
     await user.save();
 
     res.json({ message: "Password changed successfully" });
@@ -369,13 +370,24 @@ const changePassword = async (req, res) => {
 // @access  Private
 const updateProfile = async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, preferences, phone, department } = req.body;
 
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { name },
-      { new: true }
-    ).select("-password");
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    if (name) user.name = name;
+    if (phone) user.phone = phone; // Assuming field exists or we add it
+    if (department) user.department = department;
+
+    if (preferences) {
+      user.preferences = {
+        ...user.preferences,
+        ...preferences
+      };
+    }
+
+    user.activityTimestamps.profileUpdatedAt = Date.now();
+    await user.save();
 
     res.json(user);
   } catch (error) {
@@ -511,6 +523,7 @@ const verify2FA = async (req, res) => {
       const backupCodes = Array.from({ length: 10 }, () => crypto.randomBytes(4).toString('hex'));
       user.twoFactorBackupCodes = backupCodes;
 
+      user.activityTimestamps.tfaEnabledAt = Date.now();
       await user.save();
       res.json({ message: "Two-Factor authentication successfully enabled", backupCodes });
     } else {
@@ -529,6 +542,7 @@ const disable2FA = async (req, res) => {
     const user = await User.findById(req.user._id);
     user.isTwoFactorEnabled = false;
     user.twoFactorSecret = undefined;
+    user.activityTimestamps.tfaEnabledAt = undefined;
     await user.save();
     res.json({ message: "Two-Factor authentication disabled" });
   } catch (error) {

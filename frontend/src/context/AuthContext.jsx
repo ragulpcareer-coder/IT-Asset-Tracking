@@ -68,6 +68,18 @@ export const AuthProvider = ({ children }) => {
     window.location.href = "/login";
   };
 
+  // Refresh User Function
+  const refreshUser = async () => {
+    const token = localStorage.getItem("token");
+    if (!token) return;
+    try {
+      const res = await axios.get("/auth/me");
+      setUser(res.data);
+    } catch (error) {
+      console.error("Refresh user failed", error);
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -75,9 +87,11 @@ export const AuthProvider = ({ children }) => {
         login,
         register,
         logout,
+        refreshUser,
         loading,
       }}
     >
+
       {!loading && children}
     </AuthContext.Provider>
   );

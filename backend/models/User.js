@@ -11,7 +11,9 @@ const userSchema = new mongoose.Schema({
     default: "Employee"
   },
   department: { type: String, default: "General" },
+  phone: { type: String, default: "" },
   location: { type: String, default: "Headquarters" },
+
   devices: [{
     ip: String,
     userAgent: String,
@@ -35,7 +37,26 @@ const userSchema = new mongoose.Schema({
   lastLoginGeo: { type: mongoose.Schema.Types.Mixed }, // { country, city, coordinates }
   privilegeToken: { type: String },
   privilegeTokenExpires: { type: Date },
+
+  // ─── SETTINGS & PREFERENCES (§Category 10) ──────────────────────────
+  preferences: {
+    emailNotifications: { type: Boolean, default: true },
+    pushNotifications: { type: Boolean, default: true },
+    activityNotifications: { type: Boolean, default: true },
+    securityAlerts: { type: Boolean, default: true },
+    trackLocation: { type: Boolean, default: true },
+    trackIP: { type: Boolean, default: true },
+  },
+
+  // ─── ACTIVITY TRACKING (§Category 4) ────────────────────────────────
+  activityTimestamps: {
+    passwordChangedAt: { type: Date },
+    profileUpdatedAt: { type: Date },
+    tfaEnabledAt: { type: Date },
+    lastSettingsUpdateAt: { type: Date },
+  },
 }, { timestamps: true });
+
 
 const bcrypt = require("bcryptjs");
 

@@ -10,7 +10,7 @@ import { animationVariants, transitionPresets } from "../utils/animations";
 import { theme } from "../config/theme";
 
 export default function Settings() {
-  const { user, logout } = useContext(AuthContext);
+  const { user, logout, refreshUser } = useContext(AuthContext);
   const [activeTab, setActiveTab] = useState("profile");
   const [loading, setLoading] = useState(false);
   const [passwordData, setPasswordData] = useState({
@@ -41,6 +41,44 @@ export default function Settings() {
     token: "",
     isSettingUp: false
   });
+
+  // Sync state with user context (§Category 4)
+  React.useEffect(() => {
+    if (user) {
+      setProfileData({
+        name: user.name || "",
+        email: user.email || "",
+        phone: user.phone || "",
+        department: user.department || "",
+        avatar: user.avatar || "",
+      });
+      setPreferences({
+        emailNotifications: user.preferences?.emailNotifications ?? true,
+        pushNotifications: user.preferences?.pushNotifications ?? true,
+        activityNotifications: user.preferences?.activityNotifications ?? true,
+        securityAlerts: user.preferences?.securityAlerts ?? true,
+        trackLocation: user.preferences?.trackLocation ?? true,
+        trackIP: user.preferences?.trackIP ?? true,
+        theme: user.preferences?.theme || "dark",
+        sessionTimeout: user.preferences?.sessionTimeout || 30,
+        twoFactorEnabled: user.isTwoFactorEnabled || false,
+      });
+    }
+  }, [user]);
+
+  const updatePreferences = async (newPrefs) => {
+    try {
+      setLoading(true);
+      await axios.put("/auth/profile", { preferences: newPrefs });
+      setPreferences(prev => ({ ...prev, ...newPrefs }));
+      await refreshUser();
+      toast.success("Preferences synchronized successfully.");
+    } catch (error) {
+      toast.error("Failed to sync preferences.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Tabs Configuration
   const tabs = [
@@ -89,6 +127,7 @@ export default function Settings() {
           try {
             setLoading(true);
             await axios.put("/auth/profile", profileData);
+            await refreshUser();
             toast.success("Profile updated successfully!", {
               position: "top-right",
               autoClose: 3000,
@@ -212,6 +251,7 @@ export default function Settings() {
                 currentPassword: passwordData.currentPassword,
                 newPassword: passwordData.newPassword,
               });
+              await refreshUser();
               toast.success("Password changed successfully!");
               setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
             } catch (error) {
@@ -296,6 +336,7 @@ export default function Settings() {
                     if (preferences.twoFactorEnabled) {
                       await axios.post("/auth/2fa/disable");
                       setPreferences(prev => ({ ...prev, twoFactorEnabled: false }));
+                      await refreshUser();
                       toast.success("2FA has been disabled.");
                     } else {
                       const res = await axios.post("/auth/2fa/generate");
@@ -345,7 +386,9 @@ export default function Settings() {
                         const res = await axios.post("/auth/2fa/verify", { token: tfaSetup.token.replace(/\s/g, '') });
                         setPreferences(prev => ({ ...prev, twoFactorEnabled: true }));
                         setTfaSetup({ ...tfaSetup, isSettingUp: false, token: "" });
+                        await refreshUser();
                         toast.success("Two-Factor Authentication successfully enabled!");
+
                       } catch (e) {
                         toast.error("Invalid authentication token.");
                       }
@@ -399,8 +442,9 @@ export default function Settings() {
                 </div>
                 <motion.button
                   type="button"
-                  onClick={() => setPreferences(prev => ({ ...prev, [pref.key]: !prev[pref.key] }))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors`}
+                  disabled={loading}
+                  onClick={() => updatePreferences({ [pref.key]: !preferences[pref.key] })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   style={{
                     backgroundColor: preferences[pref.key] ? "#0ea5e9" : "#333"
                   }}
@@ -410,6 +454,7 @@ export default function Settings() {
                     style={{ transform: preferences[pref.key] ? "translateX(24px)" : "translateX(4px)" }}
                   />
                 </motion.button>
+
               </motion.div>
             ))}
           </div>
@@ -442,8 +487,9 @@ export default function Settings() {
                 </div>
                 <motion.button
                   type="button"
-                  onClick={() => setPreferences(prev => ({ ...prev, [pref.key]: !prev[pref.key] }))}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors`}
+                  disabled={loading}
+                  onClick={() => updatePreferences({ [pref.key]: !preferences[pref.key] })}
+                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   style={{
                     backgroundColor: preferences[pref.key] !== false ? "#0ea5e9" : "#333"
                   }}
@@ -453,6 +499,7 @@ export default function Settings() {
                     style={{ transform: preferences[pref.key] !== false ? "translateX(24px)" : "translateX(4px)" }}
                   />
                 </motion.button>
+
               </motion.div>
             ))}
           </div>
@@ -527,10 +574,11 @@ export default function Settings() {
 
         <div className="space-y-3">
           {[
-            { icon: "lock", action: "Password Changed", time: "2 hours ago", status: "success" },
-            { icon: "user", action: "Profile Updated", time: "Yesterday", status: "info" },
-            { icon: "shield", action: "2FA Checked", time: "3 days ago", status: "success" },
+            { icon: "lock", action: "Password Changed", time: user?.activityTimestamps?.passwordChangedAt ? new Date(user.activityTimestamps.passwordChangedAt).toLocaleString() : "Never", status: user?.activityTimestamps?.passwordChangedAt ? "success" : "info" },
+            { icon: "user", action: "Profile Updated", time: user?.activityTimestamps?.profileUpdatedAt ? new Date(user.activityTimestamps.profileUpdatedAt).toLocaleString() : "Never", status: user?.activityTimestamps?.profileUpdatedAt ? "info" : "neutral" },
+            { icon: "shield", action: "2FA Checked", time: user?.activityTimestamps?.tfaEnabledAt ? new Date(user.activityTimestamps.tfaEnabledAt).toLocaleString() : "Never", status: user?.activityTimestamps?.tfaEnabledAt ? "success" : "neutral" },
           ].map((activity, idx) => (
+
             <motion.div
               key={idx}
               className="flex gap-4 p-4 rounded-xl border border-white/10 bg-[#0a0a0a] hover:bg-white/5 transition"
