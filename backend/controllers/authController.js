@@ -238,7 +238,10 @@ const login = async (req, res) => {
     // Enterprise Device Fingerprinting & SIEM Detection (Policy §2.4)
     const ip = req.ip || req.connection.remoteAddress;
     const userAgent = req.headers['user-agent'] || 'unknown';
-    const deviceFingerprint = req.body.fingerprint || 'unknown'; // Derived from frontend
+    const deviceFingerprint = typeof req.body.fingerprint === 'object'
+      ? JSON.stringify(req.body.fingerprint)
+      : (req.body.fingerprint || 'unknown');
+
     const geo = geoip.lookup(ip);
 
     // Impossible Travel Detection (§2.1) & Concurrent Session Control (§2.2)

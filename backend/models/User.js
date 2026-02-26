@@ -17,8 +17,9 @@ const userSchema = new mongoose.Schema({
   devices: [{
     ip: String,
     userAgent: String,
-    fingerprint: String,
+    fingerprint: mongoose.Schema.Types.Mixed,
     lastLogin: Date
+
   }],
   isTwoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String },
