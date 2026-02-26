@@ -54,3 +54,60 @@ exports.getSecurityStatus = async (req, res) => {
         res.status(500).json({ message: "Security health check failed." });
     }
 };
+
+// CREATE Manual Backup (§19)
+exports.triggerManualBackup = async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const User = require('../models/User');
+        const Asset = require('../models/Asset');
+        const AuditLog = require('../models/AuditLog');
+        const { encryptSensitiveData } = require('../utils/security');
+
+        const backupDir = path.join(__dirname, '..', 'backups');
+        if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true });
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const filename = `manual-backup-${timestamp}.json`;
+        const backupFile = path.join(backupDir, filename);
+
+        const users = await User.find({});
+        const assets = await Asset.find({});
+        const audits = await AuditLog.find({});
+
+        const backupData = JSON.stringify({ timestamp: new Date(), collections: { users, assets, audits } });
+        const encrypted = encryptSensitiveData(backupData, process.env.BACKUP_SECRET || process.env.JWT_SECRET || 'emergency_backup_key_32_chars_long!!');
+
+        fs.writeFileSync(backupFile, encrypted);
+
+        await AuditLog.create({
+            action: "SECURITY: Manual System Backup",
+            performedBy: req.user.email,
+            details: `Admin-initiated encrypted database backup created: ${filename} (§19).`,
+            ip: req.ip || req.connection?.remoteAddress
+        });
+
+        res.json({ message: "Enterprise backup successfully encrypted and stored on-site.", filename });
+    } catch (error) {
+        res.status(500).json({ message: "Manual backup failed: " + error.message });
+    }
+};
+
+// DOWNLOAD Backup — Admin only + 2FA enforced at route (§19)
+exports.downloadBackup = async (req, res) => {
+    try {
+        const fs = require('fs');
+        const path = require('path');
+        const { filename } = req.params;
+        const backupFile = path.join(__dirname, '..', 'backups', filename);
+
+        if (!fs.existsSync(backupFile)) {
+            return res.status(404).json({ message: "Backup file not found." });
+        }
+
+        res.download(backupFile);
+    } catch (error) {
+        res.status(500).json({ message: "Download failed." });
+    }
+};

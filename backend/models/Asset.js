@@ -101,6 +101,24 @@ const assetSchema = new mongoose.Schema(
   }
 );
 
+// Straight-Line Depreciation Calculation (§6.3)
+assetSchema.virtual('bookValue').get(function () {
+  if (!this.purchasePrice) return 0;
+  if (!this.purchaseDate) return this.purchasePrice;
+
+  const now = new Date();
+  const purchaseDate = new Date(this.purchaseDate);
+  const yearsOwned = (now - purchaseDate) / (1000 * 60 * 60 * 24 * 365.25);
+
+  const totalDepreciableAmount = this.purchasePrice - (this.salvageValue || 0);
+  const annualDepreciation = totalDepreciableAmount / (this.usefulLifeYears || 5);
+
+  const currentDepreciation = Math.min(totalDepreciableAmount, annualDepreciation * yearsOwned);
+  const currentBookValue = this.purchasePrice - currentDepreciation;
+
+  return Math.max(this.salvageValue || 0, Math.round(currentBookValue * 100) / 100);
+});
+
 const crypto = require("crypto");
 
 assetSchema.pre('save', function (next) {

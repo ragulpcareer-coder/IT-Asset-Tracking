@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { rotateSystemSecrets, getSecurityStatus } = require("../controllers/maintenanceController");
+const { rotateSystemSecrets, getSecurityStatus, triggerManualBackup, downloadBackup } = require("../controllers/maintenanceController");
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
 const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
 
@@ -10,5 +10,9 @@ const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
 // 3. Step-up Auth (requireReAuth) (§3.4)
 router.post("/rotate-keys", protect, admin, requireAdmin2FA, requireReAuth, rotateSystemSecrets);
 router.get("/status", protect, admin, requireAdmin2FA, getSecurityStatus);
+
+// Manual Backup Management (§19)
+router.post("/backup", protect, admin, requireAdmin2FA, triggerManualBackup);
+router.get("/backup/download/:filename", protect, admin, requireAdmin2FA, requireReAuth, downloadBackup);
 
 module.exports = router;
