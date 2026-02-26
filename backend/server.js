@@ -39,19 +39,24 @@ const allowedOrigins = [
   "http://localhost:5174",
   "http://localhost:5175",
   FRONTEND_URL,
-  "https://it-asset-tracking-ragul.vercel.app" // Add explicit production link
+  "https://it-asset-tracking-ragul.vercel.app",
+  "https://it-asset-tracking-ragulpcareer-coders-projects.vercel.app"
 ];
+
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
-    if (allowedOrigins.indexOf(origin) !== -1 || process.env.NODE_ENV !== 'production') {
+
+    const isVercelSubdomain = origin.includes("it-asset-tracking") && origin.endsWith(".vercel.app");
+
+    if (allowedOrigins.indexOf(origin) !== -1 || isVercelSubdomain || process.env.NODE_ENV !== 'production') {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
     }
   },
+
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature"]
