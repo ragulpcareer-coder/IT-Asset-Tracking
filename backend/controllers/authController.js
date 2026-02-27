@@ -197,9 +197,16 @@ const login = async (req, res) => {
   try {
     const { email, password, token2FA } = req.body;
 
-    // Optimized: Fetch only required fields for authentication (§1.1)
-    const user = await User.findOne({ email: (email || "").toLowerCase() })
-      .select("+password lockUntil isActive failedLoginAttempts isTwoFactorEnabled twoFactorSecret twoFactorBackupCodes role name email lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password are required." });
+    }
+
+    // Stage 1: Fetch ONLY unencrypted fields for password verification
+    // NOTE: Do NOT fetch twoFactorSecret/twoFactorBackupCodes here.
+    // Those are encrypted by mongoose-field-encryption and will throw if
+    // DB_ENCRYPTION_SECRET is wrong. We do auth first, then fetch those.
+    const user = await User.findOne({ email: email.toLowerCase().trim() })
+      .select("+password lockUntil isActive failedLoginAttempts isTwoFactorEnabled name email role lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
 
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -216,21 +223,32 @@ const login = async (req, res) => {
       return res.status(403).json({ message: "Identity Decommissioned: Access is permanently suspended." });
     }
 
-    const isMatch = await user.matchPassword(password);
+    // Stage 2: Password verification with resilient error handling
+    let isMatch = false;
+    try {
+      isMatch = await user.matchPassword(password);
+    } catch (bcryptErr) {
+      // This happens when DB_ENCRYPTION_SECRET is wrong/missing and corrupts the password hash
+      console.error('[Login] matchPassword threw an exception:', bcryptErr.message);
+      console.error('[Login] LIKELY CAUSE: DB_ENCRYPTION_SECRET env var is missing or wrong on Render.');
+      console.error('[Login] FIX: Add DB_ENCRYPTION_SECRET to Render Dashboard Environment settings.');
+      return res.status(503).json({
+        message: "Authentication engine configuration error. Contact your system administrator.",
+        debug: `Internal: matchPassword failed — ${bcryptErr.message}`
+      });
+    }
 
     if (!isMatch) {
-      // Handle failed attempt (Save to DB is necessary here for security state)
       user.failedLoginAttempts += 1;
       if (user.failedLoginAttempts >= 5) {
         user.lockUntil = Date.now() + 15 * 60 * 1000;
-
         setImmediate(async () => {
           try {
             await AuditLog.create({
               action: "SECURITY ALERT: Force Lockout",
               performedBy: user.email,
               details: `Consecutive authentication failure leading to node lockout.`,
-              ip: req.ip || req.connection.remoteAddress,
+              ip: req.ip,
             });
           } catch (err) { logger.error("Lockout Log Error:", err.message); }
         });
@@ -241,29 +259,40 @@ const login = async (req, res) => {
 
 
     // Two-Factor Authentication Logic
+    // Fetch encrypted 2FA fields in a SEPARATE isolated query to contain decryption errors
     if (user.isTwoFactorEnabled) {
       if (!token2FA) {
         return res.status(403).json({ requires2FA: true, message: "Two-factor authentication token required" });
       }
 
+      let twoFAUser;
+      try {
+        twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes");
+      } catch (decryptErr) {
+        console.error('[Login] 2FA field decryption failed:', decryptErr.message);
+        console.error('[Login] FIX: Ensure DB_ENCRYPTION_SECRET matches the value used during user registration.');
+        return res.status(503).json({ message: "2FA engine configuration error.", debug: decryptErr.message });
+      }
+
       let isVerified = speakeasy.totp.verify({
-        secret: user.twoFactorSecret,
+        secret: twoFAUser?.twoFactorSecret || '',
         encoding: 'base32',
         token: token2FA,
-        window: 1 // allows 30 seconds drift either way
+        window: 1
       });
 
-      // Weakness Fix: Check backup codes if TOTP fails
-      if (!isVerified && user.twoFactorBackupCodes && user.twoFactorBackupCodes.includes(token2FA)) {
+      // Check backup codes if TOTP fails
+      if (!isVerified && twoFAUser?.twoFactorBackupCodes?.includes(token2FA)) {
         isVerified = true;
-        // Remove the used backup code
-        user.twoFactorBackupCodes = user.twoFactorBackupCodes.filter(c => c !== token2FA);
+        // Remove the used backup code (fire-and-forget)
+        setImmediate(() => User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: token2FA } }).catch(() => { }));
       }
 
       if (!isVerified) {
         return res.status(400).json({ message: "Invalid 2FA token or backup code" });
       }
     }
+
 
     // Enterprise Behavioral Monitoring (NON-BLOCKING)
     const currentHour = new Date().getHours();
