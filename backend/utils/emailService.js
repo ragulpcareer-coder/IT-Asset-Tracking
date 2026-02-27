@@ -23,17 +23,19 @@ const transporter = nodemailer.createTransport({
     },
 });
 
-// Pre-flight connection verification
-transporter.verify((error, success) => {
-    if (error) {
-        console.error("SMTP VERIFY FAILED:", error);
-        if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
-            console.error("[SMTP-Diagnostic] ACTION: Missing EMAIL_USER or EMAIL_PASS in Render Environment settings.");
+// Pre-flight connection verification (Non-blocking bootstrap)
+try {
+    transporter.verify((error, success) => {
+        if (error) {
+            console.warn(`[SMTP-Diagnostic] Port 587/465 unreachable (Expected on some Cloud Hosts). Error: ${error.message}`);
+            console.log(`[SMTP-Diagnostic] SYSTEM_INFO: Defaulting to P1: Resend (HTTPS) for production reliability.`);
+        } else {
+            console.log("SMTP SERVER READY");
         }
-    } else {
-        console.log("SMTP SERVER READY");
-    }
-});
+    });
+} catch (vErr) {
+    console.error(`[SMTP-Diagnostic] Critical Verify Exception:`, vErr.message);
+}
 
 const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
 

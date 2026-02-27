@@ -46,20 +46,25 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
+    // Explicitly allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
 
-    const isVercelSubdomain = origin.includes("it-asset-tracking") && origin.endsWith(".vercel.app");
+    // Dynamic Origin Validation (§43, §44)
+    // Supports Localhost, Production domain, and ALL Vercel subdomains/previews
+    const isVercelOrigin = origin.includes("it-asset-tracking") && origin.endsWith(".vercel.app");
+    const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
 
-    if (allowedOrigins.indexOf(origin) !== -1 || isVercelSubdomain || process.env.NODE_ENV !== 'production') {
+    if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
       callback(null, true);
     } else {
-      callback(new Error('Not allowed by CORS'));
+      logger.warn(`CORS_BLOCKED: Connection attempt from unauthorized origin: ${origin}`);
+      callback(new Error('Identity Policy: Cross-origin access denied.'));
     }
   },
-
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature"]
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature", "X-Requested-With"],
+  exposedHeaders: ["X-CSRF-Token", "X-Request-Timestamp"]
 }));
 
 // 5. Socket.io Configuration
