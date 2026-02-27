@@ -119,7 +119,7 @@ export default function Assets() {
     }
 
     try {
-      const doc = new jsPDF();
+      const doc = new jsPDF('landscape'); // Landscape to fit extra columns cleanly
       doc.setFontSize(22);
       doc.text("Asset Inventory Report", 14, 20);
       doc.setFontSize(10);
@@ -133,7 +133,7 @@ export default function Assets() {
         "Operational Status",
         "Assigned To",
         "Book Value (USD)",
-        "Useful Life (Years)"
+        "Life (Yrs)"
       ];
 
       const formatStatus = (status) => {
@@ -149,8 +149,14 @@ export default function Assets() {
         const val = a.bookValue || a.purchasePrice || 0;
         const formattedCurrency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
 
+        // Filter out raw socket IPs appearing in PDF for unclassified equipment.
+        let safeName = a.name;
+        if (safeName && safeName.includes("Unknown Device (")) {
+          safeName = "Unidentified Asset";
+        }
+
         return [
-          a.name,
+          safeName,
           a.type || "Standard",
           a.serialNumber || "N/A",
           formatStatus(a.status),
@@ -165,6 +171,7 @@ export default function Assets() {
         body: tableRows,
         startY: 42,
         theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 3, overflow: 'linebreak' },
         headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: 'bold' }
       });
 
