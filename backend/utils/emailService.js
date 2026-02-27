@@ -43,38 +43,46 @@ const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gma
  * Common dispatch engine with forensic logging
  */
 const sendEmail = async ({ to, subject, html, reply_to }) => {
-    console.log(`[Email Engine] Forensic Dispatch Start: to=${to}`);
+    const isProd = process.env.NODE_ENV === 'production';
+    console.log(`[Email Engine] Forensic Dispatch Start: to=${to} (Env: ${process.env.NODE_ENV})`);
 
-    // Strategy: Priority 1 - Resend (HTTPS API)
-    // HTTPS is significantly more reliable on cloud providers like Render (always open).
+    // Strategy 1: Resend (HTTPS API) - The Production Gold Standard
     if (resend) {
         try {
             console.log(`[Email Engine] P1: Attempting Resend API...`);
-            // If using Resend Sandbox, 'from' must be 'onboarding@resend.dev'
-            const sender = process.env.RESEND_API_KEY ? 'onboarding@resend.dev' : fromEmail;
+
+            // SECURITY REQUIREMENT: Resend sandbox ONLY allows 'onboarding@resend.dev'
+            // Unless the user has a custom domain verified, we must use this.
+            // We'll try to use the configured fromEmail, but fallback to sandbox if it feels like a default.
+            const sender = (fromEmail.includes('gmail.com') || !isProd) ? 'onboarding@resend.dev' : fromEmail;
+
+            console.log(`[Email Engine] Identity: Sending as ${sender}`);
 
             const { data, error } = await resend.emails.send({
                 from: sender,
                 to: Array.isArray(to) ? to : [to],
-                subject: (sender === 'onboarding@resend.dev') ? `[IT-ASSET] ${subject}` : subject,
+                subject: (sender === 'onboarding@resend.dev') ? `[IT-ASSET-SYSTEM] ${subject}` : subject,
                 html,
                 reply_to
             });
-            if (!error) {
+
+            if (error) {
+                console.error(`[Email Engine] RESEND REJECTED (Code: ${error.name}): ${error.message}`);
+                // Don't throw yet, try SMTP if we are allowed
+            } else {
                 console.log(`[Email Engine] RESEND SUCCESS: ID: ${data.id}`);
                 return { ...data, provider: 'resend' };
             }
-            console.warn(`[Email Engine] RESEND REJECTED: ${error.message}. Dropping to SMTP...`);
         } catch (resendErr) {
-            console.error(`[Email Engine] RESEND CRITICAL ERROR:`, resendErr.message);
+            console.error(`[Email Engine] RESEND CRITICAL EXCEPTION:`, resendErr.message);
         }
     }
 
-    // Strategy: Priority 2 - SMTP (Gmail App Password)
+    // Strategy 2: SMTP Relay (Gmail) - The Local/Fallback Engine
     try {
-        console.log(`[Email Engine] P2: Attempting SMTP Relay (Gmail) with 5s timeout...`);
+        console.log(`[Email Engine] P2: Attempting SMTP Relay (timeout 8s)...`);
 
-        // Use a race to enforce a strict timeout for SMTP failures
+        // Render/Heroku often block SMTP. We use a race to prevent the API from hanging.
         const info = await Promise.race([
             transporter.sendMail({
                 from: fromEmail,
@@ -83,14 +91,16 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
                 html,
                 replyTo: reply_to
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_TIMEOUT')), 5000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_NETWORK_TIMEOUT_PORT_BLOCKED')), 8000))
         ]);
 
         console.log(`[Email Engine] SMTP SUCCESS: Dispatch ID: ${info.messageId}`);
         return { ...info, provider: 'smtp' };
     } catch (smtpError) {
-        console.error(`[Email Engine] SMTP FAILED:`, smtpError.message);
-        throw new Error(`Email Dispatch Exhausted: ${smtpError.message}`);
+        console.error(`[Email Engine] SMTP FINAL FAILURE:`, smtpError.message);
+
+        // If both failed, we must throw to trigger the 500 response in controller
+        throw new Error(`Unified Mailing Failure: [Resend Check Audit] + [SMTP: ${smtpError.message}]`);
     }
 };
 

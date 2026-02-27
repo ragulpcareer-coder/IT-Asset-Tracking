@@ -1149,9 +1149,11 @@ const forgotPassword = async (req, res) => {
     const totalTime = Date.now() - startTime;
     console.error(`[Auth] CRITICAL SYSTEM FAULT (Latency: ${totalTime}ms):`, error);
 
-    res.status(500).json({
+    // REQUIREMENT: Must return JSON so frontend doesn't see "Bad Gateway" or "CORS Block"
+    return res.status(500).json({
       message: "Internal Security Engine Failure.",
-      debug: error.message
+      debug: error.message,
+      meta: { userStatus: 'unknown', diagnostic: 'abort-unhandled' }
     });
   }
 };

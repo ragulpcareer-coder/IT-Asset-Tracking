@@ -51,19 +51,20 @@ app.use(cors({
 
     // Dynamic Origin Validation (§43, §44)
     // Supports Localhost, Production domain, and ALL Vercel subdomains/previews
-    const isVercelOrigin = origin.includes("it-asset-tracking") && origin.endsWith(".vercel.app");
+    const isVercelOrigin = origin.endsWith(".vercel.app") &&
+      (origin.includes("it-asset-tracking") || origin.includes("it-asset"));
     const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
 
     if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
       callback(null, true);
     } else {
-      logger.warn(`CORS_BLOCKED: Connection attempt from unauthorized origin: ${origin}`);
+      console.warn(`[CORS-Forensic] BLOCKED: ${origin}`);
       callback(new Error('Identity Policy: Cross-origin access denied.'));
     }
   },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature", "X-Requested-With"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature", "X-Requested-With", "Accept"],
   exposedHeaders: ["X-CSRF-Token", "X-Request-Timestamp"]
 }));
 
