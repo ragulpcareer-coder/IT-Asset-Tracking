@@ -226,18 +226,33 @@ const login = async (req, res) => {
       return res.status(403).json({ message: "Identity Decommissioned: Access is permanently suspended." });
     }
 
-    // Stage 2: Password verification with resilient error handling
+    // Stage 2: Password verification
+    // Pre-flight: check password field exists (corrupted if double-hash bug ran before this fix)
+    if (!user.password) {
+      console.error('[Login] CRITICAL: user.password is null/undefined for:', user.email);
+      console.error('[Login] CAUSE: pre-save hook double-hash bug corrupted the password field.');
+      console.error('[Login] FIX: User must reset their password via Forgot Password flow.');
+      return res.status(500).json({
+        message: "Account data integrity error. Please use Forgot Password to reset your credentials.",
+        debug: "password field is missing from user document"
+      });
+    }
+
     let isMatch = false;
     try {
       isMatch = await user.matchPassword(password);
     } catch (bcryptErr) {
-      // This should no longer trigger since we excluded encrypted fields in Stage 1.
-      // If it does, the password field itself is corrupted in the DB.
-      console.error('[Login] UNEXPECTED: matchPassword threw an exception:', bcryptErr.message);
-      console.error('[Login] DB_ENCRYPTION_SECRET set?', !!process.env.DB_ENCRYPTION_SECRET);
-      console.error('[Login] JWT_SECRET set?', !!process.env.JWT_SECRET);
+      // bcrypt throws when hash is corrupted (e.g. 'Invalid hash provided')
+      // This happens when the pre-save hook double-hashed the password multiple times.
+      // The pre-save bug is now fixed (return next()) but existing accounts may be corrupt.
+      // Users with this issue need to reset their password via Forgot Password.
+      console.error('[Login] bcrypt.compare threw:', bcryptErr.message);
+      console.error('[Login] CAUSE: password hash is corrupt (double-hash from missing return next() bug)');
+      console.error('[Login] user.password length:', user.password?.length, 'starts with:', user.password?.substring(0, 7));
       return res.status(503).json({
         message: "Authentication engine configuration error. Contact your system administrator.",
+        debug: `bcrypt error: ${bcryptErr.message}`,
+        hint: "If hash corrupt: user must reset password via Forgot Password flow"
       });
     }
 
