@@ -1069,6 +1069,7 @@ const forgotPassword = async (req, res) => {
 
     // 5. Dispatch secure transmission email
     try {
+      console.log(`[Auth Controller] Requesting email dispatch for: ${user.email}`);
       await sendPasswordResetEmail(user, resetToken);
 
       await AuditLog.create({
@@ -1080,11 +1081,19 @@ const forgotPassword = async (req, res) => {
 
       logger.info(`[Auth] Reset email dispatched successfully to ${user.email}`);
 
-    } catch (emailErr) {
-      logger.error(`[Auth] Reset email failure for ${user.email}:`, emailErr.message);
-    }
+      // ONLY return success if email actually sent
+      res.json(genericResponse);
 
-    res.json(genericResponse);
+    } catch (emailErr) {
+      console.error(`[Auth Controller] Email dispatch failure:`, emailErr.message);
+      logger.error(`[Auth] Reset email failure for ${user.email}:`, emailErr.message);
+
+      // If email fails, we MUST inform the user (Requirement 4)
+      return res.status(500).json({
+        message: "Unable to send recovery email. Please check your connectivity or try again later.",
+        error: process.env.NODE_ENV === 'development' ? emailErr.message : undefined
+      });
+    }
   } catch (error) {
     logger.error("[Auth] Forgot Password system error:", error.message);
     res.status(500).json({ message: "Internal Security Engine Failure." });

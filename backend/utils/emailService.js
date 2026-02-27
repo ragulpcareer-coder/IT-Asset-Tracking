@@ -1,51 +1,75 @@
 const nodemailer = require("nodemailer");
 const { Resend } = require('resend');
 
-// Initialize Resend if key exists
+// Initialize Resend (Optional Fallback)
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// Initialize Nodemailer for SMTP fallback (§Requirement 3.2 - Gmail/Outlook/Custom)
+// Initialize Nodemailer with Gmail optimized settings (Requirement 2)
+// Using Port 465 and Secure: true for maximum production reliability
 const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST || 'smtp.gmail.com',
-    port: process.env.SMTP_PORT || 587,
-    secure: false, // true for 465, false for other ports
+    service: 'gmail',
+    host: 'smtp.gmail.com',
+    port: 465,
+    secure: true, // Port 465 requires secure: true
     auth: {
         user: process.env.EMAIL_USER || 'ragulp.career@gmail.com',
-        pass: process.env.EMAIL_PASS || 'fwyh rjqy lqve kldm', // Example App Password
+        pass: process.env.EMAIL_PASS || 'fwyh rjqy lqve kldm', // MUST use App Password
     },
+    // Reliability settings
+    pool: true,
+    maxConnections: 5,
+    maxMessages: 100,
 });
 
-const fromEmail = process.env.EMAIL_FROM || 'AssetTracker <onboarding@resend.dev>';
+const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
 
+/**
+ * Common dispatch engine with explicit logging (§Requirement 3 & 5)
+ */
 const sendEmail = async ({ to, subject, html, reply_to }) => {
-    try {
-        // Try Resend first (Enterprise Standard)
-        if (resend) {
-            const { data, error } = await resend.emails.send({
-                from: fromEmail,
-                to: Array.isArray(to) ? to : [to],
-                subject,
-                html,
-                reply_to
-            });
-            if (error) throw new Error(`Resend Error: ${error.message}`);
-            console.log(`[Email] Dispatched via Resend: ${data.id}`);
-            return data;
-        }
+    console.log(`[Email System] Initiating dispatch to: ${to}`);
+    console.log(`[Email System] Subject: ${subject}`);
 
-        // Fallback to Nodemailer/SMTP
+    try {
+        // Attempt SMTP Transmission (Priority 1)
+        console.log(`[SMTP] Contacting smtp.gmail.com:465...`);
         const info = await transporter.sendMail({
             from: fromEmail,
-            to: Array.isArray(to) ? to : to,
+            to: Array.isArray(to) ? to.join(',') : to,
             subject,
             html,
             replyTo: reply_to
         });
-        console.log(`[Email] Dispatched via SMTP: ${info.messageId}`);
+
+        console.log(`[SMTP] SUCCESS: Email sent successfully!`);
+        console.log(`[SMTP] ID: ${info.messageId}`);
+        console.log(`[SMTP] Payload Status: ${info.response}`);
         return info;
-    } catch (err) {
-        console.error('[Email Service Error]', err.message);
-        throw err;
+
+    } catch (smtpError) {
+        console.error(`[SMTP] CRITICAL FAILURE:`, smtpError.message);
+        console.error(`[SMTP] Error Stack:`, smtpError.stack);
+
+        // Fallback to Resend only if SMTP fails
+        if (resend) {
+            console.warn(`[Fallback] Attempting Resend API fallback...`);
+            const { data, error } = await resend.emails.send({
+                from: 'onboarding@resend.dev',
+                to: Array.isArray(to) ? to : [to],
+                subject: `(Fallback) ${subject}`,
+                html,
+                reply_to
+            });
+            if (error) {
+                console.error(`[Fallback] Resend also failed: ${error.message}`);
+                throw new Error(`Email Dispatch Exhausted: ${smtpError.message}`);
+            }
+            console.log(`[Fallback] Resend Success: ${data.id}`);
+            return data;
+        }
+
+        // Propagate the error so the controller can inform the user (Requirement 4)
+        throw smtpError;
     }
 };
 
