@@ -10,7 +10,7 @@ export default function CommandPalette() {
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
 
-    // Listen for Cmd+K or Ctrl+K
+    // Listen for Cmd+K or Ctrl+K and custom event
     useEffect(() => {
         const handleKeyDown = (e) => {
             if ((e.metaKey || e.ctrlKey) && e.key === "k") {
@@ -21,8 +21,14 @@ export default function CommandPalette() {
                 setIsOpen(false);
             }
         };
+        const handleOpen = () => setIsOpen(true);
+
         window.addEventListener("keydown", handleKeyDown);
-        return () => window.removeEventListener("keydown", handleKeyDown);
+        window.addEventListener("open-command-palette", handleOpen);
+        return () => {
+            window.removeEventListener("keydown", handleKeyDown);
+            window.removeEventListener("open-command-palette", handleOpen);
+        };
     }, []);
 
     // Fetch results when search changes

@@ -46,7 +46,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
           {/* Mobile Navigation Trigger */}
           <button onClick={openMobile} className="btn btn-ghost lg:hidden p-2" aria-label="Open global menu">☰</button>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 lg:hidden">
             <div className="flex-center" style={{ width: 28, height: 28, background: '#fff', borderRadius: 6 }}>
               <img src="/logo.svg" alt="AssetTrack" style={{ width: 16, height: 16 }} />
             </div>
@@ -56,29 +56,23 @@ export default function Topbar({ toggleSidebar, openMobile }) {
             </div>
           </div>
 
-          {/* Quick Registry Search */}
-          <div className="hidden md:flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 rounded-xl focus-within:border-blue-500/50 transition-all w-80">
+          {/* Quick Registry Search -> Triggers Command Palette */}
+          <div
+            className="hidden md:flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 rounded-xl focus-within:border-blue-500/50 transition-all w-80 cursor-text"
+            onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
+          >
             <span className="text-slate-500 text-sm">🔍</span>
-            <input
-              type="text"
-              placeholder="Registry Lookup (Enter)..."
-              className="bg-transparent border-none outline-none text-white text-xs w-full"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && e.target.value) {
-                  navigate("/assets?search=" + encodeURIComponent(e.target.value));
-                }
-              }}
-            />
+            <span className="text-slate-400 text-xs w-full select-none">Registry Lookup (Cmd+K)...</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
           {/* Action Hub */}
           <div className="hidden sm:flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, ctrlKey: true }))}>
+            <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}>
               ⌘K
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => toast.info("No active security alerts in your region.")}>
+            <Button variant="ghost" size="sm" onClick={() => navigate("/audit-logs")}>
               🔔
             </Button>
           </div>
@@ -98,9 +92,9 @@ export default function Topbar({ toggleSidebar, openMobile }) {
                 )}
               </div>
             </div>
-            <button className="flex-center w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 hover:border-white/20 transition-all">
-              <span className="text-sm font-black text-white">{user?.name?.charAt(0)}</span>
-            </button>
+            <Link to="/settings" title="User Settings" className="flex-center w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-all">
+              <span className="text-sm font-black text-white">{user?.name ? user.name.charAt(0).toUpperCase() : 'U'}</span>
+            </Link>
             <Button variant="secondary" size="sm" onClick={logout} className="ml-2">Logout</Button>
           </div>
         </div>
