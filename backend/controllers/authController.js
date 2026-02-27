@@ -241,9 +241,10 @@ const login = async (req, res) => {
     }
 
     if (!isMatch) {
-      user.failedLoginAttempts += 1;
-      if (user.failedLoginAttempts >= 5) {
-        user.lockUntil = Date.now() + 15 * 60 * 1000;
+      const newFailCount = (user.failedLoginAttempts || 0) + 1;
+      const updateFields = { failedLoginAttempts: newFailCount };
+      if (newFailCount >= 5) {
+        updateFields.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
         setImmediate(async () => {
           try {
             await AuditLog.create({
@@ -255,7 +256,9 @@ const login = async (req, res) => {
           } catch (err) { logger.error("Lockout Log Error:", err.message); }
         });
       }
-      await user.save();
+      // Use updateOne — avoids triggering mongoose-field-encryption pre-save hook
+      // on a partially-selected document (encrypted fields would be undefined → throws)
+      await User.updateOne({ _id: user._id }, { $set: updateFields });
       return res.status(400).json({ message: "Registry error: Invalid credentials provided." });
     }
 
@@ -332,8 +335,8 @@ const login = async (req, res) => {
 
       // If country changed and time < 60 mins (Simplified "Impossible Travel")
       if (geo.country !== lastGeo.country && timeDiffMinutes < 60) {
-        user.isActive = false; // Instant Lock (§2.1 / §2.2)
-        await user.save();
+        // Use updateOne — avoids triggering mongoose-field-encryption pre-save hook
+        await User.updateOne({ _id: user._id }, { $set: { isActive: false } });
         await AuditLog.create({
           action: "SECURITY ALERT: Impossible Travel Detected",
           performedBy: user.email,
@@ -371,18 +374,45 @@ const login = async (req, res) => {
       if (devIdx !== -1) user.devices[devIdx].lastLogin = Date.now();
     }
 
-    // Finalize authentication tasks in parallel for performance (§1.1)
-    user.failedLoginAttempts = 0;
-    user.lockUntil = undefined;
-    user.lastLogin = Date.now();
-    user.lastLoginIp = ip;
-    user.lastLoginGeo = geo;
-
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
-    // Parallelize: 1. DB Save, 2. Cleanup old tokens, 3. Log Activity, 4. Create new refresh token
+    // Build the devices array update
+    // We recalculate devices from the in-memory doc (which HAS devices since it was selected)
+    let deviceUpdate;
+    const isExistingDev = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
+    if (isExistingDev) {
+      // Update lastLogin on the matched device using positional operator
+      deviceUpdate = User.updateOne(
+        { _id: user._id, 'devices.ip': ip, 'devices.userAgent': userAgent },
+        { $set: { 'devices.$.lastLogin': new Date() } }
+      );
+    } else {
+      deviceUpdate = User.updateOne(
+        { _id: user._id },
+        { $push: { devices: { ip, userAgent, fingerprint: deviceFingerprint, lastLogin: new Date() } } }
+      );
+    }
+
+    // Use updateOne for the main login fields — avoids triggering mongoose-field-encryption
+    // pre-save hook on a partially-selected document (encrypted fields would be undefined → throws)
+    const loginFieldsUpdate = User.updateOne(
+      { _id: user._id },
+      {
+        $set: {
+          failedLoginAttempts: 0,
+          lastLogin: new Date(),
+          lastLoginIp: ip,
+          lastLoginGeo: geo,
+        },
+        $unset: { lockUntil: '' }
+      }
+    );
+
+    // Parallelize: 1. DB login-fields update, 2. Device update, 3. Cleanup old tokens,
+    //              4. Log Activity, 5. Create new refresh token
     await Promise.all([
-      user.save(),
+      loginFieldsUpdate,
+      deviceUpdate,
       RefreshToken.deleteMany({ user: user._id }),
       logUserActivity(user._id, "LOGIN", "Successful strategic authentication event.", req),
       RefreshToken.create({
@@ -412,11 +442,15 @@ const login = async (req, res) => {
     console.error("  Name   :", error.name);
     console.error("  Message:", error.message);
     console.error("  Stack  :", error.stack?.split('\n').slice(0, 5).join(' | '));
+    console.error("  JWT_SECRET set?         ", !!process.env.JWT_SECRET);
+    console.error("  REFRESH_SECRET set?     ", !!process.env.REFRESH_SECRET);
     console.error("  DB_ENCRYPTION_SECRET set?", !!process.env.DB_ENCRYPTION_SECRET);
-    console.error("  JWT_SECRET set?", !!process.env.JWT_SECRET);
+    console.error("  MONGO_URI set?          ", !!process.env.MONGO_URI);
     return res.status(500).json({
       message: "Authentication engine failure.",
-      debug: error.message
+      debug: error.message,
+      hint: !process.env.REFRESH_SECRET ? 'REFRESH_SECRET env var is missing' :
+        !process.env.DB_ENCRYPTION_SECRET ? 'DB_ENCRYPTION_SECRET env var is missing' : undefined
     });
   }
 };

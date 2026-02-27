@@ -157,6 +157,30 @@ app.use("/api/admin/config/v1/root", (req, res) => {
 // 10. API Routes (Enterprise Versioning §39)
 app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
 
+// Diagnostic endpoint — shows env var presence and DB state (values are NEVER exposed)
+app.get("/api/diag", (req, res) => {
+  const mongoose = require("mongoose");
+  const dbStates = ["disconnected", "connected", "connecting", "disconnecting"];
+  res.status(200).json({
+    status: "running",
+    timestamp: new Date().toISOString(),
+    node: process.version,
+    env: process.env.NODE_ENV,
+    envVars: {
+      JWT_SECRET: !!process.env.JWT_SECRET,
+      REFRESH_SECRET: !!process.env.REFRESH_SECRET,
+      DB_ENCRYPTION_SECRET: !!process.env.DB_ENCRYPTION_SECRET,
+      MONGO_URI: !!process.env.MONGO_URI,
+      FRONTEND_URL: !!process.env.FRONTEND_URL,
+      RESEND_API_KEY: !!process.env.RESEND_API_KEY,
+    },
+    db: {
+      state: dbStates[mongoose.connection.readyState] || "unknown",
+      host: mongoose.connection.host || "not connected",
+    }
+  });
+});
+
 // CSRF Protection configuration
 const csrfProtection = csurf({
   cookie: {
