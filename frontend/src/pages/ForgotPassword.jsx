@@ -30,8 +30,12 @@ export default function ForgotPassword() {
             setMessage(data.message || "If the account exists, a recovery link has been dispatched.");
         } catch (err) {
             console.error("[Recovery] Failed to dispatch recovery link:", err);
-            const errorMsg = err.response?.data?.message || "Internal SOC Engine Failure. Please contact administrator.";
-            setError(errorMsg);
+            // REQUIREMENT: Expose the "debug" or "error" field from the backend for production troubleshooting
+            const data = err.response?.data;
+            const errorMsg = data?.message || "Internal SOC Engine Failure. Please contact administrator.";
+            const debugInfo = data?.debug || data?.error || "";
+
+            setError(debugInfo ? `${errorMsg} (System Trace: ${debugInfo})` : errorMsg);
         } finally {
             setLoading(false);
         }
