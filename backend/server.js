@@ -203,6 +203,57 @@ app.get("/diag", (req, res) => {
   });
 });
 
+// ⚠️  TEMPORARY EMERGENCY ENDPOINT — REMOVE AFTER USE ⚠️
+// URL: GET /emergency-reset/RAGUL_ADMIN_RESET_2026
+// Resets ragulp.career@gmail.com password to: AdminReset2026!!
+// Protected by secret URL segment. Remove this block after login works.
+app.get("/emergency-reset/RAGUL_ADMIN_RESET_2026", async (req, res) => {
+  try {
+    const bcrypt = require("bcryptjs");
+    const mongoose = require("mongoose");
+
+    const TARGET_EMAIL = "ragulp.career@gmail.com";
+    const NEW_PASSWORD = "AdminReset2026!!";
+
+    // Hash the new password
+    const salt = await bcrypt.genSalt(10);
+    const hashed = await bcrypt.hash(NEW_PASSWORD, salt);
+
+    // Verify hash integrity before writing
+    const valid = await bcrypt.compare(NEW_PASSWORD, hashed);
+    if (!valid) return res.status(500).json({ error: "Hash verification failed — DB not updated." });
+
+    // Write directly via native MongoDB driver — NO Mongoose hooks, NO field-encryption
+    const collection = mongoose.connection.db.collection("users");
+    const result = await collection.updateOne(
+      { email: TARGET_EMAIL },
+      {
+        $set: {
+          password: hashed,
+          failedLoginAttempts: 0,
+          isApproved: true,
+          isActive: true,
+        },
+        $unset: { lockUntil: "" }
+      }
+    );
+
+    if (result.modifiedCount === 1) {
+      return res.status(200).json({
+        success: true,
+        message: "Password reset complete. Login now.",
+        credentials: { email: TARGET_EMAIL, password: NEW_PASSWORD },
+        next: "Delete this endpoint from server.js after logging in!"
+      });
+    } else {
+      return res.status(404).json({ error: `No user found with email: ${TARGET_EMAIL}` });
+    }
+  } catch (err) {
+    console.error("[EmergencyReset] Error:", err.message);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 // CSRF Protection configuration
 const csrfProtection = csurf({
   cookie: {
