@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import axios from "../utils/axiosConfig";
 import { Button, Input, Alert } from "../components/UI";
 import { BrandLogo } from "../components/ProfessionalIcons";
@@ -14,16 +14,24 @@ export default function ForgotPassword() {
     const [error, setError] = useState("");
 
     const handleSubmit = async (e) => {
-        e.preventDefault();
+        if (e) e.preventDefault();
+
+        // Anti-multi-click guard
+        if (loading) return;
+
+        console.log("[Recovery] Initiating password reset for:", email);
         setLoading(true);
         setError("");
         setMessage("");
 
         try {
-            const { data } = await axios.post("/auth/forgot-password", { email });
-            setMessage(data.message);
+            const { data } = await axios.post("/auth/forgot-password", { email: email.trim() });
+            console.log("[Recovery] Success response received:", data);
+            setMessage(data.message || "If the account exists, a recovery link has been dispatched.");
         } catch (err) {
-            setError(err.response?.data?.message || "Failed to dispatch recovery link. Please try again.");
+            console.error("[Recovery] Failed to dispatch recovery link:", err);
+            const errorMsg = err.response?.data?.message || "Internal SOC Engine Failure. Please contact administrator.";
+            setError(errorMsg);
         } finally {
             setLoading(false);
         }
@@ -52,65 +60,82 @@ export default function ForgotPassword() {
                             Account Recovery
                         </motion.h1>
                         <motion.p className="text-blue-100 font-light" variants={animationVariants.itemVariants}>
-                            Secure credential restoration protocol
+                            Enter your registered email to receive a secure restoration link
                         </motion.p>
                     </div>
 
                     <motion.div className="card-3d corner-glow" variants={animationVariants.itemVariants}>
                         <HolographicCard className="rounded-3xl p-8">
-                            {message ? (
-                                <div className="text-center py-6">
-                                    <div className="w-16 h-16 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-500/50">
-                                        <svg className="w-8 h-8 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                        </svg>
-                                    </div>
-                                    <h3 className="text-xl font-bold text-white mb-3">Transmission Sent</h3>
-                                    <p className="text-blue-200 text-sm mb-8 leading-relaxed">
-                                        {message}
-                                    </p>
-                                    <Link to="/login" className="block">
-                                        <Button variant="outline" className="w-full">
-                                            Return to Sign In
-                                        </Button>
-                                    </Link>
-                                </div>
-                            ) : (
-                                <form onSubmit={handleSubmit} className="space-y-6">
-                                    <div className="space-y-2">
-                                        <label className="block text-sm font-semibold text-blue-100">
-                                            Registered Email
-                                        </label>
-                                        <Input
-                                            type="email"
-                                            placeholder="Enter your official email"
-                                            value={email}
-                                            onChange={(e) => setEmail(e.target.value)}
-                                            required
-                                            className="bg-gray-900/80 border-blue-500/30 text-white"
-                                        />
-                                    </div>
-
-                                    {error && <Alert type="error" message={error} onClose={() => setError("")} />}
-
-                                    <Button
-                                        type="submit"
-                                        variant="primary"
-                                        size="lg"
-                                        className="w-full bg-gradient-to-r from-blue-600 to-teal-500"
-                                        loading={loading}
-                                        disabled={loading}
+                            <AnimatePresence mode="wait">
+                                {message ? (
+                                    <motion.div
+                                        key="success"
+                                        initial={{ opacity: 0, scale: 0.9 }}
+                                        animate={{ opacity: 1, scale: 1 }}
+                                        className="text-center py-6"
                                     >
-                                        Send Recovery Link
-                                    </Button>
-
-                                    <div className="text-center pt-2">
-                                        <Link to="/login" className="text-sm font-bold text-blue-300 hover:text-blue-200 transition">
-                                            ← Back to Secure Login
+                                        <div className="w-20 h-20 bg-blue-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-blue-500/50 shadow-lg shadow-blue-500/20">
+                                            <svg className="w-10 h-10 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                            </svg>
+                                        </div>
+                                        <h3 className="text-2xl font-bold text-white mb-3">Transmission Successful</h3>
+                                        <p className="text-blue-200 text-sm mb-8 leading-relaxed">
+                                            A secure recovery packet has been dispatched to your registry. Please verify your inbox and spam folder.
+                                        </p>
+                                        <Link to="/login" className="block">
+                                            <Button variant="primary" className="w-full h-12">
+                                                Return to Sign In Terminal
+                                            </Button>
                                         </Link>
-                                    </div>
-                                </form>
-                            )}
+                                    </motion.div>
+                                ) : (
+                                    <motion.form
+                                        key="form"
+                                        initial={{ opacity: 0 }}
+                                        animate={{ opacity: 1 }}
+                                        onSubmit={handleSubmit}
+                                        className="space-y-6"
+                                    >
+                                        <div className="space-y-2">
+                                            <label className="block text-sm font-semibold text-blue-100">
+                                                Official Email Address
+                                            </label>
+                                            <Input
+                                                type="email"
+                                                placeholder="Enter your system email"
+                                                value={email}
+                                                onChange={(e) => setEmail(e.target.value)}
+                                                required
+                                                className="bg-black/40 border-blue-500/30 text-white h-12"
+                                            />
+                                        </div>
+
+                                        {error && (
+                                            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
+                                                <Alert type="error" message={error} onClose={() => setError("")} />
+                                            </motion.div>
+                                        )}
+
+                                        <Button
+                                            type="submit"
+                                            variant="primary"
+                                            size="lg"
+                                            className="w-full h-12 bg-gradient-to-r from-blue-600 to-cyan-500 font-bold uppercase tracking-wider"
+                                            loading={loading}
+                                            disabled={loading || !email}
+                                        >
+                                            {loading ? "Decrypting..." : "Request Recovery Link"}
+                                        </Button>
+
+                                        <div className="text-center pt-2">
+                                            <Link to="/login" className="text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-all flex items-center justify-center gap-2">
+                                                <span>←</span> ABORT AND RETURN TO LOGIN
+                                            </Link>
+                                        </div>
+                                    </motion.form>
+                                )}
+                            </AnimatePresence>
                         </HolographicCard>
                     </motion.div>
                 </motion.div>

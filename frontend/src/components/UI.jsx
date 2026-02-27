@@ -192,12 +192,47 @@ export const PermissionGuard = ({ roles = [], userRole, children, fallback = nul
   return <>{children}</>;
 };
 
+// --- Password Strength Meter ---
+export const PasswordStrengthMeter = ({ password, requirements }) => {
+  const getStrength = (pass) => {
+    let score = 0;
+    if (pass.length >= 12) score++;
+    if (/[A-Z]/.test(pass)) score++;
+    if (/[a-z]/.test(pass) && /[0-9]/.test(pass)) score++;
+    if (/[^A-Za-z0-9]/.test(pass)) score++;
+    return score;
+  };
+
+  const strength = getStrength(password || "");
+  const labels = ["Weak", "Fair", "Good", "Strong"];
+  const colors = ["bg-red-500", "bg-yellow-500", "bg-blue-500", "bg-green-500"];
+
+  return (
+    <div className="mt-2">
+      <div className="flex gap-1 h-1.5 mb-1.5">
+        {[1, 2, 3, 4].map((step) => (
+          <div
+            key={step}
+            className={`flex-1 rounded-full transition-all duration-500 ${step <= strength ? colors[strength - 1] : "bg-white/10"}`}
+          />
+        ))}
+      </div>
+      <p className="text-[10px] font-bold uppercase tracking-wider text-white/40">
+        Security Level: <span className={strength > 0 ? colors[strength - 1].replace('bg-', 'text-') : ""}>
+          {password ? labels[strength - 1] : "Pending Input"}
+        </span>
+      </p>
+    </div>
+  );
+};
+
 export default {
   Button,
   Input,
   Card,
   Badge,
   Alert,
+  PasswordStrengthMeter,
   ConfirmModal,
   PermissionGuard,
 };

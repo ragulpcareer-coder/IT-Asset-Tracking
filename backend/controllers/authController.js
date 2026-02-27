@@ -15,6 +15,8 @@ const {
 } = require("../utils/security");
 const geoip = require("geoip-lite");
 const crypto = require("crypto");
+const logger = require("../utils/logger");
+const PasswordResetToken = require("../models/PasswordResetToken");
 const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = require("../utils/emailService");
 
 // Token manager instance (uses env secrets)
@@ -1056,13 +1058,14 @@ const forgotPassword = async (req, res) => {
 
     // 3. Generate high-entropy reset token (§Step 3)
     const resetToken = crypto.randomBytes(32).toString('hex');
-
-    // 4. Store cryptographically hashed token (§Step 3)
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
-    user.passwordResetToken = hashedToken;
-    user.passwordResetExpires = Date.now() + 15 * 60 * 1000; // 15 Minute Window (§7)
 
-    await user.save();
+    // 4. Store in dedicated tokens collection (§Requirement 3)
+    await PasswordResetToken.create({
+      userId: user._id,
+      tokenHash: hashedToken,
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 Minute Window
+    });
 
     // 5. Dispatch secure transmission email
     try {
@@ -1074,6 +1077,8 @@ const forgotPassword = async (req, res) => {
         details: `Reset link generated. Valid for 15 minutes. Source: ${req.ip}`,
         ip: req.ip || req.connection?.remoteAddress,
       });
+
+      logger.info(`[Auth] Reset email dispatched successfully to ${user.email}`);
 
     } catch (emailErr) {
       logger.error(`[Auth] Reset email failure for ${user.email}:`, emailErr.message);
@@ -1095,17 +1100,19 @@ const validateResetToken = async (req, res) => {
   try {
     const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
 
-    const user = await User.findOne({
-      passwordResetToken: hashedToken,
-      passwordResetExpires: { $gt: Date.now() }
-    });
+    const resetTokenRecord = await PasswordResetToken.findOne({
+      tokenHash: hashedToken,
+      expiresAt: { $gt: Date.now() },
+      used: false
+    }).populate("userId");
 
-    if (!user) {
+    if (!resetTokenRecord || !resetTokenRecord.userId) {
       return res.status(400).json({ message: "Reset signature invalid or identity link expired." });
     }
 
-    res.json({ valid: true, email: user.email });
+    res.json({ valid: true, email: resetTokenRecord.userId.email });
   } catch (error) {
+    logger.error("[Auth] Token validation error:", error.message);
     res.status(500).json({ message: "Token validation internal error." });
   }
 };
@@ -1122,14 +1129,17 @@ const resetPassword = async (req, res) => {
     // 1. Cryptographic validation of the specific token
     const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
 
-    const user = await User.findOne({
-      passwordResetToken: hashedToken,
-      passwordResetExpires: { $gt: Date.now() }
-    });
+    const resetTokenRecord = await PasswordResetToken.findOne({
+      tokenHash: hashedToken,
+      expiresAt: { $gt: Date.now() },
+      used: false
+    }).populate("userId");
 
-    if (!user) {
+    if (!resetTokenRecord || !resetTokenRecord.userId) {
       return res.status(400).json({ message: "Strategic Reset Failure: Link has expired or was already rotated." });
     }
+
+    const user = resetTokenRecord.userId;
 
     // 2. Security Check: Block weak passwords (§Step 4)
     if (password.length < 12) {
@@ -1140,13 +1150,13 @@ const resetPassword = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
 
-    // 4. Clear reset state (§Step 4 - Mark as used)
-    user.passwordResetToken = undefined;
-    user.passwordResetExpires = undefined;
+    // 4. Mark token as used
+    resetTokenRecord.used = true;
 
     // Force re-auth on all devices
     await Promise.all([
       user.save(),
+      resetTokenRecord.save(),
       RefreshToken.deleteMany({ user: user._id }), // Revoke all sessions (§Step 4)
       AuditLog.create({
         action: "PASSWORD_RESET_SUCCESS",
@@ -1156,6 +1166,8 @@ const resetPassword = async (req, res) => {
       }),
       logUserActivity(user._id, "SECURITY", "Password successfully reset via recovery link.", req)
     ]);
+
+    logger.info(`[Auth] Password successfully rotated for ${user.email}`);
 
     res.json({ message: "Credentials updated successfully. System state synchronized. Please sign in." });
   } catch (error) {
