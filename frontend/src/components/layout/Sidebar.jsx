@@ -18,11 +18,11 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
   // Optimized Navigation Roles (§7 UI Policy)
   const navItems = [
     { label: "Dashboard", icon: "🏠", path: "/" },
-    { label: "Asset Matrix", icon: "💾", path: "/assets" },
+    { label: "Asset Inventory", icon: "💾", path: "/assets" },
     ...(["Super Admin", "Admin"].includes(user?.role) ? [
-      { label: "Cyber-Forensics", icon: "🛡️", path: "/security" },
-      { label: "Identity Mgmt", icon: "👥", path: "/users" },
-      { label: "Audit Ledger", icon: "📋", path: "/audit-logs" }
+      { label: "Security Operations", icon: "🛡️", path: "/security" },
+      { label: "Identity & Access", icon: "👥", path: "/users" },
+      { label: "Audit Log", icon: "📋", path: "/audit-logs" }
     ] : []),
     { label: "Settings", icon: "⚙", path: "/settings" },
   ];

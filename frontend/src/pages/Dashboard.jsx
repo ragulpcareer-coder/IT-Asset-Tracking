@@ -203,22 +203,22 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Command Dashboard</h1>
+          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Operations Dashboard</h1>
           <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest">
-            Identity: {user?.role} / Operational Status: Global Operational
+            Role: {user?.role} &nbsp;|&nbsp; System Status: Operational
           </p>
         </div>
         <div className="flex gap-3">
-          <Link to="/assets" className="btn btn-secondary">Inspect Inventory</Link>
+          <Link to="/assets" className="btn btn-secondary">View Inventory</Link>
           <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
-            <Link to="/security" className="btn btn-primary">Threat Matrix</Link>
+            <Link to="/security" className="btn btn-primary">Security Operations</Link>
           </PermissionGuard>
         </div>
       </div>
 
       {metricsError && (
         <div className="mb-6 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium">
-          ⚠ Metrics endpoint unreachable — showing last known values. Check backend connectivity.
+          ⚠ Metrics endpoint unavailable — displaying last known values. Verify backend connectivity.
         </div>
       )}
 
@@ -229,7 +229,7 @@ export default function Dashboard() {
         <KpiCard
           label="Active Assets"
           value={`${m.activeAssets?.online ?? 0} / ${m.activeAssets?.total ?? 0}`}
-          sub="Online nodes (heartbeat ≤ 5 min)"
+          sub="Endpoints reporting within 5 minutes"
           accent="border-l-blue-500"
           icon="🖥"
           loading={false}
@@ -262,7 +262,7 @@ export default function Dashboard() {
         <KpiCard
           label="Audit Events (24h)"
           value={(m.auditEvents24h ?? 0).toLocaleString()}
-          sub="Security log entries in last 24 hours"
+          sub="Audit log entries in the last 24 hours"
           accent="border-l-purple-500"
           icon="📋"
           loading={false}
@@ -274,7 +274,7 @@ export default function Dashboard() {
 
         {/* Inventory Health Pie */}
         <Card className="lg:col-span-1">
-          <h3 className="text-lg font-bold text-white mb-6">Inventory Health</h3>
+          <h3 className="text-lg font-bold text-white mb-6">Inventory Status</h3>
           <div style={{ height: 300 }}>
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
@@ -304,15 +304,15 @@ export default function Dashboard() {
           fallback={
             <Card className="lg:col-span-2 flex-center flex-col text-center">
               <div className="text-3xl mb-4">🔒</div>
-              <h3 className="font-bold text-slate-100">Operational Log Access Denied</h3>
+              <h3 className="font-bold text-slate-100">Audit Data Restricted</h3>
               <p className="text-slate-500 max-w-xs text-sm mt-2">
-                Historical forensics and audit telemetry are restricted to Level 2 Administrative accounts.
+                Audit telemetry is accessible to Administrator and Super Administrator roles only.
               </p>
             </Card>
           }
         >
           <Card className="lg:col-span-2">
-            <h3 className="text-lg font-bold text-white mb-6">Forensic Audit Velocity</h3>
+            <h3 className="text-lg font-bold text-white mb-6">Audit Event Frequency</h3>
             <div style={{ height: 300 }}>
               <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={auditAreaData}>
@@ -347,10 +347,10 @@ export default function Dashboard() {
           <div className="flex items-center justify-between mb-6">
             <div className="flex items-center gap-3 text-red-500">
               <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-              <h3 className="font-bold uppercase tracking-widest text-sm">Critical Security Ledger</h3>
+              <h3 className="font-bold uppercase tracking-widest text-sm">Security Event Log</h3>
             </div>
             <Link to="/audit-logs" className="text-xs font-bold text-blue-500 hover:underline tracking-widest uppercase">
-              Inspect Ledger →
+              View Audit Log →
             </Link>
           </div>
           <div className="space-y-4">
@@ -377,7 +377,7 @@ export default function Dashboard() {
               </div>
             ))}
             {logs.length === 0 && (
-              <p className="text-slate-500 text-sm text-center py-4">No audit events recorded yet.</p>
+              <p className="text-slate-500 text-sm text-center py-4">No audit events recorded.</p>
             )}
           </div>
         </Card>

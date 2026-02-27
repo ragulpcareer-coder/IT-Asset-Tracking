@@ -33,10 +33,10 @@ export default function Topbar({ toggleSidebar, openMobile }) {
       {adminNeeds2FA && (
         <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-6 flex justify-between items-center z-[60] relative">
           <span className="text-amber-500 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
-            ⚠️ Security Policy Violation: Admin accounts require Two-Factor Authentication (2FA).
+            ⚠️ Security Policy Alert: Administrator accounts must have Multi-Factor Authentication (MFA) enabled.
           </span>
           <Link to="/settings" className="btn btn-primary" style={{ padding: '4px 12px', fontSize: '11px' }}>
-            Initialize 2FA
+            Enable MFA
           </Link>
         </div>
       )}
