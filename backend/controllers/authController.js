@@ -202,13 +202,14 @@ const login = async (req, res) => {
     }
 
     // Stage 1: Fetch ONLY unencrypted fields for password verification.
-    // CRITICAL: Explicitly EXCLUDE all mongoose-field-encryption fields
-    // (twoFactorSecret, twoFactorBackupCodes, emailVerificationToken, passwordResetToken)
-    // from this query. Mongoose auto-decrypts them on retrieval, which THROWS a 503
-    // if DB_ENCRYPTION_SECRET is missing/mismatched on Render.
-    // Those fields are fetched in Stage 2 in an isolated try/catch below.
+    // CRITICAL: Use a PURELY INCLUSIVE projection (no '-' exclusions).
+    // MongoDB Atlas 5.0+ throws MongoServerError if you mix inclusion ({field:1})
+    // and exclusion ({field:0}) in the same query — which is exactly what happens
+    // when you combine explicit field names with -twoFactorSecret style negations.
+    // Solution: list ONLY what we need. Unlisted fields are simply not returned,
+    // so mongoose-field-encryption never sees them and never tries to decrypt.
     const user = await User.findOne({ email: email.toLowerCase().trim() })
-      .select("+password lockUntil isActive failedLoginAttempts isTwoFactorEnabled name email role lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps -twoFactorSecret -twoFactorBackupCodes -emailVerificationToken -passwordResetToken");
+      .select("+password name email role isActive isApproved lockUntil failedLoginAttempts isTwoFactorEnabled lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
 
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
