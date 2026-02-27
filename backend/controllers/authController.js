@@ -94,8 +94,8 @@ const register = async (req, res) => {
       });
     }
 
-    // Check if user exists
-    const userExists = await User.findOne({ email: sanitizedEmail });
+    // Check if user exists - Optimized Read
+    const userExists = await User.findOne({ email: sanitizedEmail }).select("_id").lean();
     if (userExists) {
       return res.status(409).json({ message: "Email already registered" });
     }
@@ -105,22 +105,21 @@ const register = async (req, res) => {
       return res.status(400).json({ message: "Name must be between 2 and 100 characters" });
     }
 
-    // PRIVILEGE ESCALATION PREVENTION (Policy §11 & §16 / §19 / §30)
-    // Role is NEVER trusted from the client. Backend assigns it unconditionally.
-    const hasUsers = await User.exists({}); // Faster check for bootstrapping
-    let assignedRole = "Employee"; // Always default to least privilege
+    // PRIVILEGE ESCALATION PREVENTION
+    const hasUsers = await User.exists({}); // Lightweight check
+    let assignedRole = "Employee";
     let isApproved = false;
 
     if (!hasUsers) {
-      assignedRole = "Super Admin"; // First-ever account becomes the super admin
-      isApproved = true;      // Auto-approved so the system can be bootstrapped
+      assignedRole = "Super Admin";
+      isApproved = true;
     }
 
-    // Create user (Model pre-save will hash the password)
+    // Create user
     const user = await User.create({
       name: sanitizedName,
       email: sanitizedEmail,
-      password: password, // Raw password sent, model hashes it (§1.1)
+      password: password,
       role: assignedRole,
       createdAt: new Date(),
       lastLogin: null,
@@ -128,7 +127,7 @@ const register = async (req, res) => {
       isApproved: isApproved
     });
 
-    // Send approval request email if not auto-approved (NON-BLOCKING / ASYNC)
+    // Send approval request (NON-BLOCKING)
     if (!isApproved) {
       setImmediate(() => {
         sendApprovalRequest(user).catch(emailErr => {
@@ -137,25 +136,32 @@ const register = async (req, res) => {
       });
     }
 
-    // Parallelize administrative tasks for faster response
+    // Parallelize tasks
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
-    await Promise.all([
-      AuditLog.create({
-        action: "User Registered",
-        performedBy: sanitizedEmail,
-        details: isApproved ? `New user registered (Auto-approved): ${sanitizedName}` : `New user registration request: ${sanitizedName}`,
-        ip,
-        createdAt: new Date(),
-      }),
-      !isApproved ? Promise.resolve() : RefreshToken.create({
-        tokenId: pair.refreshTokenId,
-        family: pair.refreshTokenFamily,
-        user: user._id,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      }),
-      logUserActivity(user._id, "PROFILE_UPDATE", "Node Provisioned: Primary identity registration.", req)
-    ]);
+    // NON-BLOCKING Security Logging for faster registration response
+    setImmediate(async () => {
+      try {
+        await Promise.all([
+          AuditLog.create({
+            action: "User Registered",
+            performedBy: sanitizedEmail,
+            details: isApproved ? `New user registered (Auto-approved): ${sanitizedName}` : `New user registration request: ${sanitizedName}`,
+            ip,
+            createdAt: new Date(),
+          }),
+          !isApproved ? Promise.resolve() : RefreshToken.create({
+            tokenId: pair.refreshTokenId,
+            family: pair.refreshTokenFamily,
+            user: user._id,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          }),
+          logUserActivity(user._id, "PROFILE_UPDATE", "Node Provisioned: Primary identity registration.", req)
+        ]);
+      } catch (logErr) {
+        logger.error("Registration Logging Error:", logErr.message);
+      }
+    });
 
     if (!isApproved) {
       return res.status(201).json({
@@ -209,16 +215,20 @@ const login = async (req, res) => {
     const isMatch = await user.matchPassword(password);
 
     if (!isMatch) {
-      // Handle failed attempt
+      // Handle failed attempt (Save to DB is necessary here for security state)
       user.failedLoginAttempts += 1;
       if (user.failedLoginAttempts >= 5) {
-        user.lockUntil = Date.now() + 15 * 60 * 1000; // 15 mins
+        user.lockUntil = Date.now() + 15 * 60 * 1000;
 
-        await AuditLog.create({
-          action: "SECURITY ALERT: Force Lockout",
-          performedBy: user.email,
-          details: `Consecutive authentication failure leading to node lockout.`,
-          ip: req.ip || req.connection.remoteAddress,
+        setImmediate(async () => {
+          try {
+            await AuditLog.create({
+              action: "SECURITY ALERT: Force Lockout",
+              performedBy: user.email,
+              details: `Consecutive authentication failure leading to node lockout.`,
+              ip: req.ip || req.connection.remoteAddress,
+            });
+          } catch (err) { logger.error("Lockout Log Error:", err.message); }
         });
       }
       await user.save();
@@ -251,14 +261,18 @@ const login = async (req, res) => {
       }
     }
 
-    // Enterprise Behavioral Monitoring & SIEM Anomaly Detection (§12.1)
+    // Enterprise Behavioral Monitoring (NON-BLOCKING)
     const currentHour = new Date().getHours();
     if (currentHour >= 0 && currentHour <= 5) {
-      await AuditLog.create({
-        action: "SECURITY ANOMALY: Unusual Login Time",
-        performedBy: user.email,
-        details: `User logged in during restricted/unusual hours: ${currentHour}:00 AM`,
-        ip: req.ip || req.connection?.remoteAddress,
+      setImmediate(async () => {
+        try {
+          await AuditLog.create({
+            action: "SECURITY ANOMALY: Unusual Login Time",
+            performedBy: user.email,
+            details: `User logged in during restricted/unusual hours: ${currentHour}:00 AM`,
+            ip: req.ip || req.connection?.remoteAddress,
+          });
+        } catch (err) { logger.error("Anomaly Log Error:", err.message); }
       });
     }
 
@@ -297,12 +311,16 @@ const login = async (req, res) => {
 
     const isExistingDevice = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
     if (!isExistingDevice) {
-      // Log "New Device Detected" in Audit Logs for Security Monitoring
-      await AuditLog.create({
-        action: "SECURITY ALERT: New Device Detected",
-        performedBy: user.email,
-        details: `A new device logged in. IP: ${ip}, Browser: ${userAgent}, Location: ${geo?.country || 'Unknown'}`,
-        ip: ip,
+      // NON-BLOCKING Security Logging for new devices
+      setImmediate(async () => {
+        try {
+          await AuditLog.create({
+            action: "SECURITY ALERT: New Device Detected",
+            performedBy: user.email,
+            details: `A new device logged in. IP: ${ip}, Browser: ${userAgent}, Location: ${geo?.country || 'Unknown'}`,
+            ip: ip,
+          });
+        } catch (err) { logger.error("New Device Log Error:", err.message); }
       });
 
       // Add to user's known devices list
@@ -312,9 +330,6 @@ const login = async (req, res) => {
         fingerprint: deviceFingerprint,
         lastLogin: Date.now()
       });
-
-      // Enterprise Alert logic (sending email alert for new login)
-      // Typically integrated with a notification service
     } else {
       // Update last seen for existing device
       const devIdx = user.devices.findIndex(d => d.ip === ip && d.userAgent === userAgent);
@@ -1045,8 +1060,10 @@ const forgotPassword = async (req, res) => {
       return res.status(400).json({ message: "Valid official email address is required." });
     }
 
-    // 1. Find user (Zero enumeration disclosure)
-    const user = await User.findOne({ email: email.toLowerCase(), isActive: true });
+    // 1. Find user (Zero enumeration disclosure) - Optimized for speed
+    const user = await User.findOne({ email: email.toLowerCase(), isActive: true })
+      .select("_id name email")
+      .lean();
 
     // 2. Generic Success Response (§1.2 - Prevent user enumeration attacks)
     const genericResponse = { message: "If the account exists in our registry, a recovery transmission has been dispatched." };
@@ -1072,14 +1089,20 @@ const forgotPassword = async (req, res) => {
       console.log(`[Auth Controller] Requesting email dispatch for: ${user.email}`);
       await sendPasswordResetEmail(user, resetToken);
 
-      await AuditLog.create({
-        action: "PASSWORD_RESET_REQUESTED",
-        performedBy: user.email,
-        details: `Reset link generated. Valid for 15 minutes. Source: ${req.ip}`,
-        ip: req.ip || req.connection?.remoteAddress,
+      // NON-BLOCKING Audit Logging
+      setImmediate(async () => {
+        try {
+          await AuditLog.create({
+            action: "PASSWORD_RESET_REQUESTED",
+            performedBy: user.email,
+            details: `Reset link generated. Valid for 15 minutes. Source: ${req.ip}`,
+            ip: req.ip || req.connection?.remoteAddress,
+          });
+          logger.info(`[Auth] Reset email dispatched successfully to ${user.email}`);
+        } catch (logErr) {
+          logger.error("[Auth] Background Reset Log Error:", logErr.message);
+        }
       });
-
-      logger.info(`[Auth] Reset email dispatched successfully to ${user.email}`);
 
       // ONLY return success if email actually sent
       res.json(genericResponse);

@@ -25,12 +25,33 @@ const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gma
  * Common dispatch engine with explicit logging (§Requirement 3 & 5)
  */
 const sendEmail = async ({ to, subject, html, reply_to }) => {
-    console.log(`[Email System] Initiating dispatch to: ${to}`);
-    console.log(`[Email System] Subject: ${subject}`);
+    // REQUIREMENT: Optimize for speed (< 500ms target)
+    console.log(`[Email Engine] Dispatch initiated: ${to}`);
+
+    // Strategy: Priority 1 - Resend (HTTP API), Priority 2 - SMTP (Fallback)
+    // HTTP APIs are significantly faster (handshake-free) than SMTP.
+    if (resend) {
+        try {
+            console.log(`[Email Engine] Priority 1: Resend API...`);
+            const { data, error } = await resend.emails.send({
+                from: fromEmail,
+                to: Array.isArray(to) ? to : [to],
+                subject,
+                html,
+                reply_to
+            });
+            if (!error) {
+                console.log(`[Email Engine] SUCCESS: Resend Transmission ID: ${data.id}`);
+                return data;
+            }
+            console.warn(`[Email Engine] Resend rejected: ${error.message}. Dropping to SMTP...`);
+        } catch (err) {
+            console.error(`[Email Engine] Resend Internal Error:`, err.message);
+        }
+    }
 
     try {
-        // Attempt SMTP Transmission (Priority 1)
-        console.log(`[SMTP] Contacting smtp.gmail.com:465...`);
+        console.log(`[Email Engine] Priority 2: SMTP Relay (Gmail)...`);
         const info = await transporter.sendMail({
             from: fromEmail,
             to: Array.isArray(to) ? to.join(',') : to,
@@ -38,35 +59,10 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
             html,
             replyTo: reply_to
         });
-
-        console.log(`[SMTP] SUCCESS: Email sent successfully!`);
-        console.log(`[SMTP] ID: ${info.messageId}`);
-        console.log(`[SMTP] Payload Status: ${info.response}`);
+        console.log(`[Email Engine] SUCCESS: SMTP Relay ID: ${info.messageId}`);
         return info;
-
     } catch (smtpError) {
-        console.error(`[SMTP] CRITICAL FAILURE:`, smtpError.message);
-        console.error(`[SMTP] Error Stack:`, smtpError.stack);
-
-        // Fallback to Resend only if SMTP fails
-        if (resend) {
-            console.warn(`[Fallback] Attempting Resend API fallback...`);
-            const { data, error } = await resend.emails.send({
-                from: 'onboarding@resend.dev',
-                to: Array.isArray(to) ? to : [to],
-                subject: `(Fallback) ${subject}`,
-                html,
-                reply_to
-            });
-            if (error) {
-                console.error(`[Fallback] Resend also failed: ${error.message}`);
-                throw new Error(`Email Dispatch Exhausted: ${smtpError.message}`);
-            }
-            console.log(`[Fallback] Resend Success: ${data.id}`);
-            return data;
-        }
-
-        // Propagate the error so the controller can inform the user (Requirement 4)
+        console.error(`[Email Engine] CRITICAL: SMTP Exhaustion:`, smtpError.message);
         throw smtpError;
     }
 };
