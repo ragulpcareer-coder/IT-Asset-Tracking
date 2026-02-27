@@ -1060,69 +1060,54 @@ const forgotPassword = async (req, res) => {
       return res.status(400).json({ message: "Valid official email address is required." });
     }
 
-    // 1. Find user (Zero enumeration disclosure) - Optimized for speed
+    // 1. Optimized Read: Index lookup + Lean (No hydration overhead)
     const user = await User.findOne({ email: email.toLowerCase(), isActive: true })
       .select("_id name email")
       .lean();
 
-    // 2. Generic Success Response (§1.2 - Prevent user enumeration attacks)
-    const genericResponse = { message: "If the account exists in our registry, a recovery transmission has been dispatched." };
+    // 2. Generic Response (§1.2 - Anti-enumeration)
+    const genericResponse = { message: "If the account exists, a recovery link has been dispatched." };
 
     if (!user) {
-      logger.info(`[Auth] Forgot password attempt for non-existent/inactive email: ${email}`);
       return res.json(genericResponse);
     }
 
-    // 3. Generate high-entropy reset token (§Step 3)
+    // 3. Token Logic (Fast Cryptography)
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
-    // 4. Store in dedicated tokens collection (§Requirement 3)
+    // 4. Parallelize non-blocking persistence
     await PasswordResetToken.create({
       userId: user._id,
       tokenHash: hashedToken,
-      expiresAt: new Date(Date.now() + 15 * 60 * 1000) // 15 Minute Window
+      expiresAt: new Date(Date.now() + 15 * 60 * 1000)
     });
 
-    // 5. Dispatch secure transmission email
-    try {
-      console.log(`[Auth Controller] Requesting email dispatch for: ${user.email}`);
-      await sendPasswordResetEmail(user, resetToken);
+    // 5. THE PERFORMANCE WIN: Return response IMMEDIATELY
+    // Do not wait for slow SMTP/API handshakes. Move dispatch to event loop.
+    res.json(genericResponse);
 
-      // NON-BLOCKING Audit Logging
-      setImmediate(async () => {
-        try {
-          await AuditLog.create({
-            action: "PASSWORD_RESET_REQUESTED",
-            performedBy: user.email,
-            details: `Reset link generated. Valid for 15 minutes. Source: ${req.ip}`,
-            ip: req.ip || req.connection?.remoteAddress,
-          });
-          logger.info(`[Auth] Reset email dispatched successfully to ${user.email}`);
-        } catch (logErr) {
-          logger.error("[Auth] Background Reset Log Error:", logErr.message);
-        }
-      });
+    // 6. Non-blocking background dispatch
+    setImmediate(async () => {
+      try {
+        await sendPasswordResetEmail(user, resetToken);
 
-      // ONLY return success if email actually sent
-      res.json(genericResponse);
+        // Background Audit
+        await AuditLog.create({
+          action: "PASSWORD_RESET_AUTO_DISPATCH",
+          performedBy: user.email,
+          details: `Link generated and background transmission initialized.`,
+          ip: req.ip || req.connection?.remoteAddress,
+        });
+      } catch (err) {
+        logger.error(`[Background-Auth] Dispatch failed for ${user.email}:`, err.message);
+      }
+    });
 
-    } catch (emailErr) {
-      console.error(`[Auth] Email failure:`, emailErr.message);
-      logger.error(`[Auth] Reset email failure for ${user.email}:`, emailErr.message);
-
-      return res.status(500).json({
-        message: "The security system failed to transmit the recovery packet.",
-        error: emailErr.message // Include for debugging
-      });
-    }
   } catch (error) {
-    console.error(`[Auth] CRITICAL SYSTEM ERROR:`, error);
-    logger.error("[Auth] Forgot Password system error:", error.message);
-    res.status(500).json({
-      message: "Security Engine Under Maintenance / Critical Failure.",
-      debug: error.message
-    });
+    logger.error("[Auth] Recovery System Exception:", error.message);
+    // Even on error, return something to keep UI alive
+    res.status(500).json({ message: "Recovery service temporarily degraded." });
   }
 };
 
