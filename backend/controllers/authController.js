@@ -1307,16 +1307,24 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Password must be at least 12 characters long for security compliance." });
     }
 
-    // 3. Performance-optimized hashing of new credential
+    // 3. Hash the new password
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
+    const hashedPassword = await bcrypt.hash(password, salt);
 
-    // 4. Mark token as used
+    // 4. Mark token as used and commit password change atomically.
+    // CRITICAL: Use User.updateOne() instead of user.save() to bypass the
+    // pre-save hook. The hook would hash our already-hashed password AGAIN
+    // (double-hash) producing an invalid bcrypt string that bcrypt.compare()
+    // throws on the next login attempt — causing the 503 loop.
     resetTokenRecord.used = true;
-
-    // Force re-auth on all devices
     await Promise.all([
-      user.save(),
+      User.updateOne(
+        { _id: user._id },
+        {
+          $set: { password: hashedPassword },
+          $unset: { passwordResetToken: '', passwordResetExpires: '' }
+        }
+      ),
       resetTokenRecord.save(),
       RefreshToken.deleteMany({ user: user._id }), // Revoke all sessions (§Step 4)
       AuditLog.create({
