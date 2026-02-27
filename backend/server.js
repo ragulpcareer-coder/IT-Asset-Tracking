@@ -188,12 +188,38 @@ app.use("/api/v1", apiV1);
 app.use("/api", apiV1); // Alias for legacy/standard support
 
 // 11. Strategic Config Audit (§49)
-const requiredEnv = ["JWT_SECRET", "MONGO_URI"];
+// DB_ENCRYPTION_SECRET is required — its absence causes 503 on /api/auth/login
+// because mongoose-field-encryption silently throws during User.findOne() decryption.
+const requiredEnv = ["JWT_SECRET", "MONGO_URI", "DB_ENCRYPTION_SECRET"];
 requiredEnv.forEach(v => {
   if (!process.env[v]) {
+    console.error(`\n🔴 BOOTSTRAP FATAL: Missing Critical Variable: ${v}`);
     logger.error(`BOOTSTRAP FATAL: Missing Critical Variable: ${v}`);
-    if (process.env.NODE_ENV === 'production') process.exit(1);
+    // Always exit — a missing secret causes silent 503s, not a clean boot.
+    process.exit(1);
   }
+});
+
+// Diagnostic: Confirm which encryption identity is active (first 8 chars only)
+const encKey = process.env.DB_ENCRYPTION_SECRET || process.env.JWT_SECRET || 'fallback';
+console.log(`[BOOT] DB_ENCRYPTION_SECRET active: ${encKey.substring(0, 8)}... (${encKey.length} chars)`);
+console.log(`[BOOT] JWT_SECRET active: ${(process.env.JWT_SECRET || '').substring(0, 8)}... (${(process.env.JWT_SECRET || '').length} chars)`);
+
+// Global crash handlers — prevent silent process death (§35)
+process.on('uncaughtException', (err) => {
+  console.error('🔴 UNCAUGHT EXCEPTION — Server will continue but this needs fixing:');
+  console.error('  Name   :', err.name);
+  console.error('  Message:', err.message);
+  console.error('  Stack  :', err.stack?.split('\n').slice(0, 4).join(' | '));
+  logger.error('UNCAUGHT_EXCEPTION', { name: err.name, message: err.message });
+  // Note: Do NOT process.exit here — Render will restart the service.
+  // Exiting on every uncaught exception causes restart loops which cause 503s.
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('🔴 UNHANDLED PROMISE REJECTION:');
+  console.error('  Reason:', reason?.message || reason);
+  logger.error('UNHANDLED_REJECTION', { reason: reason?.message || String(reason) });
 });
 
 
@@ -215,7 +241,8 @@ app.use(errorHandler);
 
 // 13. Server Bootstrap
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 ENTERPRISE SERVER ACTIVE ON PORT ${PORT}`);
-  logger.info(`SERVER_START: Node ${process.version}, Environment ${process.env.NODE_ENV}`);
+  console.log(`[BOOT] Listening on 0.0.0.0:${PORT} (Render-compatible binding)`);
+  logger.info(`SERVER_START: Port=${PORT} Node=${process.version} Env=${process.env.NODE_ENV}`);
 });

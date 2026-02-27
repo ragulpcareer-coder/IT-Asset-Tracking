@@ -201,12 +201,14 @@ const login = async (req, res) => {
       return res.status(400).json({ message: "Email and password are required." });
     }
 
-    // Stage 1: Fetch ONLY unencrypted fields for password verification
-    // NOTE: Do NOT fetch twoFactorSecret/twoFactorBackupCodes here.
-    // Those are encrypted by mongoose-field-encryption and will throw if
-    // DB_ENCRYPTION_SECRET is wrong. We do auth first, then fetch those.
+    // Stage 1: Fetch ONLY unencrypted fields for password verification.
+    // CRITICAL: Explicitly EXCLUDE all mongoose-field-encryption fields
+    // (twoFactorSecret, twoFactorBackupCodes, emailVerificationToken, passwordResetToken)
+    // from this query. Mongoose auto-decrypts them on retrieval, which THROWS a 503
+    // if DB_ENCRYPTION_SECRET is missing/mismatched on Render.
+    // Those fields are fetched in Stage 2 in an isolated try/catch below.
     const user = await User.findOne({ email: email.toLowerCase().trim() })
-      .select("+password lockUntil isActive failedLoginAttempts isTwoFactorEnabled name email role lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
+      .select("+password lockUntil isActive failedLoginAttempts isTwoFactorEnabled name email role lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps -twoFactorSecret -twoFactorBackupCodes -emailVerificationToken -passwordResetToken");
 
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -228,13 +230,13 @@ const login = async (req, res) => {
     try {
       isMatch = await user.matchPassword(password);
     } catch (bcryptErr) {
-      // This happens when DB_ENCRYPTION_SECRET is wrong/missing and corrupts the password hash
-      console.error('[Login] matchPassword threw an exception:', bcryptErr.message);
-      console.error('[Login] LIKELY CAUSE: DB_ENCRYPTION_SECRET env var is missing or wrong on Render.');
-      console.error('[Login] FIX: Add DB_ENCRYPTION_SECRET to Render Dashboard Environment settings.');
+      // This should no longer trigger since we excluded encrypted fields in Stage 1.
+      // If it does, the password field itself is corrupted in the DB.
+      console.error('[Login] UNEXPECTED: matchPassword threw an exception:', bcryptErr.message);
+      console.error('[Login] DB_ENCRYPTION_SECRET set?', !!process.env.DB_ENCRYPTION_SECRET);
+      console.error('[Login] JWT_SECRET set?', !!process.env.JWT_SECRET);
       return res.status(503).json({
         message: "Authentication engine configuration error. Contact your system administrator.",
-        debug: `Internal: matchPassword failed — ${bcryptErr.message}`
       });
     }
 
