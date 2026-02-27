@@ -1054,60 +1054,88 @@ const getUserActivity = async (req, res) => {
  * @access  Public
  */
 const forgotPassword = async (req, res) => {
+  const startTime = Date.now();
+  const { email } = req.body;
+
   try {
-    const { email } = req.body;
+    // 1. INPUT VALIDATION (Strategic §1.1)
     if (!email || !isValidEmail(email)) {
-      return res.status(400).json({ message: "Valid official email address is required." });
+      return res.status(400).json({ message: "Formal registry error: Invalid email format." });
     }
 
-    // 1. Optimized Read: Index lookup + Lean (No hydration overhead)
-    const user = await User.findOne({ email: email.toLowerCase(), isActive: true })
-      .select("_id name email")
+    const sanitizedEmail = email.trim().toLowerCase();
+
+    // 2. DB HEALTH CHECK (Requirement 1 - Diagnostic)
+    const mongoose = require("mongoose");
+    if (mongoose.connection.readyState !== 1) {
+      logger.error("[Auth] FATAL: Database not connected. Readiness State: " + mongoose.connection.readyState);
+      return res.status(503).json({ message: "Security Engine temporarily offline (DB Connection Failure)." });
+    }
+
+    // 3. OPTIMIZED USER LOOKUP (Requirement 3 - Performance)
+    // We only need the ID to generate the token
+    const user = await User.findOne({ email: sanitizedEmail, isActive: true })
+      .select("_id email name")
       .lean();
 
-    // 2. Generic Response (§1.2 - Anti-enumeration)
-    const genericResponse = { message: "If the account exists, a recovery link has been dispatched." };
+    // 4. ANTI-ENUMERATION RESPONSE (§1.2 - Guard against discovery attacks)
+    const genericResponse = {
+      message: "If the account exists, a recovery transmission has been dispatched.",
+      latency: `${Date.now() - startTime}ms`
+    };
 
+    // If user doesn't exist, exit early but return standard success message
     if (!user) {
-      return res.json(genericResponse);
+      logger.info(`[Auth] Recovery attempted for unregistered node: ${sanitizedEmail}`);
+      return res.status(200).json(genericResponse);
     }
 
-    // 3. Token Logic (Fast Cryptography)
+    // 5. SECURE TOKEN GENERATION (§Step 3)
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
-    // 4. Parallelize non-blocking persistence
+    // 6. NON-BLOCKING PERSISTENCE (Requirement 3)
+    // Create the token in the background to return the response even faster
+    // However, we'll wait for this because it's critical and fast (~50ms)
     await PasswordResetToken.create({
       userId: user._id,
       tokenHash: hashedToken,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000)
     });
 
-    // 5. THE PERFORMANCE WIN: Return response IMMEDIATELY
-    // Do not wait for slow SMTP/API handshakes. Move dispatch to event loop.
-    res.json(genericResponse);
+    // 7. IMMEDIATE DISPATCH (Target < 300ms)
+    res.status(200).json(genericResponse);
 
-    // 6. Non-blocking background dispatch
+    // 8. BACKGROUND TASKS (Decoupled from User Response Loop)
     setImmediate(async () => {
       try {
+        // A. Email Dispatch (The slowest operation)
         await sendPasswordResetEmail(user, resetToken);
 
-        // Background Audit
+        // B. Strategic Audit Logging
         await AuditLog.create({
-          action: "PASSWORD_RESET_AUTO_DISPATCH",
+          action: "RECOVERY_LINK_DISPATCHED",
           performedBy: user.email,
-          details: `Link generated and background transmission initialized.`,
+          details: `Secure reset link transmitted via SMTP. Signature: ${hashedToken.substring(0, 8)}...`,
           ip: req.ip || req.connection?.remoteAddress,
         });
+
+        logger.info(`[Auth] Async recovery flow successfully completed for: ${user.email}`);
       } catch (err) {
-        logger.error(`[Background-Auth] Dispatch failed for ${user.email}:`, err.message);
+        logger.error(`[Auth] Async recovery fail for ${user.email}:`, err.message);
+        // Alert SOC if background tasks fail
+        await sendSecurityAlert("Email Dispatch Failure", `Recovery link for ${user.email} failed to send: ${err.message}`);
       }
     });
 
   } catch (error) {
-    logger.error("[Auth] Recovery System Exception:", error.message);
-    // Even on error, return something to keep UI alive
-    res.status(500).json({ message: "Recovery service temporarily degraded." });
+    const totalTime = Date.now() - startTime;
+    logger.error(`[Auth] CRITICAL EXCEPTION (Latency: ${totalTime}ms):`, error);
+
+    res.status(500).json({
+      message: "Internal Security Engine Failure.",
+      trace: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 };
 
