@@ -7,18 +7,13 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // Initialize Nodemailer with Gmail optimized settings (Requirement 2)
 // Using Port 465 and Secure: true for maximum production reliability
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Port 465 requires secure: true
+    port: 587,
+    secure: false, // Port 587 uses STARTTLS
     auth: {
         user: process.env.EMAIL_USER || 'ragulp.career@gmail.com',
-        pass: process.env.EMAIL_PASS || 'fwyh rjqy lqve kldm', // MUST use App Password
-    },
-    // Reliability settings
-    pool: true,
-    maxConnections: 5,
-    maxMessages: 100,
+        pass: (process.env.EMAIL_PASS || 'fwyh rjqy lqve kldm').replace(/\s/g, ''),
+    }
 });
 
 const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
