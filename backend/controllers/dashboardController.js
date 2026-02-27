@@ -4,7 +4,7 @@
  *
  * Metrics:
  *  1. Active Assets       — Online (heartbeat ≤5 min) / Total
- *  2. Security Posture    — Weighted score: patch(40%) + MFA(30%) + encryption(30%)
+ *  2. Security Posture    — Weighted score: patch(40%) + 2FA(30%) + encryption(30%)
  *  3. Active Incidents    — Open/In-Progress tickets (not Resolved/Closed)
  *  4. Audit Events (24h)  — Log entries in the last 24 hours
  *
@@ -21,31 +21,31 @@ const User = require('../models/User');
  * Security Posture Score (0–100, or null if no data)
  *
  * Weighted components:
- *  - MFA Adoption        30% — (mfaUsers / totalUsers) * 30
+ *  - 2FA Adoption        30% — (twoFactorUsers / totalUsers) * 30
  *  - Patch Compliance    40% — (lastSeen ≤24h assets / totalAssets) * 40
  *  - Auth Compliance     30% — (authorizedAssets / totalAssets) * 30
  *
  * Edge cases:
  *  - 0 assets AND 0 users  → null  (fresh install — no data, show N/A)
- *  - 0 assets, users exist → MFA score only, rescaled to 100
+ *  - 0 assets, users exist → 2FA score only, rescaled to 100
  *    (patch + encryption excluded — cannot measure what doesn't exist)
  *  - assets exist, 0 users → patch + encryption only, rescaled to 100
- *    (MFA excluded — no applicable users)
+ *    (2FA excluded — no applicable users)
  */
-function computeSecurityPosture({ totalAssets, recentlySeenAssets, authorizedAssets, totalUsers, mfaUsers }) {
+function computeSecurityPosture({ totalAssets, recentlySeenAssets, authorizedAssets, totalUsers, twoFactorUsers }) {
     // No data at all — return null so frontend can display "N/A" instead of a misleading number
     if (totalAssets === 0 && totalUsers === 0) return null;
 
     const hasAssets = totalAssets > 0;
     const hasUsers = totalUsers > 0;
 
-    const mfaScore = hasUsers ? (mfaUsers / totalUsers) * 30 : 0;
+    const twoFactorScore = hasUsers ? (twoFactorUsers / totalUsers) * 30 : 0;
     const patchScore = hasAssets ? (recentlySeenAssets / totalAssets) * 40 : 0;
     const encryptionScore = hasAssets ? (authorizedAssets / totalAssets) * 30 : 0;
 
     // Scale to 100 based on which components actually have data
     const maxPossible = (hasUsers ? 30 : 0) + (hasAssets ? 70 : 0);
-    const rawScore = mfaScore + patchScore + encryptionScore;
+    const rawScore = twoFactorScore + patchScore + encryptionScore;
 
     // Avoid division by zero (should never happen given the null check above)
     if (maxPossible === 0) return null;
@@ -73,7 +73,7 @@ const getDashboardMetrics = async (req, res) => {
             activeIncidents,
             auditEvents24h,
             totalActiveUsers,
-            mfaUsers,
+            twoFactorUsers,
         ] = await Promise.all([
 
             // 1a. Total asset count
@@ -105,10 +105,10 @@ const getDashboardMetrics = async (req, res) => {
                 createdAt: { $gte: twentyFourHAgo }
             }),
 
-            // 5a. Total active (approved) users for MFA calculation
+            // 5a. Total active (approved) users for 2FA calculation
             User.countDocuments({ isActive: true, isApproved: true }),
 
-            // 5b. Users with MFA enabled
+            // 5b. Users with 2FA enabled
             User.countDocuments({ isActive: true, isApproved: true, isTwoFactorEnabled: true }),
         ]);
 
@@ -117,7 +117,7 @@ const getDashboardMetrics = async (req, res) => {
             recentlySeenAssets,
             authorizedAssets,
             totalUsers: totalActiveUsers,
-            mfaUsers,
+            twoFactorUsers,
         });
 
         return res.status(200).json({
@@ -132,7 +132,7 @@ const getDashboardMetrics = async (req, res) => {
             _meta: {
                 generatedAt: now.toISOString(),
                 posture: {
-                    mfaRate: totalActiveUsers > 0 ? Math.round((mfaUsers / totalActiveUsers) * 100) : null,
+                    twoFactorRate: totalActiveUsers > 0 ? Math.round((twoFactorUsers / totalActiveUsers) * 100) : null,
                     authRate: totalAssets > 0 ? Math.round((authorizedAssets / totalAssets) * 100) : null,
                     patchRate: totalAssets > 0 ? Math.round((recentlySeenAssets / totalAssets) * 100) : null,
                 }

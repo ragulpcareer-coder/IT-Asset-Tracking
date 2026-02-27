@@ -97,7 +97,7 @@ function PostureCard({ score, meta, loading }) {
         </div>
         {meta && (
           <div className="flex gap-3 mt-2 text-[10px] text-slate-500 font-mono">
-            <span>MFA {meta.mfaRate ?? "--"}%</span>
+            <span>2FA {meta.twoFactorRate ?? "--"}%</span>
             <span>Auth {meta.authRate ?? "--"}%</span>
             <span>Patch {meta.patchRate ?? "--"}%</span>
           </div>
