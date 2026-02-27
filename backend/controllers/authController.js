@@ -1087,7 +1087,10 @@ const forgotPassword = async (req, res) => {
     // If user doesn't exist, exit early but return standard success message
     if (!user) {
       logger.info(`[Auth] Recovery attempted for unregistered node: ${sanitizedEmail}`);
-      return res.status(200).json(genericResponse);
+      return res.status(200).json({
+        ...genericResponse,
+        meta: { userStatus: 'unidentified', diagnostic: 'abort-early' }
+      });
     }
 
     // 5. SECURE TOKEN GENERATION (§Step 3)
@@ -1118,22 +1121,27 @@ const forgotPassword = async (req, res) => {
           await AuditLog.create({
             action: "RECOVERY_LINK_DISPATCHED",
             performedBy: user.email,
-            details: `Secure reset link transmitted to ${user.email}.`,
+            details: `Secure reset link transmitted to ${user.email} via ${emailResult?.provider || 'unknown'}.`,
             ip: req.ip || req.connection?.remoteAddress,
           });
         } catch (logErr) { logger.error("Background Log Error:", logErr.message); }
       });
 
-      return res.status(200).json(genericResponse);
+      return res.status(200).json({
+        ...genericResponse,
+        meta: {
+          provider: emailResult?.provider,
+          userStatus: 'identified',
+          diagnostic: 'handshake-complete'
+        }
+      });
 
     } catch (emailErr) {
       console.error(`[Auth] EXPLICIT RESET FAILURE for ${user.email}:`, emailErr.message);
-      console.error(`[Auth] Error Stack:`, emailErr.stack);
 
-      // REQUIREMENT: Return 500 if email dispatch fails
       return res.status(500).json({
-        message: "Email dispatch failed. Please verify your system's SMTP credentials in Render Dashboard.",
-        error: emailErr.message
+        message: "Email dispatch failed.",
+        meta: { userStatus: 'identified', error: emailErr.message }
       });
     }
 

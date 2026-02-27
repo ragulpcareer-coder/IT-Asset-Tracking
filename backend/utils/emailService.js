@@ -35,36 +35,15 @@ transporter.verify((error, success) => {
 const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
 
 /**
- * Common dispatch engine with explicit logging (§Requirement 3 & 5)
+ * Common dispatch engine with forensic logging
  */
 const sendEmail = async ({ to, subject, html, reply_to }) => {
-    // REQUIREMENT: Optimize for speed (< 500ms target)
-    console.log(`[Email Engine] Dispatch initiated: ${to}`);
+    console.log(`[Email Engine] Forensic Dispatch Start: to=${to}`);
 
-    // Strategy: Priority 1 - Resend (HTTP API), Priority 2 - SMTP (Fallback)
-    // HTTP APIs are significantly faster (handshake-free) than SMTP.
-    if (resend) {
-        try {
-            console.log(`[Email Engine] Priority 1: Resend API...`);
-            const { data, error } = await resend.emails.send({
-                from: fromEmail,
-                to: Array.isArray(to) ? to : [to],
-                subject,
-                html,
-                reply_to
-            });
-            if (!error) {
-                console.log(`[Email Engine] SUCCESS: Resend Transmission ID: ${data.id}`);
-                return data;
-            }
-            console.warn(`[Email Engine] Resend rejected: ${error.message}. Dropping to SMTP...`);
-        } catch (err) {
-            console.error(`[Email Engine] Resend Internal Error:`, err.message);
-        }
-    }
-
+    // Strategy: Priority 1 - SMTP (Direct Gmail App Password)
+    // We know the App Password works, so we use it first to avoid Resend domain issues.
     try {
-        console.log(`[Email Engine] Priority 2: SMTP Relay (Gmail)...`);
+        console.log(`[Email Engine] P1: Attempting SMTP Relay (Gmail)...`);
         const info = await transporter.sendMail({
             from: fromEmail,
             to: Array.isArray(to) ? to.join(',') : to,
@@ -72,10 +51,35 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
             html,
             replyTo: reply_to
         });
-        console.log(`[Email Engine] SUCCESS: SMTP Relay ID: ${info.messageId}`);
-        return info;
+        console.log(`[Email Engine] SMTP SUCCESS: Dispatch ID: ${info.messageId}`);
+        return { ...info, provider: 'smtp' };
     } catch (smtpError) {
-        console.error(`[Email Engine] CRITICAL: SMTP Exhaustion:`, smtpError.message);
+        console.error(`[Email Engine] SMTP FAILED:`, smtpError.message);
+
+        // Fallback to Resend (Priority 2)
+        if (resend) {
+            try {
+                console.log(`[Email Engine] P2: Attempting Resend API Fallback...`);
+                const { data, error } = await resend.emails.send({
+                    from: fromEmail,
+                    to: Array.isArray(to) ? to : [to],
+                    subject,
+                    html,
+                    reply_to
+                });
+                if (!error) {
+                    console.log(`[Email Engine] RESEND SUCCESS: ID: ${data.id}`);
+                    return { ...data, provider: 'resend' };
+                }
+                console.error(`[Email Engine] RESEND REJECTED: ${error.message}`);
+                throw new Error(`Resend Rejected: ${error.message}`);
+            } catch (resendErr) {
+                console.error(`[Email Engine] RESEND ERROR:`, resendErr.message);
+                throw new Error(`Email Exhausted: SMTP (${smtpError.message}) + Resend (${resendErr.message})`);
+            }
+        }
+
+        // No fallback available
         throw smtpError;
     }
 };
