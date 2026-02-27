@@ -210,10 +210,33 @@ const login = async (req, res) => {
     // so mongoose-field-encryption never sees them and never tries to decrypt.
     console.log(`[Login:P1] Request received — email=${email}`);
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() })
-      .select("+password name email role isActive isApproved lockUntil failedLoginAttempts isTwoFactorEnabled lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
+    // Stage 1a: Get raw password via NATIVE MongoDB driver.
+    // CRITICAL: mongoose-field-encryption's post('init') hook runs on every Mongoose
+    // findOne result. If the DB document has a stale __enc_password:true flag, the plugin
+    // tries to decrypt our bcrypt hash (not an encrypted value) → sets password to null.
+    // The native driver has ZERO plugins/hooks — returns the raw DB value every time.
+    const mongoose = require('mongoose');
+    const rawDoc = await mongoose.connection.db
+      .collection('users')
+      .findOne(
+        { email: email.toLowerCase().trim() },
+        { projection: { password: 1, _id: 1 } }   // only fetch what we need
+      );
 
-    console.log(`[Login:P2] DB lookup result — found=${!!user} hasPassword=${!!user?.password}`);
+    console.log(`[Login:P1-RAW] Native driver result — found=${!!rawDoc} rawPassword=${rawDoc?.password ? rawDoc.password.substring(0, 7) + '...' : 'NULL'}`);
+
+    if (!rawDoc) {
+      return res.status(400).json({ message: "Invalid credentials" });
+    }
+
+    const rawPassword = rawDoc.password;
+
+    // Stage 1b: Fetch all other user fields via Mongoose (no +password needed here).
+    // We don't request password here so the plugin can't interfere with it.
+    const user = await User.findOne({ _id: rawDoc._id })
+      .select('name email role isActive isApproved lockUntil failedLoginAttempts isTwoFactorEnabled lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps');
+
+    console.log(`[Login:P2] Mongoose user lookup — found=${!!user}`);
 
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -230,35 +253,26 @@ const login = async (req, res) => {
       return res.status(403).json({ message: "Identity Decommissioned: Access is permanently suspended." });
     }
 
-    // Stage 2: Password verification
-    // Pre-flight: check password field exists (corrupted if double-hash bug ran before this fix)
-    if (!user.password) {
-      console.error('[Login] CRITICAL: user.password is null/undefined for:', user.email);
-      console.error('[Login] CAUSE: pre-save hook double-hash bug corrupted the password field.');
-      console.error('[Login] FIX: User must reset their password via Forgot Password flow.');
+    // Stage 2: Password verification using raw password from native driver
+    if (!rawPassword) {
+      console.error('[Login] CRITICAL: rawPassword is null/undefined in DB for:', user.email);
       return res.status(500).json({
-        message: "Account data integrity error. Please use Forgot Password to reset your credentials.",
-        debug: "password field is missing from user document"
+        message: "Account data integrity error. Please contact administrator.",
+        debug: "password field absent from DB document even via native driver"
       });
     }
 
     let isMatch = false;
     try {
-      console.log(`[Login:P3] Running bcrypt.compare — hash starts with: ${user.password?.substring(0, 7)}`);
-      isMatch = await user.matchPassword(password);
-      console.log(`[Login:P3] bcrypt result: isMatch=${isMatch}`);
+      console.log(`[Login:P3] bcrypt.compare — hash starts: ${rawPassword.substring(0, 7)}`);
+      isMatch = await bcrypt.compare(password, rawPassword);   // direct bcrypt, not matchPassword
+      console.log(`[Login:P3] isMatch=${isMatch}`);
     } catch (bcryptErr) {
-      // bcrypt throws when hash is corrupted (e.g. 'Invalid hash provided')
-      // This happens when the pre-save hook double-hashed the password multiple times.
-      // The pre-save bug is now fixed (return next()) but existing accounts may be corrupt.
-      // Users with this issue need to reset their password via Forgot Password.
       console.error('[Login] bcrypt.compare threw:', bcryptErr.message);
-      console.error('[Login] CAUSE: password hash is corrupt (double-hash from missing return next() bug)');
-      console.error('[Login] user.password length:', user.password?.length, 'starts with:', user.password?.substring(0, 7));
+      console.error('[Login] rawPassword length:', rawPassword?.length, 'starts:', rawPassword?.substring(0, 7));
       return res.status(503).json({
-        message: "Authentication engine configuration error. Contact your system administrator.",
-        debug: `bcrypt error: ${bcryptErr.message}`,
-        hint: "If hash corrupt: user must reset password via Forgot Password flow"
+        message: "Authentication engine configuration error.",
+        debug: `bcrypt: ${bcryptErr.message}`
       });
     }
 
