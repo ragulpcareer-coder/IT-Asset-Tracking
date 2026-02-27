@@ -6,29 +6,40 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 // Initialize Nodemailer with Gmail optimized settings (Production Grade: Port 465)
 // REQUIREMENT: Use Port 465 + SSL (secure: true) for cloud reliability
+// Initialize Nodemailer with Cloud-Ready settings (IPv4 Force)
+// FIX: ENETUNREACH often caused by cloud providers attempting IPv6. Forced IPv4 via family: 4.
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true,
+    port: 587,
+    secure: false, // Use STARTTLS for Port 587
     auth: {
         user: process.env.EMAIL_USER || 'ragulp.career@gmail.com',
-        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''), // Strip spaces from App Password
+        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''), // Strip spaces
     },
     tls: {
-        rejectUnauthorized: false // Prevents handshake failures on dynamic cloud IPs
-    }
+        rejectUnauthorized: false,
+        minVersion: 'TLSv1.2'
+    },
+    family: 4 // FORCE IPv4 to prevent ENETUNREACH errors on cloud hosts like Render
 });
 
 // Pre-flight connection verification
 transporter.verify((error, success) => {
+    // CRITICAL: Verify Environment Variables on startup
+    const missing = [];
+    if (!process.env.EMAIL_USER) missing.push('EMAIL_USER');
+    if (!process.env.EMAIL_PASS) missing.push('EMAIL_PASS');
+
+    if (missing.length > 0) {
+        console.error(`[SMTP-Diagnostic] FATAL: Missing Critical Variables: ${missing.join(', ')}`);
+        console.error(`[SMTP-Diagnostic] ACTION: You MUST add these to your Render Dashboard Environment settings.`);
+    }
+
     if (error) {
         console.error(`[SMTP-Diagnostic] CONNECTION FAILED:`, error.message);
-        console.error(`[SMTP-Diagnostic] Is EMAIL_USER set? ${!!process.env.EMAIL_USER}`);
-        console.error(`[SMTP-Diagnostic] Is EMAIL_PASS set? ${!!process.env.EMAIL_PASS}`);
-        console.warn(`[SMTP-Diagnostic] Action: Check Render Environment Variables & Google App Password.`);
+        console.warn(`[SMTP-Diagnostic] Tip: Verify App Password has no spaces and Port 587 isn't blocked by host.`);
     } else {
-        console.log(`[SMTP-Diagnostic] SUCCESS: Handshake verified. Ready for dispatch.`);
+        console.log(`[SMTP-Diagnostic] SUCCESS: Handshake verified. IPv4 connection established.`);
     }
 });
 
