@@ -208,8 +208,12 @@ const login = async (req, res) => {
     // when you combine explicit field names with -twoFactorSecret style negations.
     // Solution: list ONLY what we need. Unlisted fields are simply not returned,
     // so mongoose-field-encryption never sees them and never tries to decrypt.
+    console.log(`[Login:P1] Request received — email=${email}`);
+
     const user = await User.findOne({ email: email.toLowerCase().trim() })
       .select("+password name email role isActive isApproved lockUntil failedLoginAttempts isTwoFactorEnabled lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
+
+    console.log(`[Login:P2] DB lookup result — found=${!!user} hasPassword=${!!user?.password}`);
 
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -240,7 +244,9 @@ const login = async (req, res) => {
 
     let isMatch = false;
     try {
+      console.log(`[Login:P3] Running bcrypt.compare — hash starts with: ${user.password?.substring(0, 7)}`);
       isMatch = await user.matchPassword(password);
+      console.log(`[Login:P3] bcrypt result: isMatch=${isMatch}`);
     } catch (bcryptErr) {
       // bcrypt throws when hash is corrupted (e.g. 'Invalid hash provided')
       // This happens when the pre-save hook double-hashed the password multiple times.
@@ -336,12 +342,14 @@ const login = async (req, res) => {
     }
 
     // Enterprise Device Fingerprinting & SIEM Detection (Policy §2.4)
-    const ip = req.ip || req.connection.remoteAddress;
+    // req.connection is deprecated/undefined in Node 18+ — use req.socket instead
+    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
     const deviceFingerprint = typeof req.body.fingerprint === 'object'
       ? JSON.stringify(req.body.fingerprint)
       : (req.body.fingerprint || 'unknown');
 
+    console.log(`[Login:P4] Device check — ip=${ip} ua=${userAgent.substring(0, 30)}`);
     const geo = geoip.lookup(ip);
 
     // Impossible Travel Detection (§2.1) & Concurrent Session Control (§2.2)
@@ -390,14 +398,14 @@ const login = async (req, res) => {
       if (devIdx !== -1) user.devices[devIdx].lastLogin = Date.now();
     }
 
+    console.log(`[Login:P5] Generating token pair for user=${user._id}`);
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
+    console.log(`[Login:P5] Token pair generated OK`);
 
-    // Build the devices array update
-    // We recalculate devices from the in-memory doc (which HAS devices since it was selected)
+    // Determine device update strategy using original devices snapshot (before any mutation)
+    const deviceExists = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
     let deviceUpdate;
-    const isExistingDev = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
-    if (isExistingDev) {
-      // Update lastLogin on the matched device using positional operator
+    if (deviceExists) {
       deviceUpdate = User.updateOne(
         { _id: user._id, 'devices.ip': ip, 'devices.userAgent': userAgent },
         { $set: { 'devices.$.lastLogin': new Date() } }
@@ -409,8 +417,6 @@ const login = async (req, res) => {
       );
     }
 
-    // Use updateOne for the main login fields — avoids triggering mongoose-field-encryption
-    // pre-save hook on a partially-selected document (encrypted fields would be undefined → throws)
     const loginFieldsUpdate = User.updateOne(
       { _id: user._id },
       {
@@ -424,8 +430,7 @@ const login = async (req, res) => {
       }
     );
 
-    // Parallelize: 1. DB login-fields update, 2. Device update, 3. Cleanup old tokens,
-    //              4. Log Activity, 5. Create new refresh token
+    console.log(`[Login:P6] Starting parallel DB ops`);
     await Promise.all([
       loginFieldsUpdate,
       deviceUpdate,
@@ -438,6 +443,7 @@ const login = async (req, res) => {
         expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
       })
     ]);
+    console.log(`[Login:P6] Parallel DB ops complete`);
 
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
@@ -453,23 +459,25 @@ const login = async (req, res) => {
       refreshToken: pair.refreshToken,
     });
   } catch (error) {
-    // FORENSIC: Full error dump for production debugging
-    console.error("[Login] CRITICAL 500 ERROR:");
+    console.error("[Login] ===== CRITICAL 500 ERROR =====");
     console.error("  Name   :", error.name);
     console.error("  Message:", error.message);
-    console.error("  Stack  :", error.stack?.split('\n').slice(0, 5).join(' | '));
+    console.error("  Stack  :\n", error.stack);
     console.error("  JWT_SECRET set?         ", !!process.env.JWT_SECRET);
     console.error("  REFRESH_SECRET set?     ", !!process.env.REFRESH_SECRET);
-    console.error("  DB_ENCRYPTION_SECRET set?", !!process.env.DB_ENCRYPTION_SECRET);
+    console.error("  DB_ENCRYPTION_SECRET set:", !!process.env.DB_ENCRYPTION_SECRET);
     console.error("  MONGO_URI set?          ", !!process.env.MONGO_URI);
     return res.status(500).json({
       message: "Authentication engine failure.",
       debug: error.message,
+      errorName: error.name,
       hint: !process.env.REFRESH_SECRET ? 'REFRESH_SECRET env var is missing' :
-        !process.env.DB_ENCRYPTION_SECRET ? 'DB_ENCRYPTION_SECRET env var is missing' : undefined
+        !process.env.DB_ENCRYPTION_SECRET ? 'DB_ENCRYPTION_SECRET env var is missing' :
+          'Check Render logs for last [Login:Pn] phase that completed'
     });
   }
 };
+
 
 // @desc    Get user data
 // @route   GET /api/auth/me
