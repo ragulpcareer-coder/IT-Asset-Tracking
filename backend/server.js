@@ -23,6 +23,26 @@ if (fs.existsSync(envPath)) {
   dotenv.config();
 }
 
+// BOOT CHECK — validate critical env vars immediately after dotenv loads.
+// Do this before ANYTHING else so crashes are predictable and logged cleanly.
+// Note: We use console.warn (not process.exit) so the server still starts
+// and the /diag endpoint can always respond — making remote diagnosis possible.
+const REQUIRED_ENV = ["JWT_SECRET", "MONGO_URI", "DB_ENCRYPTION_SECRET", "REFRESH_SECRET"];
+let bootFatal = false;
+REQUIRED_ENV.forEach(v => {
+  if (!process.env[v]) {
+    console.error(`\n🔴 [BOOT] FATAL: Missing env var: ${v}`);
+    bootFatal = true;
+  } else {
+    console.log(`✅ [BOOT] ${v} is set (${process.env[v].length} chars)`);
+  }
+});
+if (bootFatal) {
+  console.error('🔴 [BOOT] One or more critical env vars are missing. Login WILL fail.');
+  console.error('🔴 [BOOT] Open https://<your-render-service>/diag to see which vars are missing.');
+  // Do NOT process.exit — keep the server alive so /diag responds
+}
+
 // 2. Database Connection
 connectDB();
 
@@ -154,18 +174,19 @@ app.use("/api/admin/config/v1/root", (req, res) => {
   setTimeout(() => res.status(404).json({ error: "System kernel failure." }), 5000);
 });
 
-// 10. API Routes (Enterprise Versioning §39)
+// /health — simple liveness check
 app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
 
-// Diagnostic endpoint — shows env var presence and DB state (values are NEVER exposed)
-app.get("/api/diag", (req, res) => {
+// /diag — shows env var presence and DB state WITHOUT exposing values.
+// Intentionally at root (not /api/) so app.use('/api', apiV1) never intercepts it.
+app.get("/diag", (req, res) => {
   const mongoose = require("mongoose");
   const dbStates = ["disconnected", "connected", "connecting", "disconnecting"];
   res.status(200).json({
     status: "running",
     timestamp: new Date().toISOString(),
     node: process.version,
-    env: process.env.NODE_ENV,
+    env: process.env.NODE_ENV || 'not set',
     envVars: {
       JWT_SECRET: !!process.env.JWT_SECRET,
       REFRESH_SECRET: !!process.env.REFRESH_SECRET,
@@ -177,7 +198,8 @@ app.get("/api/diag", (req, res) => {
     db: {
       state: dbStates[mongoose.connection.readyState] || "unknown",
       host: mongoose.connection.host || "not connected",
-    }
+    },
+    loginWillWork: !!process.env.JWT_SECRET && !!process.env.REFRESH_SECRET && !!process.env.DB_ENCRYPTION_SECRET && !!process.env.MONGO_URI,
   });
 });
 
@@ -211,24 +233,7 @@ apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
 app.use("/api/v1", apiV1);
 app.use("/api", apiV1); // Alias for legacy/standard support
 
-// 11. Strategic Config Audit (§49)
-// DB_ENCRYPTION_SECRET is required — its absence causes 503 on /api/auth/login
-// because mongoose-field-encryption silently throws during User.findOne() decryption.
-const requiredEnv = ["JWT_SECRET", "MONGO_URI", "DB_ENCRYPTION_SECRET", "REFRESH_SECRET"];
-requiredEnv.forEach(v => {
-  if (!process.env[v]) {
-    console.error(`\n🔴 BOOTSTRAP FATAL: Missing Critical Variable: ${v}`);
-    logger.error(`BOOTSTRAP FATAL: Missing Critical Variable: ${v}`);
-    // Always exit — a missing secret causes silent 503s, not a clean boot.
-    process.exit(1);
-  }
-});
-
-// Diagnostic: Confirm which encryption identity is active (first 8 chars only)
-const encKey = process.env.DB_ENCRYPTION_SECRET || process.env.JWT_SECRET || 'fallback';
-console.log(`[BOOT] DB_ENCRYPTION_SECRET active: ${encKey.substring(0, 8)}... (${encKey.length} chars)`);
-console.log(`[BOOT] JWT_SECRET active: ${(process.env.JWT_SECRET || '').substring(0, 8)}... (${(process.env.JWT_SECRET || '').length} chars)`);
-
+// 11. Strategic Config Audit — already checked at boot (top of file)
 // Global crash handlers — prevent silent process death (§35)
 process.on('uncaughtException', (err) => {
   console.error('🔴 UNCAUGHT EXCEPTION — Server will continue but this needs fixing:');
