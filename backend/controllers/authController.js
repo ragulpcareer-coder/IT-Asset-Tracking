@@ -22,6 +22,10 @@ const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = requi
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
 
+// Startup Sentinel: Verify critical production secrets on boot
+if (!process.env.JWT_SECRET) console.error('[BOOT] FATAL: JWT_SECRET is missing!');
+if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set — encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
+
 const getCookieOptions = () => ({
   httpOnly: true,
   secure: process.env.NODE_ENV === 'production',
@@ -372,8 +376,17 @@ const login = async (req, res) => {
       refreshToken: pair.refreshToken,
     });
   } catch (error) {
-    console.error("Login error:", error);
-    return res.status(500).json({ message: error.message });
+    // FORENSIC: Full error dump for production debugging
+    console.error("[Login] CRITICAL 500 ERROR:");
+    console.error("  Name   :", error.name);
+    console.error("  Message:", error.message);
+    console.error("  Stack  :", error.stack?.split('\n').slice(0, 5).join(' | '));
+    console.error("  DB_ENCRYPTION_SECRET set?", !!process.env.DB_ENCRYPTION_SECRET);
+    console.error("  JWT_SECRET set?", !!process.env.JWT_SECRET);
+    return res.status(500).json({
+      message: "Authentication engine failure.",
+      debug: error.message
+    });
   }
 };
 
