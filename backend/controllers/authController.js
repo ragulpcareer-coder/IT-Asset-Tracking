@@ -1094,47 +1094,56 @@ const forgotPassword = async (req, res) => {
     const resetToken = crypto.randomBytes(32).toString('hex');
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
-    // 6. NON-BLOCKING PERSISTENCE (Requirement 3)
-    // Create the token in the background to return the response even faster
-    // However, we'll wait for this because it's critical and fast (~50ms)
+    // 6. PERSISTENCE (Requirement 3)
     await PasswordResetToken.create({
       userId: user._id,
       tokenHash: hashedToken,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000)
     });
 
-    // 7. IMMEDIATE DISPATCH (Target < 300ms)
-    res.status(200).json(genericResponse);
+    // 7. PRODUCTION INCIDENT RESPONSE: Synchronous Email Dispatch
+    // As per Requirement 1: Do NOT allow silent success.
+    // We wait for the email to ensure delivery before returning 200.
+    try {
+      console.log(`[Diagnostic] ENV CHECK: EMAIL_USER=${process.env.EMAIL_USER ? 'Present' : 'MISSING'}`);
+      console.log(`[Diagnostic] ENV CHECK: EMAIL_PASS=${process.env.EMAIL_PASS ? 'Present' : 'MISSING'}`);
 
-    // 8. BACKGROUND TASKS (Decoupled from User Response Loop)
-    setImmediate(async () => {
-      try {
-        // A. Email Dispatch (The slowest operation)
-        await sendPasswordResetEmail(user, resetToken);
+      console.log(`[Auth] Initiating synchronous email dispatch to: ${user.email}`);
+      const emailResult = await sendPasswordResetEmail(user, resetToken);
+      console.log(`[Auth] Email sent successfully. ID: ${emailResult?.messageId || 'Resend API ID'}`);
 
-        // B. Strategic Audit Logging
-        await AuditLog.create({
-          action: "RECOVERY_LINK_DISPATCHED",
-          performedBy: user.email,
-          details: `Secure reset link transmitted via SMTP. Signature: ${hashedToken.substring(0, 8)}...`,
-          ip: req.ip || req.connection?.remoteAddress,
-        });
+      // Strategic Audit Logging (Background)
+      setImmediate(async () => {
+        try {
+          await AuditLog.create({
+            action: "RECOVERY_LINK_DISPATCHED",
+            performedBy: user.email,
+            details: `Secure reset link transmitted to ${user.email}.`,
+            ip: req.ip || req.connection?.remoteAddress,
+          });
+        } catch (logErr) { logger.error("Background Log Error:", logErr.message); }
+      });
 
-        logger.info(`[Auth] Async recovery flow successfully completed for: ${user.email}`);
-      } catch (err) {
-        logger.error(`[Auth] Async recovery fail for ${user.email}:`, err.message);
-        // Alert SOC if background tasks fail
-        await sendSecurityAlert("Email Dispatch Failure", `Recovery link for ${user.email} failed to send: ${err.message}`);
-      }
-    });
+      return res.status(200).json(genericResponse);
+
+    } catch (emailErr) {
+      console.error(`[Auth] EXPLICIT RESET FAILURE for ${user.email}:`, emailErr.message);
+      console.error(`[Auth] Error Stack:`, emailErr.stack);
+
+      // REQUIREMENT: Return 500 if email dispatch fails
+      return res.status(500).json({
+        message: "Email dispatch failed. Please verify your system's SMTP credentials in Render Dashboard.",
+        error: emailErr.message
+      });
+    }
 
   } catch (error) {
     const totalTime = Date.now() - startTime;
-    logger.error(`[Auth] CRITICAL EXCEPTION (Latency: ${totalTime}ms):`, error);
+    console.error(`[Auth] CRITICAL SYSTEM FAULT (Latency: ${totalTime}ms):`, error);
 
     res.status(500).json({
       message: "Internal Security Engine Failure.",
-      trace: process.env.NODE_ENV === 'development' ? error.stack : undefined
+      debug: error.message
     });
   }
 };

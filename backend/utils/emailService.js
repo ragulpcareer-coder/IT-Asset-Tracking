@@ -4,18 +4,31 @@ const { Resend } = require('resend');
 // Initialize Resend (Optional Fallback)
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// Initialize Nodemailer with Gmail optimized settings
-// Standard Port 587 is often preferred by cloud providers using STARTTLS
+// Initialize Nodemailer with Gmail optimized settings (Production Grade: Port 465)
+// REQUIREMENT: Use Port 465 + SSL (secure: true) for cloud reliability
 const transporter = nodemailer.createTransport({
+    service: 'gmail',
     host: 'smtp.gmail.com',
-    port: 587,
-    secure: false, // Use STARTTLS
+    port: 465,
+    secure: true,
     auth: {
         user: process.env.EMAIL_USER || 'ragulp.career@gmail.com',
-        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''),
+        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''), // Strip spaces from App Password
     },
     tls: {
-        rejectUnauthorized: false // Necessary for some cloud load balancers
+        rejectUnauthorized: false // Prevents handshake failures on dynamic cloud IPs
+    }
+});
+
+// Pre-flight connection verification
+transporter.verify((error, success) => {
+    if (error) {
+        console.error(`[SMTP-Diagnostic] CONNECTION FAILED:`, error.message);
+        console.error(`[SMTP-Diagnostic] Is EMAIL_USER set? ${!!process.env.EMAIL_USER}`);
+        console.error(`[SMTP-Diagnostic] Is EMAIL_PASS set? ${!!process.env.EMAIL_PASS}`);
+        console.warn(`[SMTP-Diagnostic] Action: Check Render Environment Variables & Google App Password.`);
+    } else {
+        console.log(`[SMTP-Diagnostic] SUCCESS: Handshake verified. Ready for dispatch.`);
     }
 });
 
