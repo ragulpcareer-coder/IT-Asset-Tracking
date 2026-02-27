@@ -190,7 +190,7 @@ app.use("/api", apiV1); // Alias for legacy/standard support
 // 11. Strategic Config Audit (§49)
 // DB_ENCRYPTION_SECRET is required — its absence causes 503 on /api/auth/login
 // because mongoose-field-encryption silently throws during User.findOne() decryption.
-const requiredEnv = ["JWT_SECRET", "MONGO_URI", "DB_ENCRYPTION_SECRET"];
+const requiredEnv = ["JWT_SECRET", "MONGO_URI", "DB_ENCRYPTION_SECRET", "REFRESH_SECRET"];
 requiredEnv.forEach(v => {
   if (!process.env[v]) {
     console.error(`\n🔴 BOOTSTRAP FATAL: Missing Critical Variable: ${v}`);
