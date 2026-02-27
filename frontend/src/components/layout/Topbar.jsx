@@ -43,8 +43,20 @@ export default function Topbar({ toggleSidebar, openMobile }) {
 
       <header className="flex items-center justify-between px-8 py-4 border-b border-white/5 bg-slate-950/50 backdrop-blur-md sticky top-0 z-40">
         <div className="flex items-center gap-6">
-          {/* Mobile Navigation Trigger */}
-          <button onClick={openMobile} className="btn btn-ghost lg:hidden p-2" aria-label="Open global menu">☰</button>
+          {/* Universal Navigation Trigger */}
+          <button
+            onClick={() => {
+              if (window.innerWidth >= 1024) {
+                toggleSidebar();
+              } else {
+                openMobile();
+              }
+            }}
+            className="btn btn-ghost p-2 text-xl hover:bg-white/10 rounded-lg transition-colors"
+            aria-label="Toggle menu"
+          >
+            ☰
+          </button>
 
           <div className="flex items-center gap-3 lg:hidden">
             <div className="flex-center" style={{ width: 28, height: 28, background: '#fff', borderRadius: 6 }}>
