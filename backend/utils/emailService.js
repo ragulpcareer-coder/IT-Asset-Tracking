@@ -6,40 +6,32 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 
 // Initialize Nodemailer with Gmail optimized settings (Production Grade: Port 465)
 // REQUIREMENT: Use Port 465 + SSL (secure: true) for cloud reliability
-// Initialize Nodemailer with Cloud-Ready settings (IPv4 Force)
-// FIX: ENETUNREACH often caused by cloud providers attempting IPv6. Forced IPv4 via family: 4.
+// Initialize Transporter with Render-optimized IPv4 settings
+// FIX: Force IPv4 (family: 4) to bypass ENETUNREACH IPv6 routing deadlock on Render
 const transporter = nodemailer.createTransport({
-    host: 'smtp.gmail.com',
+    host: "smtp.gmail.com",
     port: 587,
-    secure: false, // Use STARTTLS for Port 587
+    secure: false,         // must be false for 587
+    requireTLS: true,      // enforces secure connection
+    family: 4,             // 🔥 FORCE IPv4 (Fixes ENETUNREACH)
     auth: {
-        user: process.env.EMAIL_USER || 'ragulp.career@gmail.com',
-        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''), // Strip spaces
+        user: process.env.EMAIL_USER,
+        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''),
     },
     tls: {
-        rejectUnauthorized: false,
-        minVersion: 'TLSv1.2'
+        rejectUnauthorized: false, // Prevents certificate errors on dynamic IPs
     },
-    family: 4 // FORCE IPv4 to prevent ENETUNREACH errors on cloud hosts like Render
 });
 
 // Pre-flight connection verification
 transporter.verify((error, success) => {
-    // CRITICAL: Verify Environment Variables on startup
-    const missing = [];
-    if (!process.env.EMAIL_USER) missing.push('EMAIL_USER');
-    if (!process.env.EMAIL_PASS) missing.push('EMAIL_PASS');
-
-    if (missing.length > 0) {
-        console.error(`[SMTP-Diagnostic] FATAL: Missing Critical Variables: ${missing.join(', ')}`);
-        console.error(`[SMTP-Diagnostic] ACTION: You MUST add these to your Render Dashboard Environment settings.`);
-    }
-
     if (error) {
-        console.error(`[SMTP-Diagnostic] CONNECTION FAILED:`, error.message);
-        console.warn(`[SMTP-Diagnostic] Tip: Verify App Password has no spaces and Port 587 isn't blocked by host.`);
+        console.error("SMTP VERIFY FAILED:", error);
+        if (!process.env.EMAIL_USER || !process.env.EMAIL_PASS) {
+            console.error("[SMTP-Diagnostic] ACTION: Missing EMAIL_USER or EMAIL_PASS in Render Environment settings.");
+        }
     } else {
-        console.log(`[SMTP-Diagnostic] SUCCESS: Handshake verified. IPv4 connection established.`);
+        console.log("SMTP SERVER READY");
     }
 });
 
