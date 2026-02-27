@@ -59,7 +59,6 @@ const userSchema = new mongoose.Schema({
 }, { timestamps: true });
 
 // Optimized Indexes for Performance (§3.3)
-userSchema.index({ email: 1 });
 userSchema.index({ phone: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ isApproved: 1 });
