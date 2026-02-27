@@ -161,18 +161,18 @@ export default function Assets() {
       {/* Primary Context Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Asset Registry</h1>
+          <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Asset Inventory</h1>
           <p className="text-slate-500 font-medium mt-1 text-xs tracking-widest uppercase">
-            Cluster Management & Operational Logistics
+            Cluster Management & Deployment Operations
           </p>
         </div>
         <div className="flex flex-wrap gap-3">
           <Button variant="secondary" onClick={handleExportPDF} disabled={assets.length === 0}>
-            Generate Archive (PDF)
+            Export Inventory (PDF)
           </Button>
           <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
             <Button variant="primary" onClick={() => { setEditingAsset(null); setIsModalOpen(true); }}>
-              Initialize Node +
+              Provision New Node
             </Button>
           </PermissionGuard>
         </div>
@@ -181,7 +181,7 @@ export default function Assets() {
       {/* Snapshot Ledger (Requirement G: Accurate Counters) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
         {[
-          { label: "Matrix Global", value: stats.total, color: "blue" },
+          { label: "Total Assets", value: stats.total, color: "blue" },
           { label: "Available", value: stats.available, color: "green" },
           { label: "Assigned", value: stats.assigned, color: "sky" },
           { label: "In Service", value: stats.maintenance, color: "amber" },
@@ -198,7 +198,7 @@ export default function Assets() {
       <Card className="mb-8 p-3 bg-slate-900/60">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <Input
-            placeholder="Lookup SN, Name, or Identity..."
+            placeholder="Search by Serial Number, Asset Name, or Owner..."
             className="mb-0"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -208,18 +208,18 @@ export default function Assets() {
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
           >
-            <option value="All">All Operations</option>
+            <option value="All">Filter by Operational Status</option>
             <option value="available">Available / Inventory</option>
             <option value="assigned">Live / Assigned</option>
             <option value="maintenance">Maintenance</option>
-            <option value="retired">Retired / Archival</option>
+            <option value="retired">Archived</option>
           </select>
           <select
             className="input bg-slate-950/40 border-white/5"
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
-            <option value="All">All Clusters</option>
+            <option value="All">Filter by Cluster</option>
             {assetTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <select
@@ -227,7 +227,7 @@ export default function Assets() {
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
           >
-            <option value="name">Sort: Identity (A-Z)</option>
+            <option value="name">Sort by Asset Name (A-Z)</option>
             <option value="createdAt">Sort: Deployment Date</option>
             <option value="status">Sort: Operational Status</option>
             <option value="usefulLifeYears">Sort: Lifecycle Phase</option>

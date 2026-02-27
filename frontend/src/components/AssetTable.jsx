@@ -24,7 +24,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
             case "available": return "success";
             case "assigned": return "info";
             case "maintenance": return "warning";
-            case "retired": return "danger";
+            case "retired": return "danger"; // Render as Archived visually later, but keep CSS variant mapped
             default: return "neutral";
         }
     };
@@ -34,13 +34,13 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
             <table className="table">
                 <thead>
                     <tr>
-                        <th>Asset Details</th>
+                        <th>Asset</th>
                         <th>Classification</th>
-                        <th>Status</th>
-                        <th>Assignee</th>
+                        <th>Operational Status</th>
+                        <th>Assigned To</th>
                         <th className="text-center">QR Code</th>
                         <PermissionGuard roles={["Super Admin", "Admin", "Asset Manager"]} userRole={user?.role}>
-                            <th className="text-right">Management</th>
+                            <th className="text-right">Actions</th>
                         </PermissionGuard>
                     </tr>
                 </thead>
@@ -67,7 +67,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                             </td>
                             <td>
                                 <Badge variant={getStatusVariant(asset.status)}>
-                                    {asset.status}
+                                    {asset.status === 'retired' ? 'Archived' : asset.status.charAt(0).toUpperCase() + asset.status.slice(1)}
                                 </Badge>
                             </td>
                             <td className="text-slate-400 font-medium">
@@ -91,7 +91,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                             size="sm"
                                             onClick={() => onEdit && onEdit(asset)}
                                         >
-                                            Metadata
+                                            View Metadata
                                         </Button>
                                     </PermissionGuard>
                                     <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
@@ -100,7 +100,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                             size="sm"
                                             onClick={() => setDeleteId(asset._id)}
                                         >
-                                            Decommission
+                                            Decommission Asset
                                         </Button>
                                     </PermissionGuard>
                                 </div>
@@ -143,8 +143,8 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
             <ConfirmModal
                 isOpen={!!deleteId}
                 title="Decommission Asset?"
-                message="This action initiates a Decommission Protocol. For high-value assets, this may trigger a Dual-Authorization requirement (4-Eyes Principle)."
-                confirmText="Initiate Protocol"
+                message="This will immediately move the asset out of service and revoke active telemetry tracking. Proceed with decommission?"
+                confirmText="Decommission"
                 onConfirm={() => {
                     onDelete && onDelete(deleteId);
                     setDeleteId(null);
