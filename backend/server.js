@@ -203,68 +203,7 @@ app.get("/diag", (req, res) => {
   });
 });
 
-// ⚠️  TEMPORARY EMERGENCY ENDPOINT — REMOVE AFTER USE ⚠️
-// URL: GET /emergency-reset/RAGUL_ADMIN_RESET_2026
-// Resets ragulp.career@gmail.com password to: AdminReset2026!!
-// Protected by secret URL segment. Remove this block after login works.
-app.get("/emergency-reset/RAGUL_ADMIN_RESET_2026", async (req, res) => {
-  try {
-    const bcrypt = require("bcryptjs");
-    const mongoose = require("mongoose");
 
-    const TARGET_EMAIL = "ragulp.career@gmail.com";
-    const NEW_PASSWORD = "AdminReset2026!!";
-
-    const salt = await bcrypt.genSalt(10);
-    const hashed = await bcrypt.hash(NEW_PASSWORD, salt);
-
-    const valid = await bcrypt.compare(NEW_PASSWORD, hashed);
-    if (!valid) return res.status(500).json({ error: "Hash verification failed." });
-
-    const collection = mongoose.connection.db.collection("users");
-
-    // Write password + clear ANY stale mongoose-field-encryption marker flags
-    const result = await collection.updateOne(
-      { email: TARGET_EMAIL },
-      {
-        $set: {
-          password: hashed,
-          failedLoginAttempts: 0,
-          isApproved: true,
-          isActive: true,
-          __enc_password: false,   // clear stale encryption marker
-        },
-        $unset: { lockUntil: "" }
-      }
-    );
-
-    // Verify write by reading back with native driver
-    const verify = await collection.findOne(
-      { email: TARGET_EMAIL },
-      { projection: { password: 1, __enc_password: 1, isActive: 1, isApproved: 1 } }
-    );
-
-    if (result.modifiedCount === 1) {
-      return res.status(200).json({
-        success: true,
-        message: "Password reset complete. Login now.",
-        credentials: { email: TARGET_EMAIL, password: NEW_PASSWORD },
-        verification: {
-          passwordInDB: verify?.password ? verify.password.substring(0, 7) + "..." : "MISSING",
-          encFlag: verify?.__enc_password,
-          isActive: verify?.isActive,
-          isApproved: verify?.isApproved,
-        },
-        next: "Login with AdminReset2026!! then tell me to remove this endpoint!"
-      });
-    } else {
-      return res.status(404).json({ error: `No user found: ${TARGET_EMAIL}` });
-    }
-  } catch (err) {
-    console.error("[EmergencyReset] Error:", err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
 
 // CSRF Protection configuration
 const csrfProtection = csurf({
