@@ -6,7 +6,7 @@ import AssetModal from "../components/AssetModal";
 import AssetTable from "../components/AssetTable";
 import { motion } from "framer-motion";
 import jsPDF from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { socket } from "../services/socket";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { useLocation } from "react-router-dom";
@@ -126,7 +126,7 @@ export default function Assets() {
       a.usefulLifeYears || 5
     ]);
 
-    doc.autoTable({
+    autoTable(doc, {
       head: [tableColumn],
       body: tableRows,
       startY: 40,
