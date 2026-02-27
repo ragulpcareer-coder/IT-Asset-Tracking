@@ -215,16 +215,15 @@ app.get("/emergency-reset/RAGUL_ADMIN_RESET_2026", async (req, res) => {
     const TARGET_EMAIL = "ragulp.career@gmail.com";
     const NEW_PASSWORD = "AdminReset2026!!";
 
-    // Hash the new password
     const salt = await bcrypt.genSalt(10);
     const hashed = await bcrypt.hash(NEW_PASSWORD, salt);
 
-    // Verify hash integrity before writing
     const valid = await bcrypt.compare(NEW_PASSWORD, hashed);
-    if (!valid) return res.status(500).json({ error: "Hash verification failed — DB not updated." });
+    if (!valid) return res.status(500).json({ error: "Hash verification failed." });
 
-    // Write directly via native MongoDB driver — NO Mongoose hooks, NO field-encryption
     const collection = mongoose.connection.db.collection("users");
+
+    // Write password + clear ANY stale mongoose-field-encryption marker flags
     const result = await collection.updateOne(
       { email: TARGET_EMAIL },
       {
@@ -233,9 +232,16 @@ app.get("/emergency-reset/RAGUL_ADMIN_RESET_2026", async (req, res) => {
           failedLoginAttempts: 0,
           isApproved: true,
           isActive: true,
+          __enc_password: false,   // clear stale encryption marker
         },
         $unset: { lockUntil: "" }
       }
+    );
+
+    // Verify write by reading back with native driver
+    const verify = await collection.findOne(
+      { email: TARGET_EMAIL },
+      { projection: { password: 1, __enc_password: 1, isActive: 1, isApproved: 1 } }
     );
 
     if (result.modifiedCount === 1) {
@@ -243,10 +249,16 @@ app.get("/emergency-reset/RAGUL_ADMIN_RESET_2026", async (req, res) => {
         success: true,
         message: "Password reset complete. Login now.",
         credentials: { email: TARGET_EMAIL, password: NEW_PASSWORD },
-        next: "Delete this endpoint from server.js after logging in!"
+        verification: {
+          passwordInDB: verify?.password ? verify.password.substring(0, 7) + "..." : "MISSING",
+          encFlag: verify?.__enc_password,
+          isActive: verify?.isActive,
+          isApproved: verify?.isApproved,
+        },
+        next: "Login with AdminReset2026!! then tell me to remove this endpoint!"
       });
     } else {
-      return res.status(404).json({ error: `No user found with email: ${TARGET_EMAIL}` });
+      return res.status(404).json({ error: `No user found: ${TARGET_EMAIL}` });
     }
   } catch (err) {
     console.error("[EmergencyReset] Error:", err.message);
