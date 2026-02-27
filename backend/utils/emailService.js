@@ -4,16 +4,18 @@ const { Resend } = require('resend');
 // Initialize Resend (Optional Fallback)
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
-// Initialize Nodemailer with Gmail optimized settings (Requirement 2)
-// Using Port 465 and Secure: true for maximum production reliability
+// Initialize Nodemailer with Gmail optimized settings
+// Standard Port 587 is often preferred by cloud providers using STARTTLS
 const transporter = nodemailer.createTransport({
-    service: 'gmail',
     host: 'smtp.gmail.com',
-    port: 465,
-    secure: true, // Port 465 is more reliable on cloud hosts like Render
+    port: 587,
+    secure: false, // Use STARTTLS
     auth: {
-        user: process.env.EMAIL_USER,
+        user: process.env.EMAIL_USER || 'ragulp.career@gmail.com',
         pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''),
+    },
+    tls: {
+        rejectUnauthorized: false // Necessary for some cloud load balancers
     }
 });
 

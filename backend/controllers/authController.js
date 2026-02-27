@@ -1085,18 +1085,21 @@ const forgotPassword = async (req, res) => {
       res.json(genericResponse);
 
     } catch (emailErr) {
-      console.error(`[Auth Controller] Email dispatch failure:`, emailErr.message);
+      console.error(`[Auth] Email failure:`, emailErr.message);
       logger.error(`[Auth] Reset email failure for ${user.email}:`, emailErr.message);
 
-      // If email fails, we MUST inform the user (Requirement 4)
       return res.status(500).json({
-        message: "Unable to send recovery email. Please check your connectivity or try again later.",
-        error: process.env.NODE_ENV === 'development' ? emailErr.message : undefined
+        message: "The security system failed to transmit the recovery packet.",
+        error: emailErr.message // Include for debugging
       });
     }
   } catch (error) {
+    console.error(`[Auth] CRITICAL SYSTEM ERROR:`, error);
     logger.error("[Auth] Forgot Password system error:", error.message);
-    res.status(500).json({ message: "Internal Security Engine Failure." });
+    res.status(500).json({
+      message: "Security Engine Under Maintenance / Critical Failure.",
+      debug: error.message
+    });
   }
 };
 
