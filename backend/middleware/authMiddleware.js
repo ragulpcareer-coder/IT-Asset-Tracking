@@ -94,9 +94,8 @@ const protect = async (req, res, next) => {
         details: `Session IP variation detected. Initial: ${user.lastLoginIp}, Current: ${ip}. Monitoring for high-velocity shifts.`,
         ip: ip,
       });
-      // Optionally update the IP to follow the user
-      user.lastLoginIp = ip;
-      await user.save();
+      // Update IP via native updateOne — do NOT call user.save() (triggers bcrypt pre-save hook)
+      await User.updateOne({ _id: user._id }, { $set: { lastLoginIp: ip } });
     }
 
 
@@ -191,21 +190,24 @@ const requireReAuth = async (req, res, next) => {
         action: "SECURITY ALERT: Step-up Auth Failed",
         performedBy: req.user.email,
         details: `Failed sensitive action re-auth on: ${req.method} ${req.originalUrl}`,
-        ip: req.ip || req.connection?.remoteAddress,
+        ip: req.ip || req.socket?.remoteAddress,
       });
 
       return res.status(401).json({ message: "Invalid password – re-authentication failed." });
     }
 
     // Success - Grant 10-minute Privilege Window (§2.3)
-    user.privilegeTokenExpires = new Date(Date.now() + 10 * 60 * 1000);
-    await user.save();
+    // Use updateOne to bypass bcrypt pre-save hook (never re-hash password on non-password saves)
+    await User.updateOne(
+      { _id: user._id },
+      { $set: { privilegeTokenExpires: new Date(Date.now() + 10 * 60 * 1000) } }
+    );
 
     await AuditLog.create({
       action: "SECURITY: Privilege Elevated",
       performedBy: user.email,
       details: `Admin privilege elevated for 10 minutes. Action: ${req.method} ${req.originalUrl}`,
-      ip: req.ip || req.connection?.remoteAddress,
+      ip: req.ip || req.socket?.remoteAddress,
     });
 
     next();

@@ -168,8 +168,10 @@ export default function Dashboard() {
     socket.on("assetUpdated", (a) => { setAssets(p => p.map(x => x._id === a._id ? a : x)); fetchMetrics(); });
     socket.on("assetDeleted", (id) => { setAssets(p => p.filter(x => x._id !== id)); fetchMetrics(); });
 
-    // Refresh metrics every 60 seconds
-    const interval = setInterval(fetchMetrics, 60_000);
+    // Refresh metrics every 60 seconds (only if document is visible)
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') fetchMetrics();
+    }, 60_000);
 
     return () => {
       socket.off("assetCreated");
@@ -187,10 +189,15 @@ export default function Dashboard() {
     { name: "Retired", value: assets.filter(a => a.status === "retired").length, color: "#ef4444" },
   ];
 
-  const auditAreaData = logs.slice(0, 7).reverse().map((l, i) => ({
-    name: `T-${7 - i}`,
-    events: i + 1,
-  }));
+  const auditAreaData = Array.from({ length: 7 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() - (6 - i));
+    const dateStr = d.toLocaleDateString();
+    return {
+      name: d.toLocaleDateString(undefined, { weekday: 'short' }),
+      events: logs.filter(log => new Date(log.createdAt).toLocaleDateString() === dateStr).length,
+    };
+  });
 
   if (loading) return <LoadingSpinner fullScreen message="Syncing Enterprise Telemetry..." />;
 

@@ -18,38 +18,41 @@ const AuditLog = require('../models/AuditLog');
 const User = require('../models/User');
 
 /**
- * Security Posture Score (0–100)
+ * Security Posture Score (0–100, or null if no data)
  *
- * Component 1 — Patch Compliance (40%)
- *   Assets where networkStatus.lastSeen < 24h ago = "patched/active"
- *   Score = (patchedAssets / totalAssets) * 40
+ * Weighted components:
+ *  - MFA Adoption        30% — (mfaUsers / totalUsers) * 30
+ *  - Patch Compliance    40% — (lastSeen ≤24h assets / totalAssets) * 40
+ *  - Auth Compliance     30% — (authorizedAssets / totalAssets) * 30
  *
- * Component 2 — MFA Adoption (30%)
- *   Score = (usersWithMFA / totalActiveUsers) * 30
- *
- * Component 3 — Encryption / Authorization (30%)
- *   Assets where securityStatus.isAuthorized = true = "compliant"
- *   Score = (authorizedAssets / totalAssets) * 30
- *
- * Returns 100 if no data (avoids alarming a fresh install).
+ * Edge cases:
+ *  - 0 assets AND 0 users  → null  (fresh install — no data, show N/A)
+ *  - 0 assets, users exist → MFA score only, rescaled to 100
+ *    (patch + encryption excluded — cannot measure what doesn't exist)
+ *  - assets exist, 0 users → patch + encryption only, rescaled to 100
+ *    (MFA excluded — no applicable users)
  */
 function computeSecurityPosture({ totalAssets, recentlySeenAssets, authorizedAssets, totalUsers, mfaUsers }) {
-    if (totalAssets === 0 && totalUsers === 0) return 100; // fresh install
+    // No data at all — return null so frontend can display "N/A" instead of a misleading number
+    if (totalAssets === 0 && totalUsers === 0) return null;
 
-    const patchScore = totalAssets > 0
-        ? (recentlySeenAssets / totalAssets) * 40
-        : 40; // full marks if no assets yet
+    const hasAssets = totalAssets > 0;
+    const hasUsers = totalUsers > 0;
 
-    const mfaScore = totalUsers > 0
-        ? (mfaUsers / totalUsers) * 30
-        : 30;
+    const mfaScore = hasUsers ? (mfaUsers / totalUsers) * 30 : 0;
+    const patchScore = hasAssets ? (recentlySeenAssets / totalAssets) * 40 : 0;
+    const encryptionScore = hasAssets ? (authorizedAssets / totalAssets) * 30 : 0;
 
-    const encryptionScore = totalAssets > 0
-        ? (authorizedAssets / totalAssets) * 30
-        : 30;
+    // Scale to 100 based on which components actually have data
+    const maxPossible = (hasUsers ? 30 : 0) + (hasAssets ? 70 : 0);
+    const rawScore = mfaScore + patchScore + encryptionScore;
 
-    return Math.round(patchScore + mfaScore + encryptionScore);
+    // Avoid division by zero (should never happen given the null check above)
+    if (maxPossible === 0) return null;
+
+    return Math.round((rawScore / maxPossible) * 100);
 }
+
 
 /**
  * GET /api/dashboard/metrics
@@ -129,9 +132,9 @@ const getDashboardMetrics = async (req, res) => {
             _meta: {
                 generatedAt: now.toISOString(),
                 posture: {
-                    mfaRate: totalActiveUsers > 0 ? Math.round((mfaUsers / totalActiveUsers) * 100) : 100,
-                    authRate: totalAssets > 0 ? Math.round((authorizedAssets / totalAssets) * 100) : 100,
-                    patchRate: totalAssets > 0 ? Math.round((recentlySeenAssets / totalAssets) * 100) : 100,
+                    mfaRate: totalActiveUsers > 0 ? Math.round((mfaUsers / totalActiveUsers) * 100) : null,
+                    authRate: totalAssets > 0 ? Math.round((authorizedAssets / totalAssets) * 100) : null,
+                    patchRate: totalAssets > 0 ? Math.round((recentlySeenAssets / totalAssets) * 100) : null,
                 }
             }
         });
@@ -141,10 +144,10 @@ const getDashboardMetrics = async (req, res) => {
         // Return safe zeros — never crash the dashboard
         return res.status(200).json({
             activeAssets: { online: 0, total: 0 },
-            securityPostureScore: 0,
+            securityPostureScore: null,
             activeIncidents: 0,
             auditEvents24h: 0,
-            _meta: { error: error.message, generatedAt: new Date().toISOString() }
+            _meta: { error: 'metrics_unavailable', generatedAt: new Date().toISOString() }
         });
     }
 };

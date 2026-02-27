@@ -9,7 +9,7 @@
  */
 
 import React, { useContext } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Navigate, Link, useLocation } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
 
 // ─── Inline 403 Forbidden component ─────────────────────────────────────────
@@ -99,8 +99,8 @@ function Forbidden403() {
                     This access attempt has been logged and flagged for security review.
                 </p>
 
-                <a
-                    href="/"
+                <Link
+                    to="/"
                     style={{
                         display: "inline-block",
                         padding: "10px 28px",
@@ -113,7 +113,7 @@ function Forbidden403() {
                     }}
                 >
                     ← Return to Dashboard
-                </a>
+                </Link>
             </div>
         </div>
     );
