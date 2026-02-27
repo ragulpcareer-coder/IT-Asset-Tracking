@@ -14,7 +14,8 @@ const {
   sanitizeInput,
 } = require("../utils/security");
 const geoip = require("geoip-lite");
-const { sendSecurityAlert, sendApprovalRequest } = require("../utils/emailService");
+const crypto = require("crypto");
+const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = require("../utils/emailService");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -104,11 +105,11 @@ const register = async (req, res) => {
 
     // PRIVILEGE ESCALATION PREVENTION (Policy §11 & §16 / §19 / §30)
     // Role is NEVER trusted from the client. Backend assigns it unconditionally.
-    const totalUsers = await User.countDocuments();
+    const hasUsers = await User.exists({}); // Faster check for bootstrapping
     let assignedRole = "Employee"; // Always default to least privilege
     let isApproved = false;
 
-    if (totalUsers === 0) {
+    if (!hasUsers) {
       assignedRole = "Super Admin"; // First-ever account becomes the super admin
       isApproved = true;      // Auto-approved so the system can be bootstrapped
     }
@@ -125,39 +126,40 @@ const register = async (req, res) => {
       isApproved: isApproved
     });
 
-    // Send approval request email if not auto-approved
+    // Send approval request email if not auto-approved (NON-BLOCKING / ASYNC)
     if (!isApproved) {
-      try {
-        await sendApprovalRequest(user);
-      } catch (emailErr) {
-        logger.error(`[Registration] Email failed for ${sanitizedEmail}:`, emailErr.message);
-      }
+      setImmediate(() => {
+        sendApprovalRequest(user).catch(emailErr => {
+          logger.error(`[Registration] Background email failed for ${sanitizedEmail}:`, emailErr.message);
+        });
+      });
     }
 
-    // Log registration
-    await AuditLog.create({
-      action: "User Registered",
-      performedBy: sanitizedEmail,
-      details: isApproved ? `New user registered (Auto-approved): ${sanitizedName}` : `New user registration request: ${sanitizedName}`,
-      ip,
-      createdAt: new Date(),
-    });
+    // Parallelize administrative tasks for faster response
+    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
+
+    await Promise.all([
+      AuditLog.create({
+        action: "User Registered",
+        performedBy: sanitizedEmail,
+        details: isApproved ? `New user registered (Auto-approved): ${sanitizedName}` : `New user registration request: ${sanitizedName}`,
+        ip,
+        createdAt: new Date(),
+      }),
+      !isApproved ? Promise.resolve() : RefreshToken.create({
+        tokenId: pair.refreshTokenId,
+        family: pair.refreshTokenFamily,
+        user: user._id,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      }),
+      logUserActivity(user._id, "PROFILE_UPDATE", "Node Provisioned: Primary identity registration.", req)
+    ]);
 
     if (!isApproved) {
       return res.status(201).json({
         message: "Registration successfully initialized. Compliance pending approval.",
       });
     }
-
-    // create token pair and persist refresh token record
-    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
-
-    await RefreshToken.create({
-      tokenId: pair.refreshTokenId,
-      family: pair.refreshTokenFamily,
-      user: user._id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
 
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
@@ -166,6 +168,10 @@ const register = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      preferences: user.preferences,
+      activityTimestamps: user.activityTimestamps,
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
       message: "Node Provisioned: Registration successful.",
     });
   } catch (error) {
@@ -179,8 +185,9 @@ const login = async (req, res) => {
   try {
     const { email, password, token2FA } = req.body;
 
-    // Normalize and check for user email
-    const user = await User.findOne({ email: (email || "").toLowerCase() });
+    // Optimized: Fetch only required fields for authentication (§1.1)
+    const user = await User.findOne({ email: (email || "").toLowerCase() })
+      .select("+password lockUntil isActive failedLoginAttempts isTwoFactorEnabled twoFactorSecret twoFactorBackupCodes role name email lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps");
 
     if (!user) {
       return res.status(400).json({ message: "Invalid credentials" });
@@ -312,29 +319,27 @@ const login = async (req, res) => {
       if (devIdx !== -1) user.devices[devIdx].lastLogin = Date.now();
     }
 
-    // Success login cleanup
+    // Finalize authentication tasks in parallel for performance (§1.1)
     user.failedLoginAttempts = 0;
     user.lockUntil = undefined;
     user.lastLogin = Date.now();
     user.lastLoginIp = ip;
-    user.lastLoginGeo = geo; // Store for next travel check
-    await user.save();
-
-    // Concurrent Session Control (Weakness 38) - Prevent multiple logins by invalidating old sessions
-    await RefreshToken.deleteMany({ user: user._id });
-
-    // Enterprise Audit: Log successful authentication
-    await logUserActivity(user._id, "LOGIN", "Successful strategic authentication event.", req);
-
+    user.lastLoginGeo = geo;
 
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
-    await RefreshToken.create({
-      tokenId: pair.refreshTokenId,
-      family: pair.refreshTokenFamily,
-      user: user._id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
+    // Parallelize: 1. DB Save, 2. Cleanup old tokens, 3. Log Activity, 4. Create new refresh token
+    await Promise.all([
+      user.save(),
+      RefreshToken.deleteMany({ user: user._id }),
+      logUserActivity(user._id, "LOGIN", "Successful strategic authentication event.", req),
+      RefreshToken.create({
+        tokenId: pair.refreshTokenId,
+        family: pair.refreshTokenFamily,
+        user: user._id,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      })
+    ]);
 
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
@@ -343,6 +348,9 @@ const login = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
+      preferences: user.preferences,
+      activityTimestamps: user.activityTimestamps,
+      isTwoFactorEnabled: user.isTwoFactorEnabled,
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });
@@ -357,7 +365,12 @@ const login = async (req, res) => {
 // @access  Private
 const getMe = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).select("-password");
+    // Optimized: Fetch only required metadata for session state
+    const user = await User.findById(req.user._id)
+      .select("name email role preferences activityTimestamps isTwoFactorEnabled phone department location")
+      .lean(); // Use lean() for faster read-only access (§Performance)
+
+    if (!user) return res.status(404).json({ message: "User registry entry not found." });
     res.status(200).json(user);
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -1018,9 +1031,145 @@ const getUserActivity = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Forgot Password - Initiative secure reset workflow
+ * @route   POST /api/auth/forgot-password
+ * @access  Public
+ */
+const forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ message: "Valid official email address is required." });
+    }
+
+    // 1. Find user (Zero enumeration disclosure)
+    const user = await User.findOne({ email: email.toLowerCase(), isActive: true });
+
+    // 2. Generic Success Response (§1.2 - Prevent user enumeration attacks)
+    const genericResponse = { message: "If the account exists in our registry, a recovery transmission has been dispatched." };
+
+    if (!user) {
+      logger.info(`[Auth] Forgot password attempt for non-existent/inactive email: ${email}`);
+      return res.json(genericResponse);
+    }
+
+    // 3. Generate high-entropy reset token (§Step 3)
+    const resetToken = crypto.randomBytes(32).toString('hex');
+
+    // 4. Store cryptographically hashed token (§Step 3)
+    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    user.passwordResetToken = hashedToken;
+    user.passwordResetExpires = Date.now() + 15 * 60 * 1000; // 15 Minute Window (§7)
+
+    await user.save();
+
+    // 5. Dispatch secure transmission email
+    try {
+      await sendPasswordResetEmail(user, resetToken);
+
+      await AuditLog.create({
+        action: "PASSWORD_RESET_REQUESTED",
+        performedBy: user.email,
+        details: `Reset link generated. Valid for 15 minutes. Source: ${req.ip}`,
+        ip: req.ip || req.connection?.remoteAddress,
+      });
+
+    } catch (emailErr) {
+      logger.error(`[Auth] Reset email failure for ${user.email}:`, emailErr.message);
+    }
+
+    res.json(genericResponse);
+  } catch (error) {
+    logger.error("[Auth] Forgot Password system error:", error.message);
+    res.status(500).json({ message: "Internal Security Engine Failure." });
+  }
+};
+
+/**
+ * @desc    Validate Reset Token - Verify token integrity before UI reveal
+ * @route   GET /api/auth/reset-password/:token
+ * @access  Public
+ */
+const validateResetToken = async (req, res) => {
+  try {
+    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Reset signature invalid or identity link expired." });
+    }
+
+    res.json({ valid: true, email: user.email });
+  } catch (error) {
+    res.status(500).json({ message: "Token validation internal error." });
+  }
+};
+
+/**
+ * @desc    Reset Password - Commit new credentials
+ * @route   POST /api/auth/reset-password/:token
+ * @access  Public
+ */
+const resetPassword = async (req, res) => {
+  try {
+    const { password } = req.body;
+
+    // 1. Cryptographic validation of the specific token
+    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+
+    const user = await User.findOne({
+      passwordResetToken: hashedToken,
+      passwordResetExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Strategic Reset Failure: Link has expired or was already rotated." });
+    }
+
+    // 2. Security Check: Block weak passwords (§Step 4)
+    if (password.length < 12) {
+      return res.status(400).json({ message: "Password must be at least 12 characters long for security compliance." });
+    }
+
+    // 3. Performance-optimized hashing of new credential
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
+
+    // 4. Clear reset state (§Step 4 - Mark as used)
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
+
+    // Force re-auth on all devices
+    await Promise.all([
+      user.save(),
+      RefreshToken.deleteMany({ user: user._id }), // Revoke all sessions (§Step 4)
+      AuditLog.create({
+        action: "PASSWORD_RESET_SUCCESS",
+        performedBy: user.email,
+        details: `Account credentials successfully rotated. All sessions invalidated.`,
+        ip: req.ip || req.connection?.remoteAddress,
+      }),
+      logUserActivity(user._id, "SECURITY", "Password successfully reset via recovery link.", req)
+    ]);
+
+    res.json({ message: "Credentials updated successfully. System state synchronized. Please sign in." });
+  } catch (error) {
+    logger.error("[Auth] Reset Commit Failure:", error.message);
+    res.status(500).json({ message: "Credential rotation system failure." });
+  }
+};
+
 module.exports = {
   register,
   login,
+  forgotPassword,
+  validateResetToken,
+  resetPassword,
   getMe,
   changePassword,
   updateProfile,

@@ -58,6 +58,15 @@ const userSchema = new mongoose.Schema({
   },
 }, { timestamps: true });
 
+// Optimized Indexes for Performance (§3.3)
+userSchema.index({ email: 1 });
+userSchema.index({ phone: 1 });
+userSchema.index({ isActive: 1 });
+userSchema.index({ isApproved: 1 });
+userSchema.index({ role: 1 });
+userSchema.index({ "devices.ip": 1 }); // Index for device recognition
+userSchema.index({ lastLogin: -1 }); // Index for activity monitoring
+
 
 const bcrypt = require("bcryptjs");
 
@@ -66,7 +75,7 @@ userSchema.pre("save", async function (next) {
   if (!this.isModified("password")) {
     next();
   }
-  const salt = await bcrypt.genSalt(12);
+  const salt = await bcrypt.genSalt(10);
   this.password = await bcrypt.hash(this.password, salt);
 });
 

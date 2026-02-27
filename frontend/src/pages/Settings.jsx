@@ -161,6 +161,7 @@ export default function Settings() {
             setLoading(true);
             await axios.put("/auth/profile", profileData);
             await refreshUser();
+            await fetchActivity();
             toast.success("Profile updated successfully!", {
               position: "top-right",
               autoClose: 3000,
@@ -285,6 +286,7 @@ export default function Settings() {
                 newPassword: passwordData.newPassword,
               });
               await refreshUser();
+              await fetchActivity();
               toast.success("Password changed successfully!");
               setPasswordData({ currentPassword: "", newPassword: "", confirmPassword: "" });
             } catch (error) {
@@ -370,6 +372,7 @@ export default function Settings() {
                       await axios.post("/auth/2fa/disable");
                       setPreferences(prev => ({ ...prev, twoFactorEnabled: false }));
                       await refreshUser();
+                      await fetchActivity();
                       toast.success("2FA has been disabled.");
                     } else {
                       const res = await axios.post("/auth/2fa/generate");
@@ -420,6 +423,7 @@ export default function Settings() {
                         setPreferences(prev => ({ ...prev, twoFactorEnabled: true }));
                         setTfaSetup({ ...tfaSetup, isSettingUp: false, token: "" });
                         await refreshUser();
+                        await fetchActivity();
                         toast.success("Two-Factor Authentication successfully enabled!");
 
                       } catch (e) {

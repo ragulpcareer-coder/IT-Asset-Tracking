@@ -18,6 +18,7 @@ const {
     getAllUsers, promoteUser, demoteUser, suspendUser,
     adminResetPassword, adminDisable2FA, deleteUser,
     approveUser, rejectUser, diagEmailTest, getUserActivity,
+    forgotPassword, validateResetToken, resetPassword,
 } = require("../controllers/authController");
 
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
@@ -31,6 +32,11 @@ router.post("/refresh", refresh);
 // Admin approves / rejects users via secure email link (no auth required – link IS the token)
 router.get("/approve/:id", approveUser);
 router.get("/reject/:id", rejectUser);
+
+// Password Recovery Flow (§Enterprise Security Steps 1-3)
+router.post("/forgot-password", forgotPassword);
+router.get("/reset-password/:token", validateResetToken);
+router.post("/reset-password/:token", resetPassword);
 
 // Diagnostic (internal only)
 router.get("/diag/email-test", diagEmailTest);

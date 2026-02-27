@@ -77,8 +77,9 @@ const protect = async (req, res, next) => {
     }
 
 
-    // Zero Trust: always fetch fresh from DB
-    const user = await User.findById(decoded.userId).select("-password");
+    // Zero Trust Optimization: Fetch minimal fields required for authorization
+    const user = await User.findById(decoded.userId)
+      .select("email role isActive isApproved lockUntil lastLoginIp privilegeTokenExpires");
 
     if (!user) {
       return res.status(401).json({ message: "Not authorized, user not found" });

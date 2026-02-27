@@ -158,7 +158,35 @@ export const ConfirmModal = ({ isOpen, title, message, onConfirm, onCancel, conf
   </AnimatePresence>
 );
 
-// --- Permission Guard (Security Requirement 21-30) ---
+// --- Alert Component ---
+export const Alert = ({ type = "info", title, message, onClose, className = "" }) => {
+  const variants = {
+    success: "bg-green-500/10 border-green-500/50 text-green-400",
+    error: "bg-red-500/10 border-red-500/50 text-red-400",
+    warning: "bg-yellow-500/10 border-yellow-500/50 text-yellow-400",
+    info: "bg-blue-500/10 border-blue-500/50 text-blue-400",
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      animate={{ opacity: 1, scale: 1 }}
+      className={`p-4 rounded-lg border backdrop-blur-md flex items-start gap-3 ${variants[type]} ${className}`}
+    >
+      <div className="flex-1">
+        {title && <h4 className="font-bold text-sm mb-1">{title}</h4>}
+        <p className="text-xs opacity-90">{message}</p>
+      </div>
+      {onClose && (
+        <button onClick={onClose} className="opacity-50 hover:opacity-100 transition">
+          ✕
+        </button>
+      )}
+    </motion.div>
+  );
+};
+
+// --- Permission Guard ---
 export const PermissionGuard = ({ roles = [], userRole, children, fallback = null }) => {
   if (!userRole || !roles.includes(userRole)) return fallback;
   return <>{children}</>;
@@ -169,6 +197,7 @@ export default {
   Input,
   Card,
   Badge,
+  Alert,
   ConfirmModal,
   PermissionGuard,
 };

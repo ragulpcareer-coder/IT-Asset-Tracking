@@ -18,17 +18,9 @@ export default function Login() {
   const [errors, setErrors] = useState({ email: "", password: "" });
   const [isEmailFocused, setIsEmailFocused] = useState(false);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
-  const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const { login } = useContext(AuthContext);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      setMousePos({ x: e.clientX, y: e.clientY });
-    };
-    window.addEventListener("mousemove", handleMouseMove);
-    return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, []);
 
   const validateForm = () => {
     const newErrors = { email: "", password: "" };
@@ -300,28 +292,12 @@ export default function Login() {
                 </motion.div>
               )}
 
-              {/* FORGOT PASSWORD LINK */}
-              {!requires2FA && (
-                <motion.div
-                  className="text-right"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.5 }}
-                >
-                  <Link
-                    to="#"
-                    className="text-cyan-400 text-xs font-semibold hover:text-cyan-300 transition hover:underline"
-                  >
-                    Forgot your password?
-                  </Link>
-                </motion.div>
-              )}
-
               {/* 2FA INPUT */}
               {requires2FA && (
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
+                  className="mb-4"
                 >
                   <label className="block text-cyan-300 text-sm font-semibold mb-2 text-center">
                     Two-Factor Authentication Code
@@ -339,7 +315,6 @@ export default function Login() {
                 </motion.div>
               )}
 
-              {/* LOGIN BUTTON */}
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -366,7 +341,26 @@ export default function Login() {
                   )}
                 </QuantumButton>
               </motion.div>
+
             </form>
+
+            {/* FORGOT PASSWORD LINK - PLACED OUTSIDE FORM FOR BETTER UX */}
+            {!requires2FA && (
+              <motion.div
+                className="text-right mt-4"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.7 }}
+              >
+                <Link
+                  to="/forgot-password"
+                  className="text-cyan-400 text-xs font-semibold hover:text-cyan-300 transition hover:underline"
+                >
+                  Forgot your password?
+                </Link>
+              </motion.div>
+            )}
+
 
             {/* DIVIDER */}
             <motion.div

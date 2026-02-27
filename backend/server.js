@@ -87,7 +87,14 @@ app.use(helmet({
   crossOriginEmbedderPolicy: false
 }));
 
-app.use(compression());
+app.use(compression({
+  level: 6, // Optimized compression level for speed/ratio balance
+  threshold: 1024, // Only compress responses > 1KB
+  filter: (req, res) => {
+    if (req.headers['x-no-compression']) return false;
+    return compression.filter(req, res);
+  }
+}));
 app.use(express.json({ limit: "10kb" })); // §46: Request size limit
 app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
@@ -115,12 +122,22 @@ app.use("/api/", globalLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 
-// 8. SIEM Logging Integration (§47)
+// 8. SIEM & Performance Logging Integration (§47)
 app.use((req, res, next) => {
-  logger.info(`TRAFFIC: ${req.method} ${req.url}`, {
-    ip: req.ip,
-    userAgent: req.get('User-Agent'),
-    origin: req.get('Origin')
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    logger.info(`TRAFFIC: ${req.method} ${req.url} [${res.statusCode}] - ${duration}ms`, {
+      ip: req.ip,
+      userAgent: req.get('User-Agent'),
+      duration,
+      path: req.path
+    });
+
+    // Alert SOC if authentication endpoints are unusually slow
+    if (duration > 1000 && (req.path.includes('/login') || req.path.includes('/register'))) {
+      logger.warn(`PERFORMANCE_ALERT: Slow Auth detected - ${duration}ms on ${req.url}`);
+    }
   });
   next();
 });
@@ -180,6 +197,7 @@ try {
   require('./jobs/warrantyJob');
   require('./jobs/backupJob');
   require('./jobs/pingWatchdog');
+  require('./jobs/keepAliveJob');
 } catch (err) {
   console.warn('Job Initialization Warning:', err.message);
 }

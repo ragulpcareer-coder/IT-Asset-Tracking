@@ -48,8 +48,6 @@ const sendApprovalRequest = async (userInfo) => {
 
         console.log(`[Email Service] Sending registration email for UserID: ${userId}`);
 
-        console.log(`[Email Service] Attempting to send approval request for ${userInfo.email} to ${adminEmail}`);
-
         const { data, error } = await resend.emails.send({
             from: fromEmail,
             to: [adminEmail],
@@ -72,21 +70,58 @@ const sendApprovalRequest = async (userInfo) => {
             `
         });
 
-        if (error) {
-            console.error('[Email Service] Resend API Error:', error);
-            throw new Error(`Resend Error: ${error.message}`);
-        } else {
-            console.log('[Email Service] Successfully sent approval request. ID:', data.id);
-            return data;
-        }
+        if (error) throw new Error(error.message);
+        return data;
     } catch (err) {
-        console.error('[Email Service] Critical Failure:', err.message);
+        console.error('[Email Service] Approval Failure:', err.message);
+        throw err;
+    }
+};
+
+const sendPasswordResetEmail = async (userInfo, resetToken) => {
+    try {
+        const fromEmail = 'AssetTracker <onboarding@resend.dev>';
+        const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+        const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
+
+        console.log(`[Email Service] Sending password reset link to ${userInfo.email}`);
+
+        const { data, error } = await resend.emails.send({
+            from: fromEmail,
+            to: [userInfo.email],
+            subject: `🔐 PASSWORD RESET: Action Required`,
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #00d4ff; border-radius: 8px; max-width: 600px; margin: auto; background-color: #0a1128; color: #ffffff;">
+                    <div style="text-align: center; margin-bottom: 20px;">
+                        <h2 style="color: #00d4ff; margin-bottom: 5px;">Security Update</h2>
+                        <p style="color: #64748b; font-size: 14px;">IT Asset Tracking System</p>
+                    </div>
+                    <p>Hello <strong>${userInfo.name}</strong>,</p>
+                    <p>We received a request to reset your master account password. To proceed, please click the secure button below:</p>
+                    <div style="text-align: center; margin: 30px 0;">
+                        <a href="${resetUrl}" style="background: linear-gradient(90deg, #00d4ff, #6432ff); color: white; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block; box-shadow: 0 4px 15px rgba(0, 212, 255, 0.3);">
+                            Reset Password
+                        </a>
+                    </div>
+                    <p style="font-size: 13px; color: #94a3b8;">This link will expire in <strong>15 minutes</strong> for security compliance. If you did not request this, please secure your account immediately or notify the SOC team.</p>
+                    <hr style="border: none; border-top: 1px solid #334155; margin: 20px 0;"/>
+                    <p style="font-size: 11px; color: #64748b; text-align: center;">This is an automated security transmission. Do not reply.</p>
+                </div>
+            `
+        });
+
+        if (error) throw new Error(error.message);
+        return data;
+    } catch (err) {
+        console.error('[Email Service] Reset Failure:', err.message);
         throw err;
     }
 };
 
 module.exports = {
-    resend, // Exporting the instance for the diagnostic route
+    resend,
     sendSecurityAlert,
-    sendApprovalRequest
+    sendApprovalRequest,
+    sendPasswordResetEmail
 };
+
