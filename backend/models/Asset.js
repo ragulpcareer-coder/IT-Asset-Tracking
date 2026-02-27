@@ -119,6 +119,12 @@ assetSchema.virtual('bookValue').get(function () {
   return Math.max(this.salvageValue || 0, Math.round(currentBookValue * 100) / 100);
 });
 
+// Dashboard Metric Indexes — speed up the GET /api/dashboard/metrics queries
+assetSchema.index({ 'networkStatus.isOnline': 1, 'networkStatus.lastSeen': -1 }); // active assets
+assetSchema.index({ 'networkStatus.lastSeen': -1 });                               // patch compliance
+assetSchema.index({ 'securityStatus.isAuthorized': 1 });                           // encryption score
+assetSchema.index({ status: 1 });                                                   // status filter
+
 const crypto = require("crypto");
 
 assetSchema.pre('save', function (next) {

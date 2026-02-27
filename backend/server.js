@@ -230,6 +230,7 @@ apiV1.use("/software", require("./routes/softwareRoutes"));
 apiV1.use("/keys", require("./routes/apiRoutes"));
 apiV1.use("/pending", require("./routes/pendingActionRoutes"));
 apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
+apiV1.use("/dashboard", require("./routes/dashboardRoutes"));
 
 // Multi-version support (§39)
 app.use("/api/v1", apiV1);
