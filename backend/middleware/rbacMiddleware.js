@@ -219,24 +219,25 @@ const requireAdmin2FA = async (req, res, next) => {
     if (!freshUser) return res.status(401).json({ message: "User not found" });
 
     if (!freshUser.isTwoFactorEnabled) {
-      await AuditLog.create({
-        action: "SECURITY: Admin 2FA Not Configured",
-        performedBy: req.user.email || "unknown",
-        details: `Admin account without 2FA attempted privileged action: ${req.originalUrl}`,
-        ip: req.ip || req.socket?.remoteAddress,
-      });
+      try {
+        await AuditLog.create({
+          action: "SECURITY: Admin 2FA Not Configured",
+          performedBy: req.user.email || "unknown",
+          details: `Admin account without 2FA attempted privileged action: ${req.originalUrl}`,
+          ip: req.ip || req.socket?.remoteAddress || "0.0.0.0",
+        });
+      } catch (auditErr) { /* Ignore audit failure to not crash the request cycle */ }
 
       return res.status(403).json({
-        message:
-          "Security Policy Violation: Administrator accounts must enable Two-Factor Authentication (2FA) before performing privileged actions. Please enable 2FA in Settings.",
+        message: "Security Policy Violation: Administrator accounts must enable Two-Factor Authentication (2FA) before performing privileged actions. Please enable 2FA in Settings.",
         code: "ADMIN_2FA_REQUIRED",
       });
     }
 
     next();
   } catch (error) {
-    console.error("requireAdmin2FA error:", error);
-    res.status(500).json({ message: "2FA enforcement check failed" });
+    console.error("[RBAC] requireAdmin2FA error:", error);
+    next(new Error(`2FA enforcement check failed: ${error.message}`));
   }
 };
 

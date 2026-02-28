@@ -25,11 +25,28 @@ const errorHandler = (err, req, res, next) => {
         message = "Inventory validation failed. Please check your inputs."; // Generic message (§10.3)
     }
 
+    // Handle custom API errors gracefully
+    if (err.message && err.message.includes('Cross-origin')) {
+        statusCode = 403;
+        message = 'Forbidden: Cross-origin request denied by firewall context.';
+    }
+
+    if (err.name === 'JsonWebTokenError') {
+        statusCode = 401;
+        message = 'Not authorized, token invalid';
+    }
+
+    if (err.name === 'TokenExpiredError') {
+        statusCode = 401;
+        message = 'Not authorized, token expired';
+    }
+
     // Security: Never leak database driver info, stack traces, or internal paths in production
     res.status(statusCode).json({
         success: false,
         message: statusCode === 500 ? "Internal Enterprise Error. Technical details logged." : message,
-        stack: null, // Always null in high-assurance mode (§10.3)
+        stack: process.env.NODE_ENV === 'development' ? err.stack : null,
+        errorRaw: statusCode === 500 && process.env.NODE_ENV !== 'production' ? err.message : undefined
     });
 };
 
