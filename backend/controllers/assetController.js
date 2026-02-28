@@ -4,9 +4,41 @@ const QRCode = require('qrcode');
 const crypto = require('crypto');
 const findLocalDevices = require('local-devices');
 const { sendSecurityAlert } = require('../utils/emailService');
-const net = require('net');
 const dns = require('dns').promises;
 const os = require('os');
+const net = require('net');
+
+// Private/Local IP Check (RFC 1918 + loopback/link-local)
+const isPrivateIP = (ip) => {
+  const parts = ip.split('.');
+  if (parts.length !== 4) return false;
+  const p1 = parseInt(parts[0], 10);
+  const p2 = parseInt(parts[1], 10);
+
+  if (p1 === 10) return true;
+  if (p1 === 172 && (p2 >= 16 && p2 <= 31)) return true;
+  if (p1 === 192 && p2 === 168) return true;
+  if (p1 === 127) return true; // Loopback
+  if (p1 === 169 && p2 === 254) return true; // Link-local
+
+  return false;
+};
+
+// Check if MAC Address is Valid Format and not a default hypervisor/empty MAC
+const isValidMAC = (mac) => {
+  if (!mac || typeof mac !== 'string') return false;
+  const macRegex = /^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$/;
+  if (!macRegex.test(mac)) return false;
+
+  const invalidMacs = [
+    '00:00:00:00:00:00',
+    'ff:ff:ff:ff:ff:ff',
+    '?:?:?:?:?:?' // Some tools output this on error
+  ];
+  if (invalidMacs.includes(mac.toLowerCase())) return false;
+
+  return true;
+};
 
 // Helper to resolve device name accurately (§2.4)
 const resolveDeviceName = async (ip) => {
@@ -484,14 +516,50 @@ const scanNetwork = async (req, res) => {
       return res.status(500).json({ message: "Network discovery service unavailable: " + scanErr.message });
     }
 
+    // 2. Filter & Validate Results for Zero-Trust Segment Integrity
+    let validLAN_Devices = [];
+    let anomalyWarnings = [];
+
+    for (let device of devices) {
+      // Must be a valid IPv4
+      if (!net.isIPv4(device.ip)) {
+        continue;
+      }
+
+      // Is it a proper local IP?
+      if (!isPrivateIP(device.ip)) {
+        anomalyWarnings.push(`WAN/Public IP detected and dropped during local scan: ${device.ip}`);
+        continue;
+      }
+
+      // Is MAC format valid?
+      if (!isValidMAC(device.mac)) {
+        anomalyWarnings.push(`Invalid/Empty MAC address detected for ${device.ip}. Integrity failure.`);
+        continue;
+      }
+
+      // Prevent Multicast/Broadcast mappings
+      if (device.ip.endsWith('.255') || device.ip.startsWith('224.') || device.ip.startsWith('239.')) {
+        continue;
+      }
+
+      validLAN_Devices.push(device);
+    }
+
+    if (anomalyWarnings.length > 0) {
+      await AuditLog.create({
+        action: "DISCOVERY INTEGRITY WARNING",
+        performedBy: "System Scanning Modules",
+        details: `Detected and purged anomalous scan data. Details: ${anomalyWarnings.slice(0, 3).join(', ')}...`,
+        ip: "Internal"
+      });
+      console.warn("Discovery Anomalies Detected:", anomalyWarnings);
+    }
+
     let rogueDevicesFound = [];
     const io = req.app.get("io");
 
-    for (const device of devices) {
-      // Filter out broadcast and multicast addresses (§1.3)
-      if (device.ip.endsWith('.255') || device.ip.startsWith('224.') || device.ip.startsWith('239.')) continue;
-      if (device.mac === 'ff:ff:ff:ff:ff:ff' || device.mac === '00:00:00:00:00:00') continue;
-
+    for (const device of validLAN_Devices) {
       // Check if device is known to our database by MAC or IP
       const existing = await Asset.findOne({
         $or: [

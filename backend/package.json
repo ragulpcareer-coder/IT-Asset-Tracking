@@ -22,6 +22,8 @@
     "express-session": "^1.19.0",
     "geoip-lite": "^1.4.10",
     "helmet": "^8.1.0",
+    "ip-range-check": "^0.2.0",
+    "ip-regex": "^5.0.0",
     "joi": "^18.0.2",
     "json2csv": "^5.0.6",
     "jsonwebtoken": "^9.0.2",
