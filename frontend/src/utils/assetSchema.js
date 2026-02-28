@@ -34,7 +34,12 @@ export const assetSchema = {
             if (asset.status.toLowerCase() === "retired") return "Archived";
             return asset.status.charAt(0).toUpperCase() + asset.status.slice(1).toLowerCase();
         },
-        registryState: (asset) => asset.uuid ? "Verified Node" : "Pending Registration",
+        registryState: (asset) => {
+            let safeName = asset.name || "Unidentified Asset";
+            let isUnidentified = safeName.includes("Unknown Device (") || safeName === "Unidentified Asset";
+            if (isUnidentified) return "Pending Identification";
+            return asset.uuid ? "Verified Node" : "Pending Registration";
+        },
         metadata: (asset) => {
             const parts = [];
             if (asset.classification) parts.push(`Class: ${asset.classification}`);
@@ -42,7 +47,7 @@ export const assetSchema = {
             return parts.length ? parts.join(" | ") : "Standard Profile";
         },
         qrCode: (asset) => asset.qrCode ? "Provisioned" : "Unprovisioned",
-        decommissionState: (asset) => (asset.status === "retired" || asset.status === "lost") ? "Decommission Executed" : "Active / Cleared",
+        decommissionState: (asset) => (asset.status === "retired" || asset.status === "lost") ? "Decommissioned" : "Active",
         archiveStatus: (asset) => asset.status === "retired" ? "Deep Archive" : "Live"
     },
 
@@ -76,6 +81,13 @@ export const assetSchema = {
             // Logical validation: Archive flag matches status
             if (asset.status === "retired" && assetSchema.formatters.archiveStatus(asset) !== "Deep Archive") {
                 return { valid: false, error: "Continuity error: Archive state does not match status" };
+            }
+
+            // Cross check identity and verified node conflict
+            const resolvedState = assetSchema.formatters.registryState(asset);
+            const resolvedIdentity = assetSchema.formatters.identity(asset);
+            if (resolvedIdentity === "Unidentified Asset" && resolvedState === "Verified Node") {
+                return { valid: false, error: `Identity Continuity Error: Asset ${identifier} is Unidentified but marked Verified.` };
             }
 
             if (asset.status === "assigned") assignedCount++;
