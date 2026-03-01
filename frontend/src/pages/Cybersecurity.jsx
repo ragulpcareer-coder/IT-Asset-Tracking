@@ -36,7 +36,7 @@ function Cybersecurity() {
     const fetchAlerts = async () => {
         try {
             const { data } = await axios.get(`/assets/security-alerts`);
-            setAlerts(data);
+            setAlerts(data.data || []);
         } catch (err) {
             console.error(err);
         } finally {
@@ -59,12 +59,16 @@ function Cybersecurity() {
         toast.info("Initiating deep network discovery protocol...");
         try {
             const { data } = await axios.post(`/assets/scan-network`);
-            setScanResult(data);
-            toast.success("Discovery Scan Completed Safely.");
+            setScanResult({
+                ...data,
+                device: data.data // map the structured data payload back to 'device' for UI rendering
+            });
+            toast.success(data.message || "Discovery Scan Completed Safely.");
             fetchAlerts();
             fetchAuditAlerts();
         } catch (err) {
-            toast.error("Discovery rejected: Network firewall or role violation.");
+            const errorMsg = err.response?.data?.message || "Discovery rejected: Network firewall or role violation.";
+            toast.error(errorMsg);
             setScanResult({ message: "Discovery Interrupted" });
         } finally {
             setScanning(false);
