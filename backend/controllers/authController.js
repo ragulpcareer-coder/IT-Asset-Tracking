@@ -196,17 +196,11 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   try {
     console.log("=== LOGIN ATTEMPT ===");
-    // Redact password from log but show structure
-    const { password, ...safeBody } = req.body;
-    console.log("Request body:", safeBody);
-
     const { email } = req.body;
     const pwd = req.body.password;
     const { token2FA, fingerprint } = req.body;
 
-    console.log("Email:", email);
-    console.log("Password present:", !!pwd);
-
+    // 1️⃣ Validate input
     if (!email || !pwd) {
       return res.status(400).json({
         success: false,
@@ -217,6 +211,7 @@ const login = async (req, res) => {
 
     if (!process.env.JWT_SECRET) console.error("JWT_SECRET missing");
 
+    // Get Raw Document (for raw password)
     const mongoose = require('mongoose');
     const rawDoc = await mongoose.connection.db
       .collection('users')
@@ -225,36 +220,38 @@ const login = async (req, res) => {
         { projection: { password: 1, _id: 1 } }
       );
 
-    if (!rawDoc) {
-      console.log("Login failed: User not found");
+    // 2️⃣ Find user by email
+    const user = rawDoc ? await User.findOne({ _id: rawDoc._id }).select('-password') : null;
+
+    if (!rawDoc || !user || !rawDoc.password) {
+      console.log("Login failed: User not found or missing password hash");
       return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
-    const rawPassword = rawDoc.password;
-
-    if (!rawPassword) {
-      console.error('[Login] CRITICAL: user.password undefined in DB for:', email);
-      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
+    // 3️⃣ Check if account is locked or disabled
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      const waitMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
+      return res.status(403).json({ success: false, message: `Account temporarily locked due to failed attempts. Try again in ${waitMinutes} minutes.`, code: "AUTH_403" });
     }
 
+    if (user.isActive === false) {
+      return res.status(403).json({ success: false, message: "Identity Decommissioned: Access is permanently suspended.", code: "AUTH_403" });
+    }
+
+    if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
+      return res.status(403).json({ success: false, message: "Account pending approval.", code: "AUTH_403" });
+    }
+
+    // 4️⃣ Validate password using bcrypt.compare
     let isMatch = false;
     try {
-      isMatch = await bcrypt.compare(pwd, rawPassword);
+      isMatch = await bcrypt.compare(pwd, rawDoc.password);
     } catch (bcryptErr) {
       console.error('[Login] bcrypt error:', bcryptErr.message);
     }
 
-    // Now get the mongoose user object
-    const user = await User.findOne({ _id: rawDoc._id })
-      .select('-password');
-
-    if (!user) {
-      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
-    }
-
     if (!isMatch) {
       console.log("Login failed: Incorrect password");
-
       const newFailCount = (user.failedLoginAttempts || 0) + 1;
       const updateFields = { failedLoginAttempts: newFailCount };
       if (newFailCount >= 5) {
@@ -265,22 +262,13 @@ const login = async (req, res) => {
       return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
-    if (user.lockUntil && user.lockUntil > Date.now()) {
-      return res.status(403).json({ success: false, message: "Account locked temporarily.", code: "AUTH_403" });
-    }
+    // 5️⃣ If password correct: Reset failedAttempts (handled below before token issue)
 
-    if (user.isActive === false) {
-      return res.status(403).json({ success: false, message: "Account decommissioned.", code: "AUTH_403" });
-    }
-
-    if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
-      return res.status(403).json({ success: false, message: "Account pending approval.", code: "AUTH_403" });
-    }
-
-    // 2FA logic
+    // 6️⃣ If 2FA enabled:
     if (user.isTwoFactorEnabled) {
       if (!token2FA) {
-        return res.status(403).json({ requires2FA: true, message: "Two-factor authentication token required" });
+        // Return 200/403 with requires2FA flag
+        return res.status(200).json({ requires2FA: true, message: "Two-factor authentication token required" });
       }
 
       let twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes");
@@ -298,16 +286,15 @@ const login = async (req, res) => {
       }
 
       if (!isVerified) {
-        return res.status(400).json({ message: "Invalid 2FA token or backup code" });
+        return res.status(401).json({ success: false, message: "Invalid 2FA token or backup code", code: "AUTH_401" });
       }
     }
 
+    // 7️⃣ Generate JWT & System Updates
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
-    const userAgent = req.headers['user-agent'] || 'unknown';
-
-    // issue pairs
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
+    // Reset failed attempts, unset lock, set last login
     await User.updateOne(
       { _id: user._id },
       {
@@ -332,6 +319,7 @@ const login = async (req, res) => {
 
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
+    // 8️⃣ Return success response
     return res.json({
       success: true,
       token: pair.accessToken,

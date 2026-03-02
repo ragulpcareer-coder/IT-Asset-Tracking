@@ -8,25 +8,26 @@ const unlockDB = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
         const User = mongoose.connection.db.collection("users");
-        
+
         const users = await User.find({}).toArray();
         console.log(`Checking ${users.length} users in DB for locks...`);
-        
-        let changed = 0;
-        for (const u of users) {
-             const updates = {
-                 isActive: true,
-                 isApproved: true,
-                 lockUntil: null,
-                 failedLoginAttempts: 0,
-                 isTwoFactorEnabled: false
-             };
-             
-             await User.updateOne({ _id: u._id }, { $set: updates });
-             changed++;
-             console.log(`=> Resetted Access & Disabled 2FA for: ${u.email}`);
-        }
-        
+
+        const bcrypt = require("bcryptjs");
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash("Admin@2026", salt);
+
+        const updates = {
+            password: hashedPassword,
+            isActive: true,
+            isApproved: true,
+            lockUntil: null,
+            failedLoginAttempts: 0,
+            isTwoFactorEnabled: false
+        };
+
+        await User.updateOne({ email: "ragulp.career@gmail.com" }, { $set: updates });
+        console.log(`=> Password successfully reset to Admin@2026 for ragulp.career@gmail.com`);
+
         console.log(`Finished. Total fixed: ${changed}`);
         process.exit(0);
     } catch (err) {
