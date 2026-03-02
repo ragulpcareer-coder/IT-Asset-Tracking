@@ -450,9 +450,22 @@ const updateProfile = async (req, res) => {
 // @route   POST /api/auth/logout
 // @access  Private
 const logout = async (req, res) => {
-  const opts = getCookieOptions();
-  res.cookie('jwt', '', { ...opts, maxAge: 0, expires: new Date(0) });
-  res.json({ message: "Logout successful" });
+  try {
+    const opts = getCookieOptions();
+    // Aggressively clear both possible token names and bypass the timeout issue
+    res.clearCookie('jwt', opts);
+    res.clearCookie('token', opts);
+
+    // Attempt to log if user is present but don't crash
+    if (req.user && req.user._id) {
+      await logUserActivity(req.user._id, "LOGOUT", "User logged out successfully.", req).catch(() => { });
+    }
+
+    res.status(200).json({ success: true, message: "Logout successful" });
+  } catch (err) {
+    console.error("Logout Error:", err);
+    res.status(500).json({ success: false, message: "Logout processing error" });
+  }
 };
 
 // @desc    Logout from all sessions
