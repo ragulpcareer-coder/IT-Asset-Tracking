@@ -26,12 +26,17 @@ const tokenManager = new TokenManager(
 // ─────────────────────────────────────────────────────────────
 const protect = async (req, res, next) => {
   let token = req.cookies?.jwt;
+  let tokenSource = "cookie";
 
   if (
     req.headers.authorization &&
     req.headers.authorization.startsWith("Bearer ")
   ) {
-    token = req.headers.authorization.split(" ")[1];
+    const headerToken = req.headers.authorization.split(" ")[1];
+    if (headerToken && headerToken !== "undefined" && headerToken !== "null") {
+      token = headerToken;
+      tokenSource = "header";
+    }
   }
 
   if (!token) {
@@ -42,7 +47,7 @@ const protect = async (req, res, next) => {
   try {
     const verified = tokenManager.verifyAccessToken(token);
     if (!verified.valid) {
-      console.log("[AuthMiddleware] Failed: Token invalid ->", verified.error);
+      console.log(`[AuthMiddleware] Failed: Token invalid (${verified.error}). Source: ${tokenSource}, Val: ${token.substring(0, 15)}...`);
       return res.status(401).json({ message: "Not authorized, token invalid", debug: verified.error });
     }
 
