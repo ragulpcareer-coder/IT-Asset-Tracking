@@ -12,10 +12,18 @@ const crypto = require("crypto");
 
 class TokenManager {
   constructor(accessSecret, refreshSecret) {
-    this.accessSecret = accessSecret || process.env.JWT_SECRET;
-    this.refreshSecret = refreshSecret || process.env.REFRESH_SECRET;
+    this._explicitAccessSecret = accessSecret;
+    this._explicitRefreshSecret = refreshSecret;
     this.accessTokenExpiry = "15m"; // Short-lived access token
     this.refreshTokenExpiry = "7d"; // Long-lived refresh token
+  }
+
+  get accessSecret() {
+    return this._explicitAccessSecret || process.env.JWT_SECRET;
+  }
+
+  get refreshSecret() {
+    return this._explicitRefreshSecret || process.env.REFRESH_SECRET;
   }
 
   /**

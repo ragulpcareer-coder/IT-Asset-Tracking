@@ -35,13 +35,15 @@ const protect = async (req, res, next) => {
   }
 
   if (!token) {
+    console.log("[AuthMiddleware] Failed: No token found in headers or cookies");
     return res.status(401).json({ message: "Not authorized, no token" });
   }
 
   try {
     const verified = tokenManager.verifyAccessToken(token);
     if (!verified.valid) {
-      return res.status(401).json({ message: "Not authorized, token invalid" });
+      console.log("[AuthMiddleware] Failed: Token invalid ->", verified.error);
+      return res.status(401).json({ message: "Not authorized, token invalid", debug: verified.error });
     }
 
     const decoded = verified.decoded;
@@ -53,6 +55,7 @@ const protect = async (req, res, next) => {
       const now = Date.now();
       const diff = Math.abs(now - parseInt(requestTimestamp));
       if (diff > 30000) { // 30 seconds tolerance
+        console.log("[AuthMiddleware] Failed: Request expired (Signature Replay)");
         return res.status(403).json({ message: "Security Violation: API Request Expired (Signature Replay Protection)" });
       }
     }
@@ -69,6 +72,7 @@ const protect = async (req, res, next) => {
         details: `${hasPromptInjection ? 'Adversarial AI pattern' : 'Malicious logic pattern'} detected in ${req.method} ${req.originalUrl}. Context: ${JSON.stringify(req.body).substring(0, 100)}. Source IP: ${ip}`,
         ip: ip,
       });
+      console.log("[AuthMiddleware] Failed: Malicious query/prompt detected");
       return res.status(403).json({
         message: hasPromptInjection
           ? "Protocol Violation: Adversarial prompt patterns detected. Command execution blocked."
@@ -76,12 +80,12 @@ const protect = async (req, res, next) => {
       });
     }
 
-
     // Zero Trust Optimization: Fetch minimal fields required for authorization
     const user = await User.findById(decoded.userId)
       .select("email role isActive isApproved lockUntil lastLoginIp privilegeTokenExpires");
 
     if (!user) {
+      console.log(`[AuthMiddleware] Failed: User not found in database for ID ${decoded.userId}`);
       return res.status(401).json({ message: "Not authorized, user not found" });
     }
 
@@ -103,12 +107,14 @@ const protect = async (req, res, next) => {
     if (user.role === "Employee") {
       const hour = new Date().getHours();
       if (hour < 8 || hour > 19) { // Authorized 8 AM - 7 PM
+        console.log(`[AuthMiddleware] Failed: Time-Based access denied for Employee. Hour: ${hour}`);
         return res.status(403).json({ message: "Access Denied: Your role is restricted to standard business hours (08:00 - 19:00)." });
       }
     }
 
     // Account suspension check
     if (user.isActive === false) {
+      console.log(`[AuthMiddleware] Failed: Account is suspended (isActive=false)`);
       return res.status(403).json({
         message: "Your account has been suspended by an administrator.",
       });
@@ -117,6 +123,7 @@ const protect = async (req, res, next) => {
     // Account lock check
     if (user.lockUntil && user.lockUntil > Date.now()) {
       const waitMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
+      console.log(`[AuthMiddleware] Failed: Account is locked for ${waitMinutes}m`);
       return res.status(403).json({
         message: `Your account is temporarily locked due to failed login attempts. Try again in ${waitMinutes} minute(s).`,
       });
@@ -124,6 +131,7 @@ const protect = async (req, res, next) => {
 
     // Approval check (Core Admins inherently bypass this check)
     if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
+      console.log(`[AuthMiddleware] Failed: Account not approved`);
       return res.status(403).json({
         message: "Your account is pending administrator approval.",
       });
@@ -132,7 +140,7 @@ const protect = async (req, res, next) => {
     req.user = user;
     return next();
   } catch (error) {
-    console.error("Auth protect error:", error.message);
+    console.error(`[AuthMiddleware] EXCEPTION: Auth protect error:`, error.message, error.stack);
     return res.status(401).json({ message: "Not authorized, token failed" });
   }
 };
