@@ -66,17 +66,13 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Explicitly allow requests with no origin (like mobile apps or curl)
     if (!origin) return callback(null, true);
 
-    // Dynamic Origin Validation (§43, §44)
-    // Supports Localhost, Production domain, and ALL Vercel subdomains/previews
-    const isVercelOrigin = origin.endsWith(".vercel.app") &&
-      (origin.includes("it-asset-tracking") || origin.includes("it-asset"));
+    const isVercelOrigin = origin.endsWith(".vercel.app");
     const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
 
     if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
-      callback(null, true);
+      callback(null, origin); // MUST return exact origin here, NOT 'true', so ACAO header is echoed back specifically.
     } else {
       console.warn(`[CORS-Forensic] BLOCKED: ${origin}`);
       callback(new Error('Identity Policy: Cross-origin access denied.'));
@@ -88,13 +84,28 @@ app.use(cors({
   exposedHeaders: ["X-CSRF-Token", "X-Request-Timestamp"]
 }));
 
+// Preflight OPTIONS handler
+app.options("*", cors());
+
 // 5. Socket.io Configuration
 const io = new Server(server, {
   cors: {
-    origin: FRONTEND_URL,
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true);
+      const isVercelOrigin = origin.endsWith(".vercel.app");
+      const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
+
+      if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
+        callback(null, origin);
+      } else {
+        callback(null, false);
+      }
+    },
     methods: ["GET", "POST"],
-    credentials: true
+    credentials: true,
+    allowedHeaders: ["*"]
   },
+  allowEIO3: true // Helps with some older connection transports
 });
 app.set("io", io);
 
