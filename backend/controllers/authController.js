@@ -267,8 +267,8 @@ const login = async (req, res) => {
     // 6️⃣ If 2FA enabled:
     if (user.isTwoFactorEnabled) {
       if (!token2FA) {
-        // Return 200/403 with requires2FA flag
-        return res.status(200).json({ requires2FA: true, message: "Two-factor authentication token required" });
+        // Must return 401 so the frontend triggers a catch block to show 2FA input
+        return res.status(401).json({ requires2FA: true, message: "Two-factor authentication token required" });
       }
 
       let twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes");
