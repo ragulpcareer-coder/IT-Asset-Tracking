@@ -1,5 +1,7 @@
 const mongoose = require("mongoose");
 
+const { seedAdmin } = require("../utils/seeder");
+
 const connectDB = async () => {
   try {
     const conn = await mongoose.connect(process.env.MONGO_URI, {
@@ -9,6 +11,9 @@ const connectDB = async () => {
       family: 4 // Use IPv4, skip IPv6 attempt for faster local connection
     });
     console.log(`MongoDB Connected: ${conn.connection.host}`);
+
+    // Seed default admin user on DB connect
+    await seedAdmin();
   } catch (err) {
     console.error("MongoDB Connection Failed:", err.message);
     process.exit(1);
