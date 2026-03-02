@@ -195,126 +195,95 @@ const register = async (req, res) => {
 
 const login = async (req, res) => {
   try {
-    const { email, password, token2FA } = req.body;
+    console.log("=== LOGIN ATTEMPT ===");
+    // Redact password from log but show structure
+    const { password, ...safeBody } = req.body;
+    console.log("Request body:", safeBody);
 
-    if (!email || !password) {
-      return res.status(400).json({ message: "Email and password are required." });
+    const { email } = req.body;
+    const pwd = req.body.password;
+    const { token2FA, fingerprint } = req.body;
+
+    console.log("Email:", email);
+    console.log("Password present:", !!pwd);
+
+    if (!email || !pwd) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+        code: "AUTH_400"
+      });
     }
 
-    // Stage 1: Fetch ONLY unencrypted fields for password verification.
-    // CRITICAL: Use a PURELY INCLUSIVE projection (no '-' exclusions).
-    // MongoDB Atlas 5.0+ throws MongoServerError if you mix inclusion ({field:1})
-    // and exclusion ({field:0}) in the same query — which is exactly what happens
-    // when you combine explicit field names with -twoFactorSecret style negations.
-    // Solution: list ONLY what we need. Unlisted fields are simply not returned,
-    // so mongoose-field-encryption never sees them and never tries to decrypt.
-    console.log(`[Login:P1] Request received — email=${email}`);
+    if (!process.env.JWT_SECRET) console.error("JWT_SECRET missing");
 
-    // Stage 1a: Get raw password via NATIVE MongoDB driver.
-    // CRITICAL: mongoose-field-encryption's post('init') hook runs on every Mongoose
-    // findOne result. If the DB document has a stale __enc_password:true flag, the plugin
-    // tries to decrypt our bcrypt hash (not an encrypted value) → sets password to null.
-    // The native driver has ZERO plugins/hooks — returns the raw DB value every time.
     const mongoose = require('mongoose');
     const rawDoc = await mongoose.connection.db
       .collection('users')
       .findOne(
         { email: email.toLowerCase().trim() },
-        { projection: { password: 1, _id: 1 } }   // only fetch what we need
+        { projection: { password: 1, _id: 1 } }
       );
 
-    console.log(`[Login:P1-RAW] Native driver result — found=${!!rawDoc} rawPassword=${rawDoc?.password ? rawDoc.password.substring(0, 7) + '...' : 'NULL'}`);
-
     if (!rawDoc) {
-      return res.status(400).json({ message: "Invalid credentials" });
+      console.log("Login failed: User not found");
+      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
     const rawPassword = rawDoc.password;
 
-    // Stage 1b: Fetch all other user fields via Mongoose (no +password needed here).
-    // We don't request password here so the plugin can't interfere with it.
-    const user = await User.findOne({ _id: rawDoc._id })
-      .select('name email role isActive isApproved lockUntil failedLoginAttempts isTwoFactorEnabled lastLoginGeo lastLogin lastLoginIp devices preferences activityTimestamps');
-
-    console.log(`[Login:P2] Mongoose user lookup — found=${!!user}`);
-
-    if (!user) {
-      return res.status(400).json({ message: "Invalid credentials" });
-    }
-
-    // Check account lockout
-    if (user.lockUntil && user.lockUntil > Date.now()) {
-      const waitMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
-      return res.status(403).json({ message: `Account temporarily locked due to multiple failed attempts. Try again in ${waitMinutes} minutes.` });
-    }
-
-    // Check if account is active
-    if (user.isActive === false) {
-      return res.status(403).json({ message: "Identity Decommissioned: Access is permanently suspended." });
-    }
-
-    // Stage 2: Password verification using raw password from native driver
     if (!rawPassword) {
-      console.error('[Login] CRITICAL: rawPassword is null/undefined in DB for:', user.email);
-      return res.status(500).json({
-        message: "Account data integrity error. Please contact administrator.",
-        debug: "password field absent from DB document even via native driver"
-      });
+      console.error('[Login] CRITICAL: user.password undefined in DB for:', email);
+      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
     let isMatch = false;
     try {
-      console.log(`[Login:P3] bcrypt.compare — hash starts: ${rawPassword.substring(0, 7)}`);
-      isMatch = await bcrypt.compare(password, rawPassword);   // direct bcrypt, not matchPassword
-      console.log(`[Login:P3] isMatch=${isMatch}`);
+      isMatch = await bcrypt.compare(pwd, rawPassword);
     } catch (bcryptErr) {
-      console.error('[Login] bcrypt.compare threw:', bcryptErr.message);
-      console.error('[Login] rawPassword length:', rawPassword?.length, 'starts:', rawPassword?.substring(0, 7));
-      return res.status(503).json({
-        message: "Authentication engine configuration error.",
-        debug: `bcrypt: ${bcryptErr.message}`
-      });
+      console.error('[Login] bcrypt error:', bcryptErr.message);
+    }
+
+    // Now get the mongoose user object
+    const user = await User.findOne({ _id: rawDoc._id })
+      .select('-password');
+
+    if (!user) {
+      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
     if (!isMatch) {
+      console.log("Login failed: Incorrect password");
+
       const newFailCount = (user.failedLoginAttempts || 0) + 1;
       const updateFields = { failedLoginAttempts: newFailCount };
       if (newFailCount >= 5) {
         updateFields.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
-        setImmediate(async () => {
-          try {
-            await AuditLog.create({
-              action: "SECURITY ALERT: Force Lockout",
-              performedBy: user.email,
-              details: `Consecutive authentication failure leading to node lockout.`,
-              ip: req.ip,
-            });
-          } catch (err) { logger.error("Lockout Log Error:", err.message); }
-        });
       }
-      // Use updateOne — avoids triggering mongoose-field-encryption pre-save hook
-      // on a partially-selected document (encrypted fields would be undefined → throws)
       await User.updateOne({ _id: user._id }, { $set: updateFields });
-      return res.status(400).json({ message: "Registry error: Invalid credentials provided." });
+
+      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
+    if (user.lockUntil && user.lockUntil > Date.now()) {
+      return res.status(403).json({ success: false, message: "Account locked temporarily.", code: "AUTH_403" });
+    }
 
-    // Two-Factor Authentication Logic
-    // Fetch encrypted 2FA fields in a SEPARATE isolated query to contain decryption errors
+    if (user.isActive === false) {
+      return res.status(403).json({ success: false, message: "Account decommissioned.", code: "AUTH_403" });
+    }
+
+    if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
+      return res.status(403).json({ success: false, message: "Account pending approval.", code: "AUTH_403" });
+    }
+
+    // 2FA logic
     if (user.isTwoFactorEnabled) {
       if (!token2FA) {
         return res.status(403).json({ requires2FA: true, message: "Two-factor authentication token required" });
       }
 
-      let twoFAUser;
-      try {
-        twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes");
-      } catch (decryptErr) {
-        console.error('[Login] 2FA field decryption failed:', decryptErr.message);
-        console.error('[Login] FIX: Ensure DB_ENCRYPTION_SECRET matches the value used during user registration.');
-        return res.status(503).json({ message: "2FA engine configuration error.", debug: decryptErr.message });
-      }
-
+      let twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes");
       let isVerified = speakeasy.totp.verify({
         secret: twoFAUser?.twoFactorSecret || '',
         encoding: 'base32',
@@ -322,11 +291,10 @@ const login = async (req, res) => {
         window: 1
       });
 
-      // Check backup codes if TOTP fails
       if (!isVerified && twoFAUser?.twoFactorBackupCodes?.includes(token2FA)) {
         isVerified = true;
-        // Remove the used backup code (fire-and-forget)
-        setImmediate(() => User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: token2FA } }).catch(() => { }));
+        // consume backup code
+        await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: token2FA } });
       }
 
       if (!isVerified) {
@@ -334,134 +302,47 @@ const login = async (req, res) => {
       }
     }
 
-
-    // Enterprise Behavioral Monitoring (NON-BLOCKING)
-    const currentHour = new Date().getHours();
-    if (currentHour >= 0 && currentHour <= 5) {
-      setImmediate(async () => {
-        try {
-          await AuditLog.create({
-            action: "SECURITY ANOMALY: Unusual Login Time",
-            performedBy: user.email,
-            details: `User logged in during restricted/unusual hours: ${currentHour}:00 AM`,
-            ip: req.ip || req.connection?.remoteAddress,
-          });
-        } catch (err) { logger.error("Anomaly Log Error:", err.message); }
-      });
-    }
-
-    // Check if account is approved (Admins inherently bypass this)
-    if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
-      return res.status(403).json({ message: "Your account is pending approval by the core admin." });
-    }
-
-    // Enterprise Device Fingerprinting & SIEM Detection (Policy §2.4)
-    // req.connection is deprecated/undefined in Node 18+ — use req.socket instead
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
-    const deviceFingerprint = typeof req.body.fingerprint === 'object'
-      ? JSON.stringify(req.body.fingerprint)
-      : (req.body.fingerprint || 'unknown');
 
-    console.log(`[Login:P4] Device check — ip=${ip} ua=${userAgent.substring(0, 30)}`);
-    const geo = geoip.lookup(ip);
-
-    // Impossible Travel Detection (§2.1) & Concurrent Session Control (§2.2)
-    if (geo && user.lastLoginGeo && user.lastLogin) {
-      const lastGeo = user.lastLoginGeo;
-      const timeDiffMinutes = (Date.now() - new Date(user.lastLogin).getTime()) / 60000;
-
-      // If country changed and time < 60 mins (Simplified "Impossible Travel")
-      if (geo.country !== lastGeo.country && timeDiffMinutes < 60) {
-        // Use updateOne — avoids triggering mongoose-field-encryption pre-save hook
-        await User.updateOne({ _id: user._id }, { $set: { isActive: false } });
-        await AuditLog.create({
-          action: "SECURITY ALERT: Impossible Travel Detected",
-          performedBy: user.email,
-          details: `Account auto-locked. Prev: ${lastGeo.country} (${user.lastLoginIp}). Current: ${geo.country} (${ip}). Velocity violation.`,
-          ip: ip,
-        });
-        return res.status(403).json({ message: "Security Violation: Impossible travel velocity detected. Account locked." });
-      }
-    }
-
-    const isExistingDevice = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
-    if (!isExistingDevice) {
-      // NON-BLOCKING Security Logging for new devices
-      setImmediate(async () => {
-        try {
-          await AuditLog.create({
-            action: "SECURITY ALERT: New Device Detected",
-            performedBy: user.email,
-            details: `A new device logged in. IP: ${ip}, Browser: ${userAgent}, Location: ${geo?.country || 'Unknown'}`,
-            ip: ip,
-          });
-        } catch (err) { logger.error("New Device Log Error:", err.message); }
-      });
-
-      // Add to user's known devices list
-      user.devices.push({
-        ip,
-        userAgent,
-        fingerprint: deviceFingerprint,
-        lastLogin: Date.now()
-      });
-    } else {
-      // Update last seen for existing device
-      const devIdx = user.devices.findIndex(d => d.ip === ip && d.userAgent === userAgent);
-      if (devIdx !== -1) user.devices[devIdx].lastLogin = Date.now();
-    }
-
-    console.log(`[Login:P5] Generating token pair for user=${user._id}`);
+    // issue pairs
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
-    console.log(`[Login:P5] Token pair generated OK`);
 
-    // Determine device update strategy using original devices snapshot (before any mutation)
-    const deviceExists = user.devices.some(d => d.ip === ip && d.userAgent === userAgent);
-    let deviceUpdate;
-    if (deviceExists) {
-      deviceUpdate = User.updateOne(
-        { _id: user._id, 'devices.ip': ip, 'devices.userAgent': userAgent },
-        { $set: { 'devices.$.lastLogin': new Date() } }
-      );
-    } else {
-      deviceUpdate = User.updateOne(
-        { _id: user._id },
-        { $push: { devices: { ip, userAgent, fingerprint: deviceFingerprint, lastLogin: new Date() } } }
-      );
-    }
-
-    const loginFieldsUpdate = User.updateOne(
+    await User.updateOne(
       { _id: user._id },
       {
         $set: {
           failedLoginAttempts: 0,
           lastLogin: new Date(),
           lastLoginIp: ip,
-          lastLoginGeo: geo,
         },
         $unset: { lockUntil: '' }
       }
     );
 
-    console.log(`[Login:P6] Starting parallel DB ops`);
-    await Promise.all([
-      loginFieldsUpdate,
-      deviceUpdate,
-      RefreshToken.deleteMany({ user: user._id }),
-      logUserActivity(user._id, "LOGIN", "Successful strategic authentication event.", req),
-      RefreshToken.create({
-        tokenId: pair.refreshTokenId,
-        family: pair.refreshTokenFamily,
-        user: user._id,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-      })
-    ]);
-    console.log(`[Login:P6] Parallel DB ops complete`);
+    await RefreshToken.deleteMany({ user: user._id });
+    await RefreshToken.create({
+      tokenId: pair.refreshTokenId,
+      family: pair.refreshTokenFamily,
+      user: user._id,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+    });
+
+    logUserActivity(user._id, "LOGIN", "Successful authentication.", req);
 
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
     return res.json({
+      success: true,
+      token: pair.accessToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      },
+      timestamp: new Date().toISOString(),
+
+      // Keep backend properties for frontend React context backwards compatibility
       _id: user._id,
       name: user.name,
       email: user.email,
@@ -472,22 +353,12 @@ const login = async (req, res) => {
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });
-  } catch (error) {
-    console.error("[Login] ===== CRITICAL 500 ERROR =====");
-    console.error("  Name   :", error.name);
-    console.error("  Message:", error.message);
-    console.error("  Stack  :\n", error.stack);
-    console.error("  JWT_SECRET set?         ", !!process.env.JWT_SECRET);
-    console.error("  REFRESH_SECRET set?     ", !!process.env.REFRESH_SECRET);
-    console.error("  DB_ENCRYPTION_SECRET set:", !!process.env.DB_ENCRYPTION_SECRET);
-    console.error("  MONGO_URI set?          ", !!process.env.MONGO_URI);
+  } catch (err) {
+    console.error("LOGIN ERROR:", err);
     return res.status(500).json({
-      message: "Authentication engine failure.",
-      debug: error.message,
-      errorName: error.name,
-      hint: !process.env.REFRESH_SECRET ? 'REFRESH_SECRET env var is missing' :
-        !process.env.DB_ENCRYPTION_SECRET ? 'DB_ENCRYPTION_SECRET env var is missing' :
-          'Check Render logs for last [Login:Pn] phase that completed'
+      success: false,
+      message: err.message,
+      stack: process.env.NODE_ENV === "development" ? err.stack : undefined
     });
   }
 };
