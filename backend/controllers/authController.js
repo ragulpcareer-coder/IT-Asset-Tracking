@@ -26,12 +26,16 @@ const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRES
 if (!process.env.JWT_SECRET) console.error('[BOOT] FATAL: JWT_SECRET is missing!');
 if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set — encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
 
-const getCookieOptions = () => ({
-  httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'strict',
-  maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
-});
+const getCookieOptions = () => {
+  // Default to secure production settings unless explicitly in local development
+  const isDev = process.env.NODE_ENV === 'development';
+  return {
+    httpOnly: true,
+    secure: !isDev,
+    sameSite: !isDev ? 'none' : 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+  };
+};
 
 // Helper for professional activity logging (§Category 4)
 const logUserActivity = async (userId, actionType, description, req) => {
@@ -317,6 +321,8 @@ const login = async (req, res) => {
 
     logUserActivity(user._id, "LOGIN", "Successful authentication.", req);
 
+    res.clearCookie('token');
+    res.clearCookie('jwt');
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
     // 8️⃣ Return success response

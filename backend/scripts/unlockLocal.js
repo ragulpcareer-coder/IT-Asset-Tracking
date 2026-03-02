@@ -28,7 +28,7 @@ const unlockDB = async () => {
         await User.updateOne({ email: "ragulp.career@gmail.com" }, { $set: updates });
         console.log(`=> Password successfully reset to Admin@2026 for ragulp.career@gmail.com`);
 
-        console.log(`Finished. Total fixed: ${changed}`);
+        console.log(`Finished.`);
         process.exit(0);
     } catch (err) {
         console.error(err);

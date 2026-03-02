@@ -14,7 +14,7 @@ class TokenManager {
   constructor(accessSecret, refreshSecret) {
     this._explicitAccessSecret = accessSecret;
     this._explicitRefreshSecret = refreshSecret;
-    this.accessTokenExpiry = "15m"; // Short-lived access token
+    this.accessTokenExpiry = "2h"; // Short-lived access token
     this.refreshTokenExpiry = "7d"; // Long-lived refresh token
   }
 
