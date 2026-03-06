@@ -342,6 +342,11 @@ const login = async (req, res) => {
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
 
+    // ⚠️  CRITICAL: Capture failed attempt count BEFORE the reset.
+    // After updateOne sets failedLoginAttempts to 0 we can no longer tell
+    // how many times the attacker tried before succeeding.
+    const failedAttemptsBefore = user.failedLoginAttempts || 0;
+
     // Reset failed attempts, unset lock, set last login
     await User.updateOne(
       { _id: user._id },
@@ -362,12 +367,26 @@ const login = async (req, res) => {
     // Correlation Engine: New device detection
     const knownDevices = user.devices || [];
     const isNewDevice = !knownDevices.some(d => d.ip === ip);
+
+    // ★ Rule 4: COMPOUND HIGH RISK ALERT
+    // Fires BEFORE the individual new-device alert to ensure critical events
+    // are emitted first (they also produce their own NEW_DEVICE_LOGIN below).
+    correlationEngine.checkHighRiskCompound(ioInst, {
+      email,
+      role: user.role,
+      failedAttempts: failedAttemptsBefore,
+      isNewDevice,
+      ip,
+      userId: user._id,
+    });
+
     if (isNewDevice && knownDevices.length > 0) {
       correlationEngine.emitAlert(ioInst, 'NEW_DEVICE_LOGIN', {
         message: `Login from a new, unrecognized device or IP address.`,
         ip,
         email,
         role: user.role,
+        severity: 'medium',
       });
       correlationEngine.checkPrivilegeEscalation(ioInst, user._id, ip, true);
     }

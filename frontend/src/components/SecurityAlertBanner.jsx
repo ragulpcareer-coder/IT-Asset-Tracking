@@ -4,9 +4,14 @@ import { socket } from "../services/socket";
 
 /**
  * SecurityAlertBanner — Real-Time Live Security Alert Panel
- * Listens to socket "security_alert" events and shows a sliding
- * notification panel. Holds up to 5 most recent alerts.
- * Auto-dismisses each alert after 8 seconds.
+ *
+ * Renders two layers:
+ *  1. HIGH_RISK_ALERT (severity: "critical") — full-width top bar, pulsing red,
+ *     does NOT auto-dismiss. Requires manual close. Displays all 3 met conditions
+ *     and the recommended action.
+ *
+ *  2. All other alerts — bottom-right sliding card panel.
+ *     Auto-dismisses after 8 seconds. Holds up to 5 alerts.
  */
 
 const ALERT_ICONS = {
@@ -17,11 +22,11 @@ const ALERT_ICONS = {
     BRUTE_FORCE_DETECTED: "🚨",
     PRIVILEGE_ESCALATION_ALERT: "⚠️",
     OFF_HOURS_LOGIN: "🌙",
-    ASSET_HIGH_RISK: "🔴",
+    HIGH_RISK_ALERT: "🚨",
     DEFAULT: "⚠️",
 };
 
-const ALERT_COLORS = {
+const CARD_COLORS = {
     FAILED_LOGIN: "border-yellow-500/40 bg-yellow-500/10",
     ACCOUNT_LOCKED: "border-red-500/40 bg-red-500/10",
     ADMIN_PROMOTED: "border-blue-500/40 bg-blue-500/10",
@@ -33,18 +38,26 @@ const ALERT_COLORS = {
 };
 
 export default function SecurityAlertBanner() {
-    const [alerts, setAlerts] = useState([]);
+    // Critical full-banner alerts (HIGH_RISK_ALERT)
+    const [criticalAlerts, setCriticalAlerts] = useState([]);
+    // Regular card-style alerts
+    const [cardAlerts, setCardAlerts] = useState([]);
     const [isExpanded, setIsExpanded] = useState(false);
 
     const addAlert = useCallback((alert) => {
         const id = Date.now() + Math.random();
-        const newAlert = { ...alert, id, timestamp: new Date() };
-        setAlerts((prev) => [newAlert, ...prev].slice(0, 5));
+        const enriched = { ...alert, id, timestamp: new Date() };
 
-        // Auto-dismiss after 8 seconds
-        setTimeout(() => {
-            setAlerts((prev) => prev.filter((a) => a.id !== id));
-        }, 8000);
+        if (alert.type === "HIGH_RISK_ALERT" || alert.severity === "critical") {
+            // Critical alerts stay until manually dismissed
+            setCriticalAlerts((prev) => [enriched, ...prev].slice(0, 3));
+        } else {
+            setCardAlerts((prev) => [enriched, ...prev].slice(0, 5));
+            // Auto-dismiss regular alerts after 8 seconds
+            setTimeout(() => {
+                setCardAlerts((prev) => prev.filter((a) => a.id !== id));
+            }, 8000);
+        }
     }, []);
 
     useEffect(() => {
@@ -52,10 +65,6 @@ export default function SecurityAlertBanner() {
         return () => socket.off("security_alert", addAlert);
     }, [addAlert]);
 
-    if (alerts.length === 0) return null;
-
-    const icon = (type) => ALERT_ICONS[type] || ALERT_ICONS.DEFAULT;
-    const color = (type) => ALERT_COLORS[type] || ALERT_COLORS.DEFAULT;
     const timeAgo = (date) => {
         const s = Math.floor((Date.now() - date) / 1000);
         if (s < 5) return "Just now";
@@ -63,62 +72,151 @@ export default function SecurityAlertBanner() {
         return `${Math.floor(s / 60)}m ago`;
     };
 
-    const visibleAlerts = isExpanded ? alerts : alerts.slice(0, 1);
+    const dismissCritical = (id) =>
+        setCriticalAlerts((prev) => prev.filter((a) => a.id !== id));
+    const dismissCard = (id) =>
+        setCardAlerts((prev) => prev.filter((a) => a.id !== id));
 
     return (
-        <div className="fixed bottom-5 right-5 z-[200] w-80 space-y-2 pointer-events-none">
+        <>
+            {/* ── CRITICAL HIGH RISK ALERTS — Full-width top banner ─────────── */}
             <AnimatePresence>
-                {visibleAlerts.map((alert, i) => (
+                {criticalAlerts.map((alert) => (
                     <motion.div
                         key={alert.id}
-                        initial={{ opacity: 0, x: 60, scale: 0.95 }}
-                        animate={{ opacity: 1, x: 0, scale: 1 }}
-                        exit={{ opacity: 0, x: 60, scale: 0.92 }}
-                        transition={{ duration: 0.25, delay: i * 0.05 }}
-                        className={`pointer-events-auto rounded-xl border p-4 shadow-2xl backdrop-blur-md ${color(alert.type)}`}
+                        initial={{ y: -80, opacity: 0 }}
+                        animate={{ y: 0, opacity: 1 }}
+                        exit={{ y: -80, opacity: 0 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                        className="fixed top-0 left-0 right-0 z-[500] bg-red-900 border-b-2 border-red-500 shadow-2xl"
                     >
-                        <div className="flex items-start justify-between gap-3">
-                            <div className="flex items-start gap-3 flex-1 min-w-0">
-                                <span className="text-xl shrink-0 mt-0.5">{icon(alert.type)}</span>
+                        {/* Pulsing red glow line */}
+                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-500 animate-pulse" />
+
+                        <div className="max-w-7xl mx-auto px-4 py-3">
+                            <div className="flex items-start gap-4">
+                                {/* Blinking icon */}
+                                <span className="text-2xl mt-0.5 animate-pulse shrink-0">🚨</span>
+
                                 <div className="flex-1 min-w-0">
-                                    <p className="text-white font-bold text-xs uppercase tracking-wider mb-1">
-                                        {(alert.type || "SECURITY ALERT").replace(/_/g, " ")}
+                                    {/* Title row */}
+                                    <div className="flex items-center gap-3 flex-wrap mb-1">
+                                        <span className="text-red-200 font-black text-sm uppercase tracking-widest">
+                                            HIGH RISK ALERT
+                                        </span>
+                                        <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
+                                            CRITICAL
+                                        </span>
+                                        <span className="text-red-400 text-xs">{timeAgo(alert.timestamp)}</span>
+                                    </div>
+
+                                    {/* Main message */}
+                                    <p className="text-white font-semibold text-sm leading-snug mb-2">
+                                        {alert.message}
                                     </p>
-                                    <p className="text-gray-300 text-xs leading-relaxed truncate">
-                                        {alert.message || "A security event was detected."}
-                                    </p>
-                                    {alert.ip && (
-                                        <p className="text-gray-500 text-[10px] mt-1 font-mono">
-                                            IP: {alert.ip}
+
+                                    {/* Conditions met — show exactly what triggered this */}
+                                    {alert.conditions && (
+                                        <div className="flex flex-wrap gap-2 mb-2">
+                                            {alert.conditions.privilegedAccount && (
+                                                <span className="text-[10px] bg-red-800/60 text-red-200 px-2 py-0.5 rounded border border-red-700/50 font-mono">
+                                                    ⭐ Privileged Account ({alert.role})
+                                                </span>
+                                            )}
+                                            {alert.conditions.priorFailedLogins > 0 && (
+                                                <span className="text-[10px] bg-red-800/60 text-red-200 px-2 py-0.5 rounded border border-red-700/50 font-mono">
+                                                    🔐 {alert.conditions.priorFailedLogins} Prior Failed Login{alert.conditions.priorFailedLogins > 1 ? "s" : ""}
+                                                </span>
+                                            )}
+                                            {alert.conditions.newDevice && (
+                                                <span className="text-[10px] bg-red-800/60 text-red-200 px-2 py-0.5 rounded border border-red-700/50 font-mono">
+                                                    📱 Unrecognized Device
+                                                </span>
+                                            )}
+                                            {alert.ip && (
+                                                <span className="text-[10px] bg-red-800/60 text-red-300 px-2 py-0.5 rounded border border-red-700/50 font-mono">
+                                                    IP: {alert.ip}
+                                                </span>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Recommended action */}
+                                    {alert.recommendedAction && (
+                                        <p className="text-red-300 text-xs italic">
+                                            ⚡ {alert.recommendedAction}
                                         </p>
                                     )}
-                                    <p className="text-gray-600 text-[10px] mt-0.5">
-                                        {timeAgo(alert.timestamp)}
-                                    </p>
                                 </div>
+
+                                {/* Dismiss — requires intentional click */}
+                                <button
+                                    onClick={() => dismissCritical(alert.id)}
+                                    className="shrink-0 text-red-300 hover:text-white text-xs font-bold border border-red-700 hover:border-red-400 px-3 py-1.5 rounded transition mt-0.5"
+                                >
+                                    Dismiss
+                                </button>
                             </div>
-                            <button
-                                onClick={() => setAlerts((prev) => prev.filter((a) => a.id !== alert.id))}
-                                className="text-gray-500 hover:text-white transition text-lg leading-none shrink-0"
-                            >
-                                ×
-                            </button>
                         </div>
                     </motion.div>
                 ))}
             </AnimatePresence>
 
-            {/* Expand / collapse toggle when there are multiple alerts */}
-            {alerts.length > 1 && (
-                <motion.button
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    onClick={() => setIsExpanded((p) => !p)}
-                    className="pointer-events-auto w-full text-center text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-white transition py-1"
-                >
-                    {isExpanded ? "Show Less ▲" : `+${alerts.length - 1} More Alert${alerts.length > 2 ? "s" : ""} ▼`}
-                </motion.button>
-            )}
-        </div>
+            {/* ── REGULAR CARD ALERTS — bottom-right sliding panel ──────────── */}
+            <div className="fixed bottom-5 right-5 z-[200] w-80 space-y-2 pointer-events-none">
+                <AnimatePresence>
+                    {(isExpanded ? cardAlerts : cardAlerts.slice(0, 1)).map((alert, i) => (
+                        <motion.div
+                            key={alert.id}
+                            initial={{ opacity: 0, x: 60, scale: 0.95 }}
+                            animate={{ opacity: 1, x: 0, scale: 1 }}
+                            exit={{ opacity: 0, x: 60, scale: 0.92 }}
+                            transition={{ duration: 0.25, delay: i * 0.05 }}
+                            className={`pointer-events-auto rounded-xl border p-4 shadow-2xl backdrop-blur-md
+                ${CARD_COLORS[alert.type] || CARD_COLORS.DEFAULT}`}
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start gap-3 flex-1 min-w-0">
+                                    <span className="text-xl shrink-0 mt-0.5">
+                                        {ALERT_ICONS[alert.type] || ALERT_ICONS.DEFAULT}
+                                    </span>
+                                    <div className="flex-1 min-w-0">
+                                        <p className="text-white font-bold text-xs uppercase tracking-wider mb-1">
+                                            {(alert.type || "SECURITY ALERT").replace(/_/g, " ")}
+                                        </p>
+                                        <p className="text-gray-300 text-xs leading-relaxed">
+                                            {alert.message || "A security event was detected."}
+                                        </p>
+                                        {alert.ip && (
+                                            <p className="text-gray-500 text-[10px] mt-1 font-mono">IP: {alert.ip}</p>
+                                        )}
+                                        <p className="text-gray-600 text-[10px] mt-0.5">{timeAgo(alert.timestamp)}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => dismissCard(alert.id)}
+                                    className="text-gray-500 hover:text-white transition text-lg leading-none shrink-0"
+                                >
+                                    ×
+                                </button>
+                            </div>
+                        </motion.div>
+                    ))}
+                </AnimatePresence>
+
+                {cardAlerts.length > 1 && (
+                    <motion.button
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        onClick={() => setIsExpanded((p) => !p)}
+                        className="pointer-events-auto w-full text-center text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-white transition py-1"
+                    >
+                        {isExpanded
+                            ? "Show Less ▲"
+                            : `+${cardAlerts.length - 1} More Alert${cardAlerts.length > 2 ? "s" : ""} ▼`}
+                    </motion.button>
+                )}
+            </div>
+        </>
     );
 }
