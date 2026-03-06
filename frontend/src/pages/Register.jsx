@@ -36,8 +36,8 @@ export default function Register() {
     const newErrors = { name: "", email: "", password: "", confirmPassword: "" };
     let isValid = true;
 
-    if (!formData.name || formData.name.trim().length < 2) {
-      newErrors.name = "Name must be at least 2 characters";
+    if (!formData.name || formData.name.trim().length < 3) {
+      newErrors.name = "Full name must be at least 3 characters";
       isValid = false;
     }
 
@@ -70,8 +70,8 @@ export default function Register() {
     let isValid = true;
 
     if (activeStep === 1) {
-      if (!formData.name || formData.name.trim().length < 2) {
-        newErrors.name = "Name must be at least 2 characters";
+      if (!formData.name || formData.name.trim().length < 3) {
+        newErrors.name = "Full name must be at least 3 characters";
         isValid = false;
       } else newErrors.name = "";
 
@@ -312,7 +312,7 @@ export default function Register() {
                         <div className="relative group">
                           <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
                           <Input
-                            placeholder="John Doe"
+                            placeholder="e.g. John Doe"
                             name="name"
                             value={formData.name}
                             onChange={handleChange}
@@ -332,7 +332,7 @@ export default function Register() {
                           <div className="absolute inset-0 bg-gradient-to-r from-blue-600 to-teal-600 rounded-lg blur opacity-0 group-focus-within:opacity-100 transition duration-300"></div>
                           <Input
                             type="email"
-                            placeholder="john@example.com"
+                            placeholder="e.g. john@company.com"
                             name="email"
                             value={formData.email}
                             onChange={handleChange}
@@ -426,7 +426,7 @@ export default function Register() {
                           </div>
                           <div className="flex justify-between items-center py-2">
                             <span className="text-blue-200">Role:</span>
-                            <span className="text-white font-semibold">User (assigned by admin)</span>
+                            <span className="text-white font-semibold">Role will be assigned by the administrator</span>
                           </div>
                         </div>
                       </div>

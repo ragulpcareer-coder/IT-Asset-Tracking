@@ -275,23 +275,53 @@ const login = async (req, res) => {
         return res.status(401).json({ requires2FA: true, message: "Two-factor authentication token required" });
       }
 
-      let twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes");
-      let isVerified = speakeasy.totp.verify({
-        secret: twoFAUser?.twoFactorSecret || '',
-        encoding: 'base32',
-        token: token2FA,
-        window: 1
-      });
+      let twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes isTwoFactorEnabled");
+      const rawSecret = twoFAUser?.twoFactorSecret;
 
-      if (!isVerified && twoFAUser?.twoFactorBackupCodes?.includes(token2FA)) {
-        isVerified = true;
-        // consume backup code
-        await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: token2FA } });
+      // Guard: detect corrupt/unencrypted/missing secret
+      if (!rawSecret || rawSecret.trim().length < 10) {
+        console.error(`[2FA] CORRUPT SECRET for user ${user._id}: secret is "${rawSecret}" — likely stored without encryption (bypass script). Admin must reset 2FA for this account.`);
+        return res.status(500).json({
+          success: false,
+          message: "Two-Factor Authentication is misconfigured on this account. Please ask your administrator to reset 2FA via the Users panel.",
+          code: "2FA_SECRET_CORRUPT"
+        });
+      }
+
+      let isVerified = false;
+      try {
+        isVerified = speakeasy.totp.verify({
+          secret: rawSecret,
+          encoding: 'base32',
+          token: token2FA.trim(),
+          window: 2  // allow ±2 time steps (~60s) for clock drift
+        });
+      } catch (totpErr) {
+        console.error('[2FA] speakeasy.totp.verify threw an error:', totpErr.message);
+        return res.status(500).json({
+          success: false,
+          message: "Two-Factor Authentication verification error. Please contact your administrator.",
+          code: "2FA_VERIFY_ERROR"
+        });
+      }
+
+      // Check backup codes if TOTP failed
+      if (!isVerified && twoFAUser?.twoFactorBackupCodes?.length > 0) {
+        const matchedCode = twoFAUser.twoFactorBackupCodes.find(code => code === token2FA.trim());
+        if (matchedCode) {
+          isVerified = true;
+          // Consume backup code (one-time use)
+          await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: matchedCode } });
+          console.log(`[2FA] User ${user._id} authenticated via backup code.`);
+        }
       }
 
       if (!isVerified) {
-        return res.status(401).json({ success: false, message: "Invalid 2FA token or backup code", code: "AUTH_401" });
+        console.log(`[2FA] Invalid token attempt for user ${user._id}`);
+        return res.status(401).json({ success: false, requires2FA: true, message: "Invalid 2FA token or backup code. Please try again.", code: "2FA_INVALID" });
       }
+
+      console.log(`[2FA] Successfully verified 2FA for user ${user._id}`);
     }
 
     // 7️⃣ Generate JWT & System Updates

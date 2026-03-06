@@ -64,7 +64,7 @@ export default function ForgotPassword() {
                             Account Recovery
                         </motion.h1>
                         <motion.p className="text-blue-100 font-light" variants={animationVariants.itemVariants}>
-                            Enter your registered email to receive a secure restoration link
+                            Enter your registered email to receive a password reset link.
                         </motion.p>
                     </div>
 
@@ -83,13 +83,13 @@ export default function ForgotPassword() {
                                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                                             </svg>
                                         </div>
-                                        <h3 className="text-2xl font-bold text-white mb-3">Transmission Successful</h3>
+                                        <h3 className="text-2xl font-bold text-white mb-3">Email Sent!</h3>
                                         <p className="text-blue-200 text-sm mb-8 leading-relaxed">
-                                            A secure recovery packet has been dispatched to your registry. Please verify your inbox and spam folder.
+                                            A password reset link has been sent to your email address. Please check your inbox and spam folder.
                                         </p>
                                         <Link to="/login" className="block">
                                             <Button variant="primary" className="w-full h-12">
-                                                Return to Sign In Terminal
+                                                Return to Login
                                             </Button>
                                         </Link>
                                     </motion.div>
@@ -129,12 +129,12 @@ export default function ForgotPassword() {
                                             loading={loading}
                                             disabled={loading || !email}
                                         >
-                                            {loading ? "Decrypting..." : "Request Recovery Link"}
+                                            {loading ? "Sending..." : "Send Reset Link"}
                                         </Button>
 
                                         <div className="text-center pt-2">
                                             <Link to="/login" className="text-xs font-bold text-cyan-400 hover:text-cyan-300 transition-all flex items-center justify-center gap-2">
-                                                <span>←</span> ABORT AND RETURN TO LOGIN
+                                                ← Back to Login
                                             </Link>
                                         </div>
                                     </motion.form>

@@ -46,11 +46,21 @@ export default function Login() {
     return isValid;
   };
 
+  const handleBack = () => {
+    setRequires2FA(false);
+    setToken2FA("");
+    setError("");
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
     if (!requires2FA && !validateForm()) return;
+    if (requires2FA && !token2FA.trim()) {
+      setError("Please enter your 6-digit authenticator code.");
+      return;
+    }
 
     try {
       setLoading(true);
@@ -64,10 +74,20 @@ export default function Login() {
       await login(email, password, token2FA, fingerprint);
       navigate("/");
     } catch (err) {
-      if (err.response?.data?.requires2FA) {
+      const data = err.response?.data;
+      if (data?.requires2FA && !requires2FA) {
+        // First attempt — password correct, 2FA required
         setRequires2FA(true);
+        setError("");
+      } else if (data?.requires2FA && requires2FA) {
+        // Already on 2FA screen — show inline error, stay on 2FA screen
+        setError(data?.message || "Invalid 2FA code. Please try again.");
+        setToken2FA("");
+      } else if (data?.code === "2FA_SECRET_CORRUPT") {
+        setError(data?.message || "2FA is misconfigured. Contact your administrator.");
+        setRequires2FA(false);
       } else {
-        setError(err.response?.data?.message || "Login failed");
+        setError(data?.message || "Login failed. Please check your credentials.");
       }
     } finally {
       setLoading(false);
@@ -215,7 +235,7 @@ export default function Login() {
                       borderColor: isEmailFocused ? "#00d4ff" : "rgba(100, 200, 255, 0.3)",
                       boxShadow: isEmailFocused ? "0 0 20px rgba(0, 212, 255, 0.3)" : "none",
                     }}
-                    placeholder="your@email.com"
+                    placeholder="Enter your registered email"
                     whileFocus={{
                       scale: 1.02,
                     }}
@@ -264,7 +284,7 @@ export default function Login() {
                         borderColor: isPasswordFocused ? "#00d4ff" : "rgba(100, 200, 255, 0.3)",
                         boxShadow: isPasswordFocused ? "0 0 20px rgba(0, 212, 255, 0.3)" : "none",
                       }}
-                      placeholder="••••••••"
+                      placeholder="Enter your password"
                       whileFocus={{
                         scale: 1.02,
                       }}
@@ -299,19 +319,35 @@ export default function Login() {
                   animate={{ opacity: 1, scale: 1 }}
                   className="mb-4"
                 >
-                  <label className="block text-cyan-300 text-sm font-semibold mb-2 text-center">
-                    Two-Factor Authentication Code
-                  </label>
+                  {/* 2FA Header */}
+                  <div className="text-center mb-4">
+                    <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 mb-3">
+                      <span className="text-2xl">🔐</span>
+                    </div>
+                    <h3 className="text-cyan-200 font-bold text-lg">2FA Verification</h3>
+                    <p className="text-blue-300/60 text-xs mt-1">Open your authenticator app and enter the 6-digit code</p>
+                  </div>
+
                   <input
                     type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     value={token2FA}
-                    onChange={(e) => setToken2FA(e.target.value)}
-                    className="w-full px-4 py-4 rounded-lg bg-white/5 backdrop-blur border-2 transition-all duration-300 text-white placeholder-blue-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 text-center font-mono text-2xl tracking-[0.5em]"
-                    placeholder="000000"
+                    onChange={(e) => { setToken2FA(e.target.value.replace(/\D/g, "").slice(0, 6)); setError(""); }}
+                    className="w-full px-4 py-4 rounded-lg bg-white/5 backdrop-blur border-2 border-cyan-500/40 transition-all duration-300 text-white placeholder-blue-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 text-center font-mono text-3xl tracking-[0.6em]"
+                    placeholder="······"
                     maxLength={6}
                     autoFocus
                   />
-                  <p className="text-center text-xs text-blue-300/60 mt-4">Check your authenticator app for the 6-digit code.</p>
+
+                  {/* Back button */}
+                  <button
+                    type="button"
+                    onClick={handleBack}
+                    className="w-full mt-4 py-2 text-sm text-cyan-400/70 hover:text-cyan-300 transition-colors duration-200 flex items-center justify-center gap-1"
+                  >
+                    <span>←</span> Back to Login
+                  </button>
                 </motion.div>
               )}
 
@@ -336,8 +372,10 @@ export default function Login() {
                     >
                       ⧳
                     </motion.span>
+                  ) : requires2FA ? (
+                    "Verify & Sign In"
                   ) : (
-                    "Enter Dashboard"
+                    "Sign In"
                   )}
                 </QuantumButton>
               </motion.div>
