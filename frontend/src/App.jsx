@@ -5,6 +5,7 @@ import Layout from "./components/layout/Layout";
 import PrivateRoute from "./components/PrivateRoute";
 import AdminRoute from "./components/AdminRoute";
 import LoadingSpinner from "./components/common/LoadingSpinner";
+import SecurityAlertBanner from "./components/SecurityAlertBanner";
 import "./modern.css";
 
 // Lazy Loaded Pages (§Performance)
@@ -18,11 +19,13 @@ const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Users = lazy(() => import("./pages/Users"));
 const Cybersecurity = lazy(() => import("./pages/Cybersecurity"));
+const AssetNetworkMapPage = lazy(() => import("./components/AssetNetworkMap"));
 
 export default function App() {
   return (
     <Router>
       <AuthProvider>
+        <SecurityAlertBanner />
         <Suspense fallback={<LoadingSpinner />}>
           <Routes>
             <Route path="/login" element={<Login />} />

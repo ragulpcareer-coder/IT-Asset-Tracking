@@ -18,6 +18,7 @@ const crypto = require("crypto");
 const logger = require("../utils/logger");
 const PasswordResetToken = require("../models/PasswordResetToken");
 const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = require("../utils/emailService");
+const correlationEngine = require("../services/correlationEngine");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -263,6 +264,19 @@ const login = async (req, res) => {
       }
       await User.updateOne({ _id: user._id }, { $set: updateFields });
 
+      // Correlation Engine: Brute force detection
+      const io = req.app.get('io');
+      correlationEngine.checkBruteForce(io, req.ip || req.connection?.remoteAddress, email);
+
+      // Emit account-locked alert
+      if (newFailCount >= 5) {
+        correlationEngine.emitAlert(io, 'ACCOUNT_LOCKED', {
+          message: `Account locked after ${newFailCount} failed attempts.`,
+          email,
+          ip: req.ip || req.connection?.remoteAddress,
+        });
+      }
+
       return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
 
@@ -340,6 +354,23 @@ const login = async (req, res) => {
         $unset: { lockUntil: '' }
       }
     );
+
+    // Correlation Engine: Off-hours login check
+    const ioInst = req.app.get('io');
+    correlationEngine.checkOffHoursLogin(ioInst, ip, email, user.role);
+
+    // Correlation Engine: New device detection
+    const knownDevices = user.devices || [];
+    const isNewDevice = !knownDevices.some(d => d.ip === ip);
+    if (isNewDevice && knownDevices.length > 0) {
+      correlationEngine.emitAlert(ioInst, 'NEW_DEVICE_LOGIN', {
+        message: `Login from a new, unrecognized device or IP address.`,
+        ip,
+        email,
+        role: user.role,
+      });
+      correlationEngine.checkPrivilegeEscalation(ioInst, user._id, ip, true);
+    }
 
     await RefreshToken.deleteMany({ user: user._id });
     await RefreshToken.create({

@@ -24,9 +24,18 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
             case "available": return "success";
             case "assigned": return "info";
             case "maintenance": return "warning";
-            case "retired": return "danger"; // Render as Archived visually later, but keep CSS variant mapped
+            case "retired": return "danger";
             default: return "neutral";
         }
+    };
+
+    const getRiskBadge = (asset) => {
+        const score = asset.riskScore ?? 0;
+        const level = asset.securityStatus?.riskLevel || 'Low';
+        if (score <= 30) return { label: `🟢 Low (${score})`, style: 'bg-green-500/10 text-green-400 border-green-500/20' };
+        if (score <= 60) return { label: `🟡 Medium (${score})`, style: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' };
+        if (score <= 80) return { label: `🔴 High (${score})`, style: 'bg-red-500/10 text-red-400 border-red-500/20' };
+        return { label: `🚨 Critical (${score})`, style: 'bg-red-700/20 text-red-300 border-red-700/30' };
     };
 
     return (
@@ -36,6 +45,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                     <tr>
                         <th>Asset</th>
                         <th>Classification</th>
+                        <th>Risk Score</th>
                         <th>Operational Status</th>
                         <th>Assigned To</th>
                         <th className="text-center">QR Code</th>
@@ -66,6 +76,15 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                 </Badge>
                             </td>
                             <td>
+                                {(() => {
+                                    const rb = getRiskBadge(asset); return (
+                                        <span className={`px-2 py-1 rounded border text-[10px] font-bold whitespace-nowrap ${rb.style}`}>
+                                            {rb.label}
+                                        </span>
+                                    );
+                                })()}
+                            </td>
+                            <td>
                                 <Badge variant={getStatusVariant(asset.status)}>
                                     {asset.status === 'retired' ? 'Archived' : asset.status.charAt(0).toUpperCase() + asset.status.slice(1)}
                                 </Badge>
@@ -91,7 +110,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                             size="sm"
                                             onClick={() => onEdit && onEdit(asset)}
                                         >
-                                            View Metadata
+                                            Edit
                                         </Button>
                                     </PermissionGuard>
                                     <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
@@ -100,7 +119,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                             size="sm"
                                             onClick={() => setDeleteId(asset._id)}
                                         >
-                                            Decommission Asset
+                                            Delete
                                         </Button>
                                     </PermissionGuard>
                                 </div>
@@ -132,7 +151,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                 <div className="font-mono text-slate-300 text-sm font-bold">{selectedQr.serialNumber}</div>
                             </div>
                             <Button variant="secondary" className="w-full" onClick={() => setSelectedQr(null)}>
-                                Dismiss Archive
+                                Close
                             </Button>
                         </motion.div>
                     </div>
@@ -142,9 +161,9 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
             {/* Confirmation Modal (UX Requirement) */}
             <ConfirmModal
                 isOpen={!!deleteId}
-                title="Decommission Asset?"
-                message="This will immediately move the asset out of service and revoke active telemetry tracking. Proceed with decommission?"
-                confirmText="Decommission"
+                title="Delete Asset?"
+                message="Are you sure you want to delete this asset? This action cannot be undone."
+                confirmText="Delete Asset"
                 onConfirm={() => {
                     onDelete && onDelete(deleteId);
                     setDeleteId(null);

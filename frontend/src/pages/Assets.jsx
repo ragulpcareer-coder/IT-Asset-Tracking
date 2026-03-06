@@ -12,6 +12,7 @@ import LoadingSpinner from "../components/common/LoadingSpinner";
 import { useLocation } from "react-router-dom";
 import { Button, Card, Badge, Input, PermissionGuard } from "../components/UI";
 import { assetSchema } from "../utils/assetSchema";
+import AssetNetworkMap from "../components/AssetNetworkMap";
 
 /**
  * Enterprise Asset Matrix
@@ -31,6 +32,7 @@ export default function Assets() {
   const [typeFilter, setTypeFilter] = useState("All");
   const [sortBy, setSortBy] = useState("name");
   const [loading, setLoading] = useState(false);
+  const [showNetworkMap, setShowNetworkMap] = useState(false);
 
   useEffect(() => {
     const querySearch = new URLSearchParams(location.search).get("search");
@@ -238,8 +240,13 @@ export default function Assets() {
               Register New Asset
             </Button>
           </PermissionGuard>
+          <Button variant="secondary" onClick={() => setShowNetworkMap(true)} disabled={assets.length === 0}>
+            📡 Network Map
+          </Button>
         </div>
       </div>
+
+      {showNetworkMap && <AssetNetworkMap onClose={() => setShowNetworkMap(false)} />}
 
       {/* Snapshot Ledger (Requirement G: Accurate Counters) */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">

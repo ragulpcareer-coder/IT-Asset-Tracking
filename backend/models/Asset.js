@@ -92,6 +92,7 @@ const assetSchema = new mongoose.Schema(
       riskLevel: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Low' },
       remarks: { type: String, default: '' }
     },
+    riskScore: { type: Number, default: 0, min: 0, max: 100 },
     integrityHash: { type: String }, // SHA-256 integrity check (§4.1)
   },
   {
@@ -126,6 +127,52 @@ assetSchema.index({ 'securityStatus.isAuthorized': 1 });                        
 assetSchema.index({ status: 1 });                                                   // status filter
 
 const crypto = require("crypto");
+
+// ── RISK SCORE ENGINE ──────────────────────────────────────────────────────
+// Computes a 0–100 risk score before every save, based on real asset fields.
+assetSchema.pre('save', function (next) {
+  let score = 0;
+
+  // Status-based risk factors
+  if (this.status === 'lost') score += 40;
+  else if (this.status === 'maintenance') score += 10;
+  else if (this.status === 'retired') score += 5;
+
+  // Authorization: unauthorized asset is a critical risk
+  if (!this.securityStatus?.isAuthorized) score += 30;
+
+  // Network inactivity: not seen in more than 7 days
+  const lastSeen = this.networkStatus?.lastSeen;
+  if (lastSeen) {
+    const daysSinceLastSeen = (Date.now() - new Date(lastSeen)) / (1000 * 60 * 60 * 24);
+    if (daysSinceLastSeen > 30) score += 20;
+    else if (daysSinceLastSeen > 7) score += 10;
+  }
+
+  // Warranty expired
+  if (this.warrantyExpiry && new Date(this.warrantyExpiry) < new Date()) score += 10;
+
+  // Classification sensitivity factor
+  if (this.classification === 'Restricted') score += 15;
+  else if (this.classification === 'Confidential') score += 10;
+
+  // Asset age: purchased over 5 years ago
+  if (this.purchaseDate) {
+    const yearsOld = (Date.now() - new Date(this.purchaseDate)) / (1000 * 60 * 60 * 24 * 365.25);
+    if (yearsOld > 5) score += 10;
+  }
+
+  // Clamp to 0–100 and store
+  this.riskScore = Math.min(100, Math.max(0, score));
+
+  // Sync riskLevel enum with score
+  if (this.riskScore <= 30) this.securityStatus.riskLevel = 'Low';
+  else if (this.riskScore <= 60) this.securityStatus.riskLevel = 'Medium';
+  else if (this.riskScore <= 80) this.securityStatus.riskLevel = 'High';
+  else this.securityStatus.riskLevel = 'Critical';
+
+  next();
+});
 
 assetSchema.pre('save', function (next) {
   // Generate integrity hash of the critical record sections (§4.1)
