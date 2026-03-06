@@ -308,7 +308,7 @@ const login = async (req, res) => {
           secret: rawSecret,
           encoding: 'base32',
           token: token2FA.trim(),
-          window: 2  // allow ±2 time steps (~60s) for clock drift
+          window: 4  // ±4 time steps (~120s) — covers Render container clock drift
         });
       } catch (totpErr) {
         console.error('[2FA] speakeasy.totp.verify threw an error:', totpErr.message);

@@ -147,10 +147,16 @@ const globalLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Login limiter — IMPORTANT: max is 20 (not 10) because 2FA login takes 2 requests:
+//   Request 1: email+password  → 401 { requires2FA: true }  (correct behaviour, app continues)
+//   Request 2: email+password+token → 200 success
+// With max:10, a user with 2FA enabled effectively only gets 5 full login attempts.
+// skipSuccessfulRequests:true ensures successfully completed logins don't burn the quota.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { message: "Security Protocol: Too many authentication attempts. Please verify identity and try again in 15 mins." },
+  max: 20,
+  skipSuccessfulRequests: true,   // only count failed/401 attempts, not successful logins
+  message: { message: "Too many failed login attempts. Please wait 15 minutes before trying again." },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -163,19 +169,10 @@ const forgotPasswordLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const twoFALimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { message: "Too many 2FA attempts. Please wait 15 minutes before trying again." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
 app.use("/api/", globalLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", forgotPasswordLimiter);
-app.use("/api/auth/2fa/verify", twoFALimiter);
 
 // 8. SIEM & Performance Logging Integration (§47)
 app.use((req, res, next) => {
@@ -202,6 +199,15 @@ app.use("/api/admin/config/v1/root", (req, res) => {
   logger.warn(`HONEYPOT TRIGGERED: IP ${req.ip} accessed restricted root config.`);
   setTimeout(() => res.status(404).json({ error: "System kernel failure." }), 5000);
 });
+
+// / — Root route (prevents 404 on browser visits and platform health checks)
+app.get("/", (req, res) => res.status(200).json({
+  name: "AssetTrack SOC API",
+  description: "Enterprise IT Asset Tracking & Security Monitoring Platform",
+  version: "2.5.0",
+  status: "running",
+  timestamp: new Date().toISOString(),
+}));
 
 // /health — simple liveness check
 app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
