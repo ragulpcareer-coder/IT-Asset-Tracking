@@ -18,7 +18,8 @@ export default function Login() {
   const [errors, setErrors] = useState({ email: "", password: "" });
   const [isEmailFocused, setIsEmailFocused] = useState(false);
   const [isPasswordFocused, setIsPasswordFocused] = useState(false);
-  const { login } = useContext(AuthContext);
+  const [tempUserId, setTempUserId] = useState(null);
+  const { login, verify2FA } = useContext(AuthContext);
   const navigate = useNavigate();
 
 
@@ -50,6 +51,7 @@ export default function Login() {
     setRequires2FA(false);
     setToken2FA("");
     setError("");
+    setTempUserId(null);
   };
 
   const handleSubmit = async (e) => {
@@ -71,15 +73,30 @@ export default function Login() {
         resolution: `${window.screen.width}x${window.screen.height}`,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
       };
-      await login(email, password, token2FA, fingerprint);
-      navigate("/");
+
+      if (!requires2FA) {
+        // Step 1: Initial Login (Email/Password)
+        const data = await login(email, password, "", fingerprint);
+        if (data.requires2FA) {
+          setRequires2FA(true);
+          setTempUserId(data.userId);
+        } else {
+          // Success (No 2FA)
+          navigate("/");
+        }
+      } else {
+        // Step 2: 2FA Verification
+        await verify2FA(tempUserId, token2FA);
+        navigate("/");
+      }
     } catch (err) {
       const data = err.response?.data;
       if (data?.requires2FA && !requires2FA) {
-        // First attempt — password correct, 2FA required
+        // First attempt — password correct, 2FA required (Fallback if login returns 401)
         setRequires2FA(true);
+        setTempUserId(data.userId);
         setError("");
-      } else if (data?.requires2FA && requires2FA) {
+      } else if (requires2FA) {
         // Already on 2FA screen — show inline error, stay on 2FA screen
         setError(data?.message || "Invalid 2FA code. Please try again.");
         setToken2FA("");
@@ -358,7 +375,6 @@ export default function Login() {
                 className="pt-4"
               >
                 <QuantumButton
-                  onClick={handleSubmit}
                   disabled={loading}
                   variant="primary"
                   size="lg"

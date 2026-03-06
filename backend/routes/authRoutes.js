@@ -27,6 +27,7 @@ const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
 // ── Public Routes ────────────────────────────────────────────
 router.post("/register", register);
 router.post("/login", login);
+router.post("/verify-2fa", verify2FALogin);
 router.post("/refresh", refresh);
 
 // Admin approves / rejects users via secure email link (no auth required – link IS the token)

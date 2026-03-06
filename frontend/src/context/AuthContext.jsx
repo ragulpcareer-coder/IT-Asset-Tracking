@@ -31,12 +31,25 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, []);
 
-  // Login Function
+  // Login Function (Step 1)
   const login = async (email, password, token2FA = "", fingerprint = {}) => {
     const res = await axios.post("/auth/login", { email, password, token2FA, fingerprint });
-    localStorage.setItem("token", res.data.accessToken || res.data.token);
-    const { accessToken, refreshToken, token, ...userData } = res.data;
-    setUser(userData);
+    if (res.data.token || res.data.accessToken) {
+      localStorage.setItem("token", res.data.accessToken || res.data.token);
+      const { accessToken, refreshToken, token, ...userData } = res.data;
+      setUser(userData);
+    }
+    return res.data;
+  };
+
+  // 2FA Verification Function (Step 2)
+  const verify2FA = async (userId, token) => {
+    const res = await axios.post("/auth/verify-2fa", { userId, token });
+    if (res.data.token || res.data.accessToken) {
+      localStorage.setItem("token", res.data.accessToken || res.data.token);
+      const { accessToken, refreshToken, token, ...userData } = res.data;
+      setUser(userData);
+    }
     return res.data;
   };
 
@@ -87,6 +100,7 @@ export const AuthProvider = ({ children }) => {
       value={{
         user,
         login,
+        verify2FA,
         register,
         logout,
         refreshUser,

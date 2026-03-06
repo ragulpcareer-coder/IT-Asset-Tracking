@@ -284,122 +284,77 @@ const login = async (req, res) => {
 
     // 6️⃣ If 2FA enabled:
     if (user.isTwoFactorEnabled) {
-      if (!token2FA) {
-        // Must return 401 so the frontend triggers a catch block to show 2FA input
-        return res.status(401).json({ requires2FA: true, message: "Two-factor authentication token required" });
-      }
-
-      let twoFAUser = await User.findById(user._id).select("twoFactorSecret twoFactorBackupCodes isTwoFactorEnabled");
-      const rawSecret = twoFAUser?.twoFactorSecret;
-
-      // Guard: detect corrupt/unencrypted/missing secret
-      if (!rawSecret || rawSecret.trim().length < 10) {
-        console.error(`[2FA] CORRUPT SECRET for user ${user._id}: secret is "${rawSecret}" — likely stored without encryption (bypass script). Admin must reset 2FA for this account.`);
-        return res.status(500).json({
-          success: false,
-          message: "Two-Factor Authentication is misconfigured on this account. Please ask your administrator to reset 2FA via the Users panel.",
-          code: "2FA_SECRET_CORRUPT"
-        });
-      }
-
-      let isVerified = false;
-      try {
-        isVerified = speakeasy.totp.verify({
-          secret: rawSecret,
-          encoding: 'base32',
-          token: token2FA.trim(),
-          window: 4  // ±4 time steps (~120s) — covers Render container clock drift
-        });
-      } catch (totpErr) {
-        console.error('[2FA] speakeasy.totp.verify threw an error:', totpErr.message);
-        return res.status(500).json({
-          success: false,
-          message: "Two-Factor Authentication verification error. Please contact your administrator.",
-          code: "2FA_VERIFY_ERROR"
-        });
-      }
-
-      // Check backup codes if TOTP failed
-      if (!isVerified && twoFAUser?.twoFactorBackupCodes?.length > 0) {
-        const matchedCode = twoFAUser.twoFactorBackupCodes.find(code => code === token2FA.trim());
-        if (matchedCode) {
-          isVerified = true;
-          // Consume backup code (one-time use)
-          await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: matchedCode } });
-          console.log(`[2FA] User ${user._id} authenticated via backup code.`);
-        }
-      }
-
-      if (!isVerified) {
-        console.log(`[2FA] Invalid token attempt for user ${user._id}`);
-        return res.status(401).json({ success: false, requires2FA: true, message: "Invalid 2FA token or backup code. Please try again.", code: "2FA_INVALID" });
-      }
-
-      console.log(`[2FA] Successfully verified 2FA for user ${user._id}`);
+      // Split 2FA flow: If 2FA is enabled, we return 401 with a specific flag
+      // so the frontend knows to show the OTP screen.
+      // We do NOT verify the token here anymore to avoid the 401 loop on failed OTP.
+      console.log(`[2FA] User ${user._id} requires 2FA. Prompting frontend.`);
+      return res.status(401).json({
+        success: false,
+        requires2FA: true,
+        userId: user._id,
+        message: "Two-factor authentication token required"
+      });
     }
 
     // 7️⃣ Generate JWT & System Updates
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
-
-    // ⚠️  CRITICAL: Capture failed attempt count BEFORE the reset.
-    // After updateOne sets failedLoginAttempts to 0 we can no longer tell
-    // how many times the attacker tried before succeeding.
     const failedAttemptsBefore = user.failedLoginAttempts || 0;
 
-    // Reset failed attempts, unset lock, set last login
-    await User.updateOne(
-      { _id: user._id },
-      {
-        $set: {
-          failedLoginAttempts: 0,
-          lastLogin: new Date(),
-          lastLoginIp: ip,
-        },
-        $unset: { lockUntil: '' }
+    // NON-BLOCKING: Parallelize system updates and security engine checks
+    setImmediate(async () => {
+      try {
+        const ioInst = req.app.get('io');
+        const knownDevices = user.devices || [];
+        const isNewDevice = !knownDevices.some(d => d.ip === ip);
+
+        await Promise.all([
+          User.updateOne(
+            { _id: user._id },
+            {
+              $set: {
+                failedLoginAttempts: 0,
+                lastLogin: new Date(),
+                lastLoginIp: ip,
+              },
+              $unset: { lockUntil: '' }
+            }
+          ),
+          RefreshToken.deleteMany({ user: user._id }),
+          RefreshToken.create({
+            tokenId: pair.refreshTokenId,
+            family: pair.refreshTokenFamily,
+            user: user._id,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          }),
+          logUserActivity(user._id, "LOGIN", "Successful authentication.", req)
+        ]);
+
+        // Correlation Engine Checks
+        correlationEngine.checkOffHoursLogin(ioInst, ip, email, user.role);
+        correlationEngine.checkHighRiskCompound(ioInst, {
+          email,
+          role: user.role,
+          failedAttempts: failedAttemptsBefore,
+          isNewDevice,
+          ip,
+          userId: user._id,
+        });
+
+        if (isNewDevice && knownDevices.length > 0) {
+          correlationEngine.emitAlert(ioInst, 'NEW_DEVICE_LOGIN', {
+            message: `Login from a new, unrecognized device or IP address.`,
+            ip,
+            email,
+            role: user.role,
+            severity: 'medium',
+          });
+          correlationEngine.checkPrivilegeEscalation(ioInst, user._id, ip, true);
+        }
+      } catch (postLoginErr) {
+        console.error("Post-Login Update Error:", postLoginErr.message);
       }
-    );
-
-    // Correlation Engine: Off-hours login check
-    const ioInst = req.app.get('io');
-    correlationEngine.checkOffHoursLogin(ioInst, ip, email, user.role);
-
-    // Correlation Engine: New device detection
-    const knownDevices = user.devices || [];
-    const isNewDevice = !knownDevices.some(d => d.ip === ip);
-
-    // ★ Rule 4: COMPOUND HIGH RISK ALERT
-    // Fires BEFORE the individual new-device alert to ensure critical events
-    // are emitted first (they also produce their own NEW_DEVICE_LOGIN below).
-    correlationEngine.checkHighRiskCompound(ioInst, {
-      email,
-      role: user.role,
-      failedAttempts: failedAttemptsBefore,
-      isNewDevice,
-      ip,
-      userId: user._id,
     });
-
-    if (isNewDevice && knownDevices.length > 0) {
-      correlationEngine.emitAlert(ioInst, 'NEW_DEVICE_LOGIN', {
-        message: `Login from a new, unrecognized device or IP address.`,
-        ip,
-        email,
-        role: user.role,
-        severity: 'medium',
-      });
-      correlationEngine.checkPrivilegeEscalation(ioInst, user._id, ip, true);
-    }
-
-    await RefreshToken.deleteMany({ user: user._id });
-    await RefreshToken.create({
-      tokenId: pair.refreshTokenId,
-      family: pair.refreshTokenFamily,
-      user: user._id,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-    });
-
-    logUserActivity(user._id, "LOGIN", "Successful authentication.", req);
 
     res.clearCookie('token');
     res.clearCookie('jwt');
@@ -415,15 +370,10 @@ const login = async (req, res) => {
         role: user.role
       },
       timestamp: new Date().toISOString(),
-
-      // Keep backend properties for frontend React context backwards compatibility
       _id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
-      preferences: user.preferences,
-      activityTimestamps: user.activityTimestamps,
-      isTwoFactorEnabled: user.isTwoFactorEnabled,
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });
@@ -434,6 +384,129 @@ const login = async (req, res) => {
       message: err.message,
       stack: process.env.NODE_ENV === "development" ? err.stack : undefined
     });
+  }
+};
+
+// @desc    Verify 2FA token during login (Step 2 of Split Flow)
+// @route   POST /api/auth/verify-2fa
+// @access  Public
+const verify2FALogin = async (req, res) => {
+  try {
+    const { userId, token } = req.body;
+    const ip = req.ip || req.connection?.remoteAddress;
+
+    // 1️⃣ Rate Limiting
+    if (loginLimiter.isLimited(ip)) {
+      return res.status(429).json({
+        success: false,
+        message: "Too many attempts. Please try again later.",
+        code: "AUTH_429"
+      });
+    }
+
+    if (!userId || !token) {
+      return res.status(400).json({ success: false, message: "User ID and token are required" });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    // Guard: detect corrupt/unencrypted/missing secret
+    const rawSecret = user.twoFactorSecret;
+    if (!rawSecret || rawSecret.trim().length < 10) {
+      console.error(`[2FA] CORRUPT SECRET for user ${userId}`);
+      return res.status(500).json({
+        success: false,
+        message: "Two-Factor Authentication is misconfigured. Please contact your administrator.",
+        code: "2FA_SECRET_CORRUPT"
+      });
+    }
+
+    let isVerified = false;
+    try {
+      isVerified = speakeasy.totp.verify({
+        secret: rawSecret,
+        encoding: 'base32',
+        token: token.trim(),
+        window: 2 // Increased window for better drift tolerance
+      });
+    } catch (totpErr) {
+      console.error('[2FA] speakeasy.totp.verify error:', totpErr.message);
+      return res.status(500).json({ success: false, message: "Verification error" });
+    }
+
+    // Check backup codes
+    if (!isVerified && user.twoFactorBackupCodes?.length > 0) {
+      const matchedCode = user.twoFactorBackupCodes.find(code => code === token.trim());
+      if (matchedCode) {
+        isVerified = true;
+        await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: matchedCode } });
+      }
+    }
+
+    if (!isVerified) {
+      return res.status(401).json({
+        success: false,
+        message: "Invalid 2FA token. Please try again.",
+        code: "2FA_INVALID"
+      });
+    }
+
+    // 7️⃣ Generate JWT & System Updates
+    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
+
+    // NON-BLOCKING: Parallelize system updates and logging
+    setImmediate(async () => {
+      try {
+        await Promise.all([
+          User.updateOne(
+            { _id: user._id },
+            {
+              $set: {
+                failedLoginAttempts: 0,
+                lastLogin: new Date(),
+                lastLoginIp: ip,
+              },
+              $unset: { lockUntil: '' }
+            }
+          ),
+          RefreshToken.deleteMany({ user: user._id }),
+          RefreshToken.create({
+            tokenId: pair.refreshTokenId,
+            family: pair.refreshTokenFamily,
+            user: user._id,
+            expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          }),
+          logUserActivity(user._id, "LOGIN", "Successful 2FA authentication.", req)
+        ]);
+      } catch (err) {
+        console.error("2FA Post-Login Update Error:", err.message);
+      }
+    });
+
+    res.cookie('jwt', pair.accessToken, getCookieOptions());
+
+    return res.json({
+      success: true,
+      token: pair.accessToken,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role
+      },
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
+    });
+
+  } catch (err) {
+    console.error("2FA VERIFY ERR:", err);
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -657,7 +730,7 @@ const verify2FA = async (req, res) => {
       secret: user.twoFactorSecret,
       encoding: 'base32',
       token,
-      window: 1
+      window: 2
     });
 
     if (isVerified) {
@@ -1350,5 +1423,6 @@ module.exports = {
   approveUser,
   rejectUser,
   diagEmailTest,
-  getUserActivity
+  getUserActivity,
+  verify2FALogin
 };
