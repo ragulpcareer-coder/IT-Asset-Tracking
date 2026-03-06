@@ -40,14 +40,14 @@ export default function Users() {
         try {
             if (actionType === "promote") {
                 await axios.put(`/auth/users/${id}/promote`);
-                toast.success(`${name} elevated to Administrative Clearance.`);
+                toast.success(`${name} has been promoted to Admin.`);
             } else if (actionType === "terminate") {
                 await axios.delete(`/auth/users/${id}`);
-                toast.success(`Identity ${email} has been decommissioned.`);
+                toast.success(`User ${email} has been removed.`);
             }
             fetchUsers();
         } catch (err) {
-            toast.error(err.response?.data?.message || "Protocol rejection: Action denied.");
+            toast.error(err.response?.data?.message || "Action failed. Please try again.");
         } finally {
             setActionUser(null);
         }
@@ -69,9 +69,9 @@ export default function Users() {
     return (
         <div className="fade-in pb-12">
             <div className="mb-10">
-                <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Identity Registry</h1>
+                <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Identity & Access Management</h1>
                 <p className="text-slate-500 font-medium mt-1 text-xs tracking-widest uppercase italic">
-                    Zero-Trust Oversight & Privilege Management (§3.1)
+                    Manage user accounts, roles, and access permissions
                 </p>
             </div>
 
@@ -80,11 +80,11 @@ export default function Users() {
                     <table className="table">
                         <thead>
                             <tr>
-                                <th>Identity Identity</th>
-                                <th>Clearance</th>
+                                <th>User</th>
+                                <th>Role</th>
                                 <th>Account Status</th>
-                                <th>2FA Core</th>
-                                <th className="text-right">IAM Actions</th>
+                                <th>MFA Status</th>
+                                <th className="text-right">Actions</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -143,12 +143,12 @@ export default function Users() {
                                                 <div className="flex justify-end gap-2">
                                                     {!["Super Admin", "Admin"].includes(u.role) && (
                                                         <Button variant="ghost" size="sm" onClick={() => setActionUser({ ...u, actionType: 'promote' })}>
-                                                            Elevate Role
+                                                            Promote to Admin
                                                         </Button>
                                                     )}
                                                     {u.email !== currentUser.email && (
                                                         <Button variant="danger" size="sm" onClick={() => setActionUser({ ...u, actionType: 'terminate' })}>
-                                                            Terminate
+                                                            Remove User
                                                         </Button>
                                                     )}
                                                 </div>
@@ -165,12 +165,12 @@ export default function Users() {
             {/* IAM Action Confirmation */}
             <ConfirmModal
                 isOpen={!!actionUser}
-                title={actionUser?.actionType === 'promote' ? "Elevate Clearance?" : "Terminate Identity?"}
+                title={actionUser?.actionType === 'promote' ? "Promote to Admin?" : "Remove User?"}
                 message={actionUser?.actionType === 'promote'
-                    ? `Are you sure you want to promote ${actionUser?.name} to Administrative Clearance? This grants access to the Forensic Ledger and IAM controls.`
-                    : `This initiates an immediate Decommission Protocol for ${actionUser?.email}. All active sessions will be purged and authentication tokens revoked.`
+                    ? `Are you sure you want to promote ${actionUser?.name} to Administrator? They will gain access to the Audit Logs and Identity Management pages.`
+                    : `Are you sure you want to remove ${actionUser?.email}? Their account will be deleted and all active sessions will be terminated.`
                 }
-                confirmText={actionUser?.actionType === 'promote' ? "Execute Elevation" : "Execute Termination"}
+                confirmText={actionUser?.actionType === 'promote' ? "Confirm Promotion" : "Confirm Removal"}
                 type={actionUser?.actionType === 'promote' ? "primary" : "danger"}
                 onConfirm={handleConfirmAction}
                 onCancel={() => setActionUser(null)}

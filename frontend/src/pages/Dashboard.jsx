@@ -199,7 +199,7 @@ export default function Dashboard() {
     };
   });
 
-  if (loading) return <LoadingSpinner fullScreen message="Syncing Enterprise Telemetry..." />;
+  if (loading) return <LoadingSpinner fullScreen message="Loading dashboard data..." />;
 
   const m = metrics || {};
 
@@ -210,15 +210,15 @@ export default function Dashboard() {
       {/* Header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Operations Dashboard</h1>
+          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Security Operations Overview</h1>
           <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest">
             Role: {user?.role} &nbsp;|&nbsp; System Status: Operational
           </p>
         </div>
         <div className="flex gap-3">
-          <Link to="/assets" className="btn btn-secondary">View Inventory</Link>
+          <Link to="/assets" className="btn btn-secondary">View Asset Inventory</Link>
           <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
-            <Link to="/security" className="btn btn-primary">Security Operations</Link>
+            <Link to="/security" className="btn btn-primary">Security Monitoring</Link>
           </PermissionGuard>
         </div>
       </div>
@@ -364,7 +364,9 @@ export default function Dashboard() {
             {logs.slice(0, 3).map((log, i) => (
               <div
                 key={log._id || i}
-                className="flex flex-col md:flex-row md:items-center justify-between gap-2 p-3 rounded-lg bg-white/5 border border-white/5"
+                className="flex flex-col md:flex-row md:items-center justify-between gap-2 p-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 cursor-pointer transition-colors"
+                onClick={() => window.location.href = '/audit-logs'}
+                title="Click to view full audit log"
               >
                 <div className="flex items-center gap-4">
                   <div className={`w-8 h-8 rounded-full flex-center text-xs font-bold ${log.action.includes("ALERT") ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
@@ -384,7 +386,7 @@ export default function Dashboard() {
               </div>
             ))}
             {logs.length === 0 && (
-              <p className="text-slate-500 text-sm text-center py-4">No audit events recorded.</p>
+              <p className="text-slate-500 text-sm text-center py-4">No security events recorded yet. Events will appear here as users interact with the system.</p>
             )}
           </div>
         </Card>

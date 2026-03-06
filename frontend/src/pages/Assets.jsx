@@ -48,7 +48,7 @@ export default function Assets() {
     // REAL-TIME CLUSTER SYNC (§Category 4 & 9)
     socket.on("assetCreated", (newAsset) => {
       setAssets(prev => [newAsset, ...prev]);
-      toast.info(`New Node Detected: ${newAsset.name}`);
+      toast.info(`New asset registered: ${newAsset.name}`);
     });
 
     socket.on("assetUpdated", (updated) => {
@@ -57,7 +57,7 @@ export default function Assets() {
 
     socket.on("assetDeleted", (id) => {
       setAssets(prev => prev.filter(a => a._id !== id));
-      toast.warn("Asset Decommissioned by Remote Admin");
+      toast.warn("An asset was removed by an administrator.");
     });
 
     return () => {
@@ -80,7 +80,7 @@ export default function Assets() {
       const res = await axios.get(`/assets?${params.toString()}`);
       setAssets(res.data.assets || res.data || []);
     } catch (error) {
-      toast.error("Telemetry link failed: Asset Registry synchronization error.");
+      toast.error("Failed to load assets. Please refresh the page.");
     } finally {
       setLoading(false);
     }
@@ -93,7 +93,7 @@ export default function Assets() {
         toast.success("Asset Metadata Updated");
       } else {
         await axios.post("/assets", formData);
-        toast.success("New Asset Node Initialized");
+        toast.success("New asset registered successfully.");
       }
       setIsModalOpen(false);
       setEditingAsset(null);
@@ -106,7 +106,7 @@ export default function Assets() {
   const handleDelete = async (id) => {
     try {
       await axios.delete(`/assets/${id}`);
-      toast.success("Decommission Protocol Executed Successfully");
+      toast.success("Asset removed from inventory successfully.");
       fetchAssets();
     } catch (error) {
       toast.error("Decommission Rejected: System/Role Violation");
@@ -235,7 +235,7 @@ export default function Assets() {
           </Button>
           <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
             <Button variant="primary" onClick={() => { setEditingAsset(null); setIsModalOpen(true); }}>
-              Provision New Node
+              Register New Asset
             </Button>
           </PermissionGuard>
         </div>
@@ -282,7 +282,7 @@ export default function Assets() {
             value={typeFilter}
             onChange={(e) => setTypeFilter(e.target.value)}
           >
-            <option value="All">Filter by Cluster</option>
+            <option value="All">Filter by Asset Type</option>
             {assetTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <select

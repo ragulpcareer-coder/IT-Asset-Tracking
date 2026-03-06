@@ -34,7 +34,7 @@ export default function AuditLogs() {
       const res = await axios.get("/audit");
       setLogs(res.data?.data || res.data || []);
     } catch (error) {
-      toast.error("Failed to fetch cryptographic audit trail");
+      toast.error("Failed to load audit logs. Please try again.");
       setLogs([]);
     } finally {
       setLoading(false);
@@ -57,7 +57,7 @@ export default function AuditLogs() {
 
   const handleExport = async () => {
     try {
-      toast.info("Preparing high-assurance CSV export...");
+      toast.info("Preparing CSV export...");
       const res = await axios.get("/audit/export", { responseType: 'blob' });
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement('a');
@@ -68,7 +68,7 @@ export default function AuditLogs() {
       document.body.removeChild(link);
       toast.success("Ledger exported successfully!");
     } catch (error) {
-      toast.error("Forensic export failed: Authorization required.");
+      toast.error("Export failed. You may not have permission to export logs.");
     }
   };
 
@@ -99,28 +99,28 @@ export default function AuditLogs() {
       {/* Header Area */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
         <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Forensic Audit Ledger</h1>
+          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Security Audit Logs</h1>
           <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">
             Full compliance monitoring active (§4.2)
           </p>
         </div>
         <Button variant="primary" onClick={handleExport} disabled={filteredLogs.length === 0}>
-          Export Validated CSV
+          Export Logs (CSV)
         </Button>
       </div>
 
       {/* Live Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
         <Card className="flex flex-col border-white/5 bg-slate-900/40">
-          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Total Forensic Entries</span>
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Total Log Entries</span>
           <span className="text-3xl font-black text-white">{logs.length}</span>
         </Card>
         <Card className="flex flex-col border-white/5 bg-slate-900/40">
-          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Active Security Pulse</span>
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">System Security Status</span>
           <span className="text-3xl font-black text-green-500">NOMINAL</span>
         </Card>
         <Card className="flex flex-col border-white/5 bg-slate-900/40">
-          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Unique Actors</span>
+          <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Unique Users</span>
           <span className="text-3xl font-black text-white">{new Set(logs.map(l => l.performedBy)).size}</span>
         </Card>
       </div>
@@ -138,10 +138,10 @@ export default function AuditLogs() {
           value={actionFilter}
           onChange={(e) => setActionFilter(e.target.value)}
         >
-          <option value="All">All Protocol Actions</option>
-          <option value="Created">Provisioning Events</option>
-          <option value="Updated">Metadata Updates</option>
-          <option value="Deleted">Decommissioning</option>
+          <option value="All">All Actions</option>
+          <option value="Created">Asset Created</option>
+          <option value="Updated">Asset Updated</option>
+          <option value="Deleted">Asset Deleted</option>
           <option value="ALERT">Security Alerts</option>
         </select>
       </div>
@@ -158,10 +158,10 @@ export default function AuditLogs() {
           <table className="table">
             <thead>
               <tr>
-                <th>Protocol Action</th>
-                <th>Origin Identity</th>
-                <th>Network Signature</th>
-                <th className="text-right">Timestamp (UTC)</th>
+                <th>Action</th>
+                <th>Performed By</th>
+                <th>IP Address</th>
+                <th className="text-right">Timestamp</th>
               </tr>
             </thead>
             <tbody>
@@ -174,7 +174,7 @@ export default function AuditLogs() {
                   </td>
                   <td className="font-bold text-slate-300">{log.performedBy}</td>
                   <td className="font-mono text-[11px] text-slate-500 font-bold uppercase">
-                    {log.ip || 'Local Kernel'}
+                    {log.ip || 'Internal'}
                   </td>
                   <td className="text-right">
                     <div className="text-slate-100 font-bold text-xs">{new Date(log.createdAt).toLocaleDateString()}</div>

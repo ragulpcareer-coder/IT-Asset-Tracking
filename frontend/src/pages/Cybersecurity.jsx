@@ -56,7 +56,7 @@ function Cybersecurity() {
     const handleScanNetwork = async () => {
         setScanning(true);
         setScanResult(null);
-        toast.info("Initiating deep network discovery protocol...");
+        toast.info("Starting network scan. This may take a moment...");
         try {
             const { data } = await axios.post(`/assets/scan-network`);
             setScanResult({
@@ -79,10 +79,9 @@ function Cybersecurity() {
         return (
             <div className="flex-center min-h-[60vh] flex-col text-center card bg-slate-900/50 border-red-500/20">
                 <div className="text-5xl mb-6">🔒</div>
-                <h2 className="text-2xl font-black text-white px-2">Access Denied: SOC Gate Restricted</h2>
+                <h2 className="text-2xl font-black text-white px-2">Access Denied</h2>
                 <p className="text-slate-500 max-w-md mt-4 px-4 text-sm font-medium">
-                    The Security Operations Center (SOC) dashboard is restricted to Tier-1 Cyber-Administrators.
-                    Attempts to bypass the SOC gateway trigger immediate forensic logging.
+                    This page is restricted to Administrators and Super Admins only.
                 </p>
             </div>
         );
@@ -97,10 +96,10 @@ function Cybersecurity() {
                 <div>
                     <h1 className="text-3xl font-extrabold text-red-500 tracking-tighter uppercase flex items-center gap-3">
                         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
-                        Security Operations Center (SOC)
+                        Security Threat Monitoring
                     </h1>
                     <p className="text-slate-500 font-medium mt-1 text-xs tracking-widest uppercase italic pt-1">
-                        Zero Trust Network Discovery & Rogue Asset Detection
+                        Real-Time Network Security & Threat Detection
                     </p>
                 </div>
                 <Button
@@ -110,7 +109,7 @@ function Cybersecurity() {
                     disabled={scanning}
                     className="shadow-[0_0_20px_rgba(239,68,68,0.2)]"
                 >
-                    {scanning ? "Discovering Network..." : "Run Network Discovery"}
+                    {scanning ? "Scanning..." : "Scan Network for Threats"}
                 </Button>
             </div>
 
@@ -167,7 +166,7 @@ function Cybersecurity() {
                             </div>
                         </Card>
                         <Card className="border-cyan-500/20 bg-slate-900/40 border-l-[6px] border-l-cyan-500">
-                            <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Prompt Injection Attempts Blocked</div>
+                            <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Blocked Intrusion Attempts</div>
                             <div className="text-4xl font-black text-cyan-500 tabular-nums">
                                 {injectionAttempts}
                             </div>
@@ -221,7 +220,7 @@ function Cybersecurity() {
                         <div className="py-24"><LoadingSpinner message="Decrypting Threat Matrix..." /></div>
                     ) : alerts.length === 0 ? (
                         <div className="text-center py-20 text-slate-500 font-bold uppercase tracking-widest text-sm italic">
-                            No active security anomalies detected.
+                            No active security threats detected. Your environment is clean.
                         </div>
                     ) : (
                         <div className="table-container border-none rounded-none">
