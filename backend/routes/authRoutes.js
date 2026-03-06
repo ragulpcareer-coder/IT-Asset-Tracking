@@ -13,7 +13,7 @@ const express = require("express");
 const router = express.Router();
 
 const {
-    register, login, logout, getMe, changePassword, updateProfile,
+    register, login, verify2FALogin, logout, getMe, changePassword, updateProfile,
     logoutAll, refresh, generate2FA, verify2FA, disable2FA,
     getAllUsers, promoteUser, demoteUser, suspendUser,
     adminResetPassword, adminDisable2FA, deleteUser,
