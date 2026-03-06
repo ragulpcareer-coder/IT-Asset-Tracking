@@ -12,6 +12,8 @@
  *     All 3 conditions must be true simultaneously → highest severity alert
  */
 
+const SecurityAlert = require("../models/SecurityAlert");
+
 // In-memory event ring buffer (per IP, last 10 minutes)
 const failedLoginsByIp = new Map(); // ip -> [timestamp, ...]
 
@@ -27,6 +29,25 @@ function emitAlert(io, type, data) {
     if (!io) return;
     const payload = { type, ...data, timestamp: new Date().toISOString() };
     io.emit("security_alert", payload);
+
+    // Centrally log to SecurityAlert model (§SOC Category 3)
+    (async () => {
+        try {
+            await SecurityAlert.create({
+                type: type,
+                severity: data?.severity === 'critical' ? 'Critical' : (data?.severity === 'high' ? 'High' : (data?.severity === 'medium' ? 'Medium' : 'Low')),
+                message: data?.message || `Security Alert: ${type}`,
+                details: JSON.stringify(data),
+                ip: data?.ip || "Unknown",
+                performedBy: data?.email || data?.userId || "System",
+                // Attempt to map to MITRE if possible
+                mitreTactic: type.includes('BRUTE') ? 'Credential Access' : (type.includes('ESCALATION') ? 'Privilege Escalation' : 'Lateral Movement')
+            });
+        } catch (err) {
+            console.error("[SOC] Alert persistence failure:", err.message);
+        }
+    })();
+
     console.log(`[CorrelationEngine] Alert emitted: ${type}`, data?.ip || "");
 }
 

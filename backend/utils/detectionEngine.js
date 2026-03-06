@@ -5,6 +5,7 @@
  */
 
 const AuditLog = require("../models/AuditLog");
+const SecurityAlert = require("../models/SecurityAlert");
 const logger = require("./logger");
 
 const MITRE_MAPPING = {
@@ -62,6 +63,7 @@ class DetectionEngine {
         for (const alert of alerts) {
             const mitre = MITRE_MAPPING[alert.type] || { tactic: "Unknown", technique: "NA", name: alert.type };
 
+            // 1. Log to AuditLog (Legacy/Strategic Registry)
             await AuditLog.create({
                 action: `DETECTION: ${mitre.name} [${mitre.technique}]`,
                 performedBy: asset.name || "Endpoint Agent",
@@ -73,6 +75,19 @@ class DetectionEngine {
                     severity: alert.severity,
                     source: "EDR_DETECTION_ENGINE"
                 }
+            });
+
+            // 2. Log to dedicated SecurityAlert model (New SOC Platform Registry)
+            await SecurityAlert.create({
+                type: alert.type,
+                severity: alert.severity,
+                message: `${mitre.name}: ${alert.details}`,
+                details: alert.details,
+                assetId: asset._id,
+                performedBy: asset.name || "Endpoint Agent",
+                ip: asset.ipAddress || "Unknown",
+                mitreTactic: mitre.tactic,
+                mitreTechnique: mitre.technique
             });
 
             logger.warn(`SECURITY_DETECTION: ${mitre.name} on ${asset.name}. Tactic: ${mitre.tactic}`);

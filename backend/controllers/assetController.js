@@ -1,5 +1,6 @@
 const Asset = require("../models/Asset");
 const AuditLog = require("../models/AuditLog");
+const SecurityAlert = require("../models/SecurityAlert");
 const QRCode = require('qrcode');
 const crypto = require('crypto');
 const findLocalDevices = require('local-devices');
@@ -7,6 +8,7 @@ const { sendSecurityAlert } = require('../utils/emailService');
 const dns = require('dns').promises;
 const os = require('os');
 const net = require('net');
+const logger = require("../utils/logger");
 
 // Private/Local IP Check (RFC 1918 + loopback/link-local)
 const isPrivateIP = (ip) => {
@@ -619,6 +621,17 @@ const scanNetwork = async (req, res) => {
           `<b>SECURITY BREACH:</b> A new unknown device was detected at physical address <b>${device.mac}</b>. Access source: ${device.ip}. Integrity check pending.`
         );
 
+        await SecurityAlert.create({
+          type: "ROGUE_NODE",
+          severity: openPorts.length > 0 ? "High" : "Medium",
+          message: `Unauthorized device detected: ${rogueAsset.name}`,
+          details: `Unregistered device found on local segment. IP: ${device.ip}. MAC: ${device.mac}. Open services: [${openPorts.join(', ') || 'none'}]`,
+          assetId: rogueAsset._id,
+          ip: device.ip,
+          mitreTactic: "Initial Access",
+          mitreTechnique: "T1190"
+        });
+
         await AuditLog.create({
           action: "SECURITY: Rogue Device Detected",
           performedBy: "Network Discovery Monitor",
@@ -662,25 +675,30 @@ const scanNetwork = async (req, res) => {
 // GET Security Alerts — Admin only
 const getSecurityAlerts = async (req, res) => {
   try {
-    console.log("=== SECURITY ALERTS ENDPOINT HIT ===");
-    console.log("User:", req.user);
-    console.log("Environment:", process.env.NODE_ENV);
+    // 1. Fetch alerts from dedicated model (§SOC Category 3)
+    // We sort by newest first and limit to 50 for performance
+    const alerts = await SecurityAlert.find()
+      .populate("assetId", "name type serialNumber")
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
 
-    const mongoose = require("mongoose");
-    if (!mongoose.connection.readyState) {
-      console.error("Database NOT connected");
-      return res.status(500).json({ success: false, message: "Database not connected" });
-    }
-
+    // 2. Proactive response hardening: ensure array even if empty
     return res.json({
       success: true,
-      data: [],
-      message: "Static test success",
+      count: alerts.length,
+      alerts: alerts || [],
       timestamp: new Date().toISOString()
     });
-  } catch (err) {
-    console.error("SECURITY ALERTS ERROR:", err);
-    return res.status(500).json({ success: false, message: err.message, stack: err.stack });
+  } catch (error) {
+    logger.error("[SOC] Failed to fetch security alerts:", error.message);
+
+    // Always return valid JSON to prevent 500 crash handlers from breaking frontend UI
+    return res.status(500).json({
+      success: false,
+      message: "Security Registry Internal Error",
+      alerts: []
+    });
   }
 };
 
@@ -795,6 +813,16 @@ const verifyAssetIntegrity = async (req, res) => {
     const isTampered = asset.integrityHash !== calculatedHash;
 
     if (isTampered) {
+      await SecurityAlert.create({
+        type: "TAMPERING",
+        severity: "Critical",
+        message: `DEEP INTEGRITY BREACH: Asset tampering detected for ${asset.name}`,
+        details: `Calculated hash mismatch for asset ${asset._id}. Data may have been manually modified in database skipping secure registry hooks.`,
+        assetId: asset._id,
+        mitreTactic: "Defense Evasion",
+        mitreTechnique: "T1562"
+      });
+
       await AuditLog.create({
         action: "SECURITY ALERT: Record Tampering Detected",
         performedBy: req.user?.email || "System-Monitor",
