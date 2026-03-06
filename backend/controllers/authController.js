@@ -284,14 +284,22 @@ const login = async (req, res) => {
 
     // 6️⃣ If 2FA enabled:
     if (user.isTwoFactorEnabled) {
-      // Split 2FA flow: If 2FA is enabled, we return 401 with a specific flag
+      // Split 2FA flow: If 2FA is enabled, we return 200 with a specific flag
       // so the frontend knows to show the OTP screen.
-      // We do NOT verify the token here anymore to avoid the 401 loop on failed OTP.
+      // We use 200 instead of 401 to avoid unintended global catchers/interceptors.
       console.log(`[2FA] User ${user._id} requires 2FA. Prompting frontend.`);
-      return res.status(401).json({
-        success: false,
+      return res.status(200).json({
+        success: true,
         requires2FA: true,
         userId: user._id,
+        isTwoFactorEnabled: true,
+        user: {
+          id: user._id,
+          email: user.email,
+          role: user.role,
+          name: user.name,
+          isTwoFactorEnabled: true
+        },
         message: "Two-factor authentication token required"
       });
     }
@@ -367,13 +375,18 @@ const login = async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
-        role: user.role
+        role: user.role,
+        name: user.name,
+        isTwoFactorEnabled: user.isTwoFactorEnabled,
+        preferences: user.preferences,
+        activityTimestamps: user.activityTimestamps
       },
       timestamp: new Date().toISOString(),
       _id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
+      isTwoFactorEnabled: user.isTwoFactorEnabled,
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });
@@ -494,12 +507,17 @@ const verify2FALogin = async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
-        role: user.role
+        role: user.role,
+        name: user.name,
+        isTwoFactorEnabled: true,
+        preferences: user.preferences,
+        activityTimestamps: user.activityTimestamps
       },
       _id: user._id,
       name: user.name,
       email: user.email,
       role: user.role,
+      isTwoFactorEnabled: true,
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });

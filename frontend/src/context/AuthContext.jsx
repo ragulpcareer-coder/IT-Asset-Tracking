@@ -34,10 +34,14 @@ export const AuthProvider = ({ children }) => {
   // Login Function (Step 1)
   const login = async (email, password, token2FA = "", fingerprint = {}) => {
     const res = await axios.post("/auth/login", { email, password, token2FA, fingerprint });
+    if (res.data.requires2FA) {
+      // Don't set user yet if 2FA is required, but we can store partial data if needed
+      return res.data;
+    }
     if (res.data.token || res.data.accessToken) {
       localStorage.setItem("token", res.data.accessToken || res.data.token);
       const { accessToken, refreshToken, token, ...userData } = res.data;
-      setUser(userData);
+      setUser(userData.user || userData);
     }
     return res.data;
   };
@@ -48,7 +52,7 @@ export const AuthProvider = ({ children }) => {
     if (res.data.token || res.data.accessToken) {
       localStorage.setItem("token", res.data.accessToken || res.data.token);
       const { accessToken, refreshToken, token, ...userData } = res.data;
-      setUser(userData);
+      setUser(userData.user || userData);
     }
     return res.data;
   };

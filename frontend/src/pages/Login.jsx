@@ -80,6 +80,7 @@ export default function Login() {
         if (data.requires2FA) {
           setRequires2FA(true);
           setTempUserId(data.userId);
+          setError(""); // Clear any previous password errors
         } else {
           // Success (No 2FA)
           navigate("/");
@@ -91,20 +92,20 @@ export default function Login() {
       }
     } catch (err) {
       const data = err.response?.data;
+      // We still handle data.requires2FA in catch just in case backend returns 401
       if (data?.requires2FA && !requires2FA) {
-        // First attempt — password correct, 2FA required (Fallback if login returns 401)
         setRequires2FA(true);
         setTempUserId(data.userId);
         setError("");
       } else if (requires2FA) {
-        // Already on 2FA screen — show inline error, stay on 2FA screen
+        // Already on 2FA screen — show inline error
         setError(data?.message || "Invalid 2FA code. Please try again.");
         setToken2FA("");
       } else if (data?.code === "2FA_SECRET_CORRUPT") {
-        setError(data?.message || "2FA is misconfigured. Contact your administrator.");
+        setError(data?.message || "2FA is misconfigured. Contact admin.");
         setRequires2FA(false);
       } else {
-        setError(data?.message || "Login failed. Please check your credentials.");
+        setError(data?.message || "Login failed. Please check credentials.");
       }
     } finally {
       setLoading(false);
