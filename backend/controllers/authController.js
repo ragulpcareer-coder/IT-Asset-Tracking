@@ -423,7 +423,7 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: "Current password is incorrect" });
     }
 
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(12);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
 
     user.password = hashedPassword;
@@ -1104,7 +1104,7 @@ const forgotPassword = async (req, res) => {
 
     // 4. ANTI-ENUMERATION RESPONSE (§1.2 - Guard against discovery attacks)
     const genericResponse = {
-      message: "If the account exists, a recovery transmission has been dispatched.",
+      message: "If an account exists for this email address, a password reset link has been sent.",
       latency: `${Date.now() - startTime}ms`
     };
 
@@ -1238,7 +1238,7 @@ const resetPassword = async (req, res) => {
     }
 
     // 3. Hash the new password
-    const salt = await bcrypt.genSalt(10);
+    const salt = await bcrypt.genSalt(12);
     const hashedPassword = await bcrypt.hash(password, salt);
 
     // 4. Mark token as used and commit password change atomically.

@@ -155,9 +155,27 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  message: { message: "Too many password reset requests. Please wait 15 minutes before trying again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const twoFALimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { message: "Too many 2FA attempts. Please wait 15 minutes before trying again." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 app.use("/api/", globalLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
+app.use("/api/auth/forgot-password", forgotPasswordLimiter);
+app.use("/api/auth/2fa/verify", twoFALimiter);
 
 // 8. SIEM & Performance Logging Integration (§47)
 app.use((req, res, next) => {
