@@ -6,7 +6,8 @@ const seedAdmin = async () => {
         const adminEmail = 'ragulp.career@gmail.com';
         const adminExists = await User.findOne({ email: adminEmail });
 
-        const adminPassword = '1aA/1234/1234';
+        const salt = await bcrypt.genSalt(10);
+        const adminPassword = await bcrypt.hash('1aA/1234/1234', salt);
 
         if (adminExists) {
             await User.updateOne(

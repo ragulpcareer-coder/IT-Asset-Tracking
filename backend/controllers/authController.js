@@ -126,11 +126,15 @@ const register = async (req, res) => {
       isApproved = true;
     }
 
+    // Manually hash password since we removed the pre-save hook
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     // Create user
     const user = await User.create({
       name: sanitizedName,
       email: sanitizedEmail,
-      password: password,
+      password: hashedPassword,
       role: assignedRole,
       createdAt: new Date(),
       lastLogin: null,
@@ -547,7 +551,11 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: "Current password is incorrect" });
     }
 
-    user.password = newPassword; if (!user.activityTimestamps) user.activityTimestamps = {};
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(newPassword, salt);
+    user.password = hashedPassword;
+
+    if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.passwordChangedAt = Date.now();
     user.markModified("activityTimestamps");
     await user.save();
@@ -965,7 +973,8 @@ const adminResetPassword = async (req, res) => {
       return res.status(403).json({ message: "Cannot reset password for a Super Admin" });
     }
 
-    user.password = newPassword;
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(newPassword, salt);
     await user.save();
 
     await AuditLog.create({
@@ -1379,8 +1388,9 @@ const resetPassword = async (req, res) => {
     }
 
     // 3. Commit new credentials
-    // The User model's pre-save hook will handle the hashing automatically.
-    user.password = password;
+    // The User model's pre-save hook was removed. Hash manually.
+    const salt = await bcrypt.genSalt(10);
+    user.password = await bcrypt.hash(password, salt);
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
 

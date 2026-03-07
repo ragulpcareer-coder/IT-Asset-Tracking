@@ -78,19 +78,8 @@ userSchema.index({ lastLogin: -1 }); // Index for activity monitoring
 
 const bcrypt = require("bcryptjs");
 
-// Secure Password Hashing (§1.1)
-// CRITICAL FIX: Must `return next()` when password is not modified.
-// Without return, execution falls through to bcrypt.hash EVEN when
-// password hasn't changed, causing the stored hash to be re-hashed on
-// every user.save() call. After a few saves, the password becomes
-// bcrypt(bcrypt(bcrypt(...))) — invalid for comparison, causes 503 login crash.
-userSchema.pre("save", async function (next) {
-  if (!this.isModified("password")) {
-    return next(); // ← MUST return. Without it, password gets double-hashed.
-  }
-  const salt = await bcrypt.genSalt(10);
-  this.password = await bcrypt.hash(this.password, salt);
-});
+// REMOVED: Automatic pre-save hashing hook.
+// Passwords MUST now be hashed manually in controllers before calling save() or create().
 
 // Secure Password Verification (§1.1)
 userSchema.methods.matchPassword = async function (enteredPassword) {
