@@ -85,10 +85,13 @@ const getSecurityAlerts = async (req, res) => {
         const alerts = await SecurityAlert.find()
             .populate("userId", "name email role")
             .sort({ createdAt: -1 })
-            .limit(50);
-        res.json(alerts);
+            .limit(50)
+            .lean();
+
+        return res.status(200).json(alerts || []);
     } catch (error) {
-        res.status(500).json({ message: "Failed to fetch security alerts." });
+        console.error("AI Controller Security Alerts Error:", error);
+        return res.status(500).json([]);
     }
 };
 

@@ -675,28 +675,53 @@ const scanNetwork = async (req, res) => {
 // GET Security Alerts — Admin only
 const getSecurityAlerts = async (req, res) => {
   try {
+    console.log("Fetching security alerts...");
+
     // 1. Fetch alerts from dedicated model (§SOC Category 3)
     // We sort by newest first and limit to 50 for performance
-    const alerts = await SecurityAlert.find()
+    const alertsData = await SecurityAlert.find()
       .populate("assetId", "name type serialNumber")
       .sort({ createdAt: -1 })
       .limit(50)
       .lean();
 
+    console.log("Alerts found from DB:", alertsData ? alertsData.length : 0);
+
     // 2. Proactive response hardening: ensure array even if empty
-    return res.json({
+    if (!alertsData) {
+      return res.status(200).json({
+        success: true,
+        alerts: []
+      });
+    }
+
+    // Process alerts to structure fields safely and avoid "undefined" crashes
+    const sanitizedAlerts = alertsData.map((alert) => {
+      const asset = alert.assetId || {};
+
+      // Ensure all accessed fields are defensively checked
+      return {
+        ...alert,
+        assetName: asset.name || "Unknown Asset",
+        issue: alert.message || alert.description || "Security issue detected",
+        severity: alert.severity || "medium",
+        timestamp: alert.createdAt || new Date().toISOString()
+      };
+    });
+
+    return res.status(200).json({
       success: true,
-      count: alerts.length,
-      alerts: alerts || [],
+      count: sanitizedAlerts.length,
+      alerts: sanitizedAlerts,
       timestamp: new Date().toISOString()
     });
   } catch (error) {
-    logger.error("[SOC] Failed to fetch security alerts:", error.message);
+    console.error("Security Alerts Error:", error);
 
     // Always return valid JSON to prevent 500 crash handlers from breaking frontend UI
     return res.status(500).json({
       success: false,
-      message: "Security Registry Internal Error",
+      message: "Failed to fetch security alerts",
       alerts: []
     });
   }
