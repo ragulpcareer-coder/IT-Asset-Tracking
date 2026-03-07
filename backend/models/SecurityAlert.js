@@ -61,4 +61,10 @@ const SecurityAlertSchema = new mongoose.Schema({
 SecurityAlertSchema.index({ severity: 1, status: 1 });
 SecurityAlertSchema.index({ createdAt: -1 });
 
+SecurityAlertSchema.post("save", function (doc) {
+    if (global.io) {
+        global.io.emit("security_alert", doc);
+    }
+});
+
 module.exports = mongoose.model("SecurityAlert", SecurityAlertSchema);

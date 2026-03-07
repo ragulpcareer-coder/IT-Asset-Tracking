@@ -2,6 +2,7 @@ const SecurityAlert = require("../models/SecurityAlert");
 const User = require("../models/User");
 const Asset = require("../models/Asset");
 const Incident = require("../models/Incident");
+const BlockedIp = require("../models/BlockedIp");
 const threatIntel = require("./threatIntelService");
 
 // In-memory event ring buffer (per IP, last 10 minutes)
@@ -141,14 +142,29 @@ function checkBruteForce(ip, email) {
     attempts.push(now);
     failedLoginsByIp.set(ip, attempts);
 
-    if (attempts.length >= BRUTE_FORCE_THRESHOLD) {
+    if (attempts.length >= 10) {
+        // Elite Incident Response: Global IP Ban
+        triggerAlert("SUSPICIOUS_IP", {
+            message: `CRITICAL: IP ${ip} permanently blacklisted following prolonged brute force assault (>10 attempts).`,
+            ip,
+            severity: "CRITICAL",
+            metadata: { attempts: attempts.length, email }
+        });
+
+        BlockedIp.create({
+            ipAddress: ip,
+            reason: `Brute Force Assault (${attempts.length} failures)`
+        }).catch(err => console.error("[IP Ban Error] ", err.message));
+
+        failedLoginsByIp.set(ip, []); // reset
+    } else if (attempts.length >= BRUTE_FORCE_THRESHOLD) {
         triggerAlert("BRUTE_FORCE", {
             message: `Brute force attack detected: ${attempts.length} failures from IP ${ip} in 2 mins.`,
             ip,
             severity: "HIGH",
             metadata: { attempts: attempts.length, email }
         });
-        failedLoginsByIp.set(ip, []); // reset
+        // We do not reset the counter yet, allowing it to escalate to 10 for a permanent ban.
     }
 }
 

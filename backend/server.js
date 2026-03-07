@@ -14,6 +14,7 @@ const compression = require("compression");
 const cookieParser = require("cookie-parser");
 const csurf = require("csurf");
 const logger = require('./utils/logger');
+const ipBlockerMiddleware = require("./middleware/ipBlockerMiddleware");
 
 // 1. Environment Configuration
 const envPath = path.resolve(__dirname, "backend.env");
@@ -138,6 +139,9 @@ app.use(express.urlencoded({ extended: true, limit: "10kb" }));
 app.use(cookieParser());
 app.use(mongoSanitize()); // §41: NoSQL Injection Protection
 app.use(xss()); // §42: XSS Protection
+
+// 6.5. Global IP Blacklist (Automated Incident Response mitigations)
+app.use(ipBlockerMiddleware);
 
 // 7. Rate Limiting Logic (§7, §8, §45)
 const globalLimiter = rateLimit({

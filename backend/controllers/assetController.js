@@ -9,6 +9,7 @@ const dns = require('dns').promises;
 const os = require('os');
 const net = require('net');
 const logger = require("../utils/logger");
+const riskScoringService = require("../services/riskScoringService");
 
 // Private/Local IP Check (RFC 1918 + loopback/link-local)
 const isPrivateIP = (ip) => {
@@ -227,6 +228,9 @@ const updateAsset = async (req, res) => {
     }
 
     await asset.save();
+
+    // Evaluate Compliance Risk Score
+    await riskScoringService.evaluateAssetRisk(asset._id);
 
     await AuditLog.create({
       action: `METADATA_MODIFIED: ${asset.name}`,
@@ -614,6 +618,9 @@ const scanNetwork = async (req, res) => {
           name: rogueAsset.name
         }));
         await rogueAsset.save();
+
+        // Evaluate Compliance Risk Score
+        await riskScoringService.evaluateAssetRisk(rogueAsset._id);
 
         // Trigger SIEM Alert
         await sendSecurityAlert(

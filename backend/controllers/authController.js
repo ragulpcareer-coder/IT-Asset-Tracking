@@ -8,6 +8,8 @@ const TokenManager = require("../utils/tokenManager");
 const UserSession = require("../models/UserSession");
 const SecurityAlert = require("../models/SecurityAlert");
 const { getGeoLocation } = require("../utils/geoIpService");
+const riskScoringService = require("../services/riskScoringService");
+const incidentResponseService = require("../services/incidentResponseService");
 const speakeasy = require("speakeasy");
 const qrcode = require("qrcode");
 const {
@@ -269,9 +271,13 @@ const login = async (req, res) => {
       const newFailCount = (user.failedLoginAttempts || 0) + 1;
       const updateFields = { failedLoginAttempts: newFailCount };
       if (newFailCount >= 5) {
-        updateFields.lockUntil = new Date(Date.now() + 15 * 60 * 1000);
+        await incidentResponseService.lockAccount(user._id, 15, "Multiple Failed Logins (Brute Force)");
+      } else {
+        await User.updateOne({ _id: user._id }, { $set: updateFields });
       }
-      await User.updateOne({ _id: user._id }, { $set: updateFields });
+
+      // Risk Scoring Integration
+      riskScoringService.evaluateUserRisk(user._id, newFailCount >= 5 ? "BRUTE_FORCE_ATTEMPT" : "FAILED_LOGIN");
 
       // Correlation Engine: Brute force detection
       correlationEngine.checkBruteForce(req.ip || req.connection?.remoteAddress, email);
@@ -296,6 +302,8 @@ const login = async (req, res) => {
           userId: user._id,
           sourceIp: ip
         });
+        riskScoringService.evaluateUserRisk(user._id, "NEW_COUNTRY_LOGIN");
+        await incidentResponseService.terminateAllSessions(user._id, "Impossible Travel (Geo-velocity violation)");
       } else if (lastSession.ipAddress !== ip && lastSession.userAgent !== userAgent) {
         await SecurityAlert.create({
           type: "SUSPICIOUS_IP",
@@ -305,6 +313,8 @@ const login = async (req, res) => {
           userId: user._id,
           sourceIp: ip
         });
+        riskScoringService.evaluateUserRisk(user._id, "NEW_DEVICE_LOGIN");
+        await incidentResponseService.terminateAllSessions(user._id, "Suspicious Device and IP Signature Shift");
       }
     }
 
@@ -485,6 +495,7 @@ const verify2FALogin = async (req, res) => {
 
     if (!isVerified) {
       correlationEngine.checkBruteForce(ip, user.email); // Track 2FA brute force attempts
+      riskScoringService.evaluateUserRisk(user._id, "FAILED_LOGIN");
       return res.status(401).json({
         success: false,
         message: "Invalid 2FA token. Please try again.",
@@ -507,6 +518,8 @@ const verify2FALogin = async (req, res) => {
           userId: user._id,
           sourceIp: ip
         });
+        riskScoringService.evaluateUserRisk(user._id, "NEW_COUNTRY_LOGIN");
+        await incidentResponseService.terminateAllSessions(user._id, "Impossible Travel (Geo-velocity violation)");
       } else if (lastSession.ipAddress !== ip && lastSession.userAgent !== userAgent) {
         await SecurityAlert.create({
           type: "SUSPICIOUS_IP",
@@ -516,6 +529,8 @@ const verify2FALogin = async (req, res) => {
           userId: user._id,
           sourceIp: ip
         });
+        riskScoringService.evaluateUserRisk(user._id, "NEW_DEVICE_LOGIN");
+        await incidentResponseService.terminateAllSessions(user._id, "Suspicious Device and IP Signature Shift");
       }
     }
 

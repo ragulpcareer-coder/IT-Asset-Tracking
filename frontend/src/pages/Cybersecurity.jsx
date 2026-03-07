@@ -378,6 +378,55 @@ function Cybersecurity() {
                 </ConfirmModal>
             )}
 
+            {/* High-Risk Entities Heatmap */}
+            <div className="mt-10 mb-10">
+                <h3 className="text-sm font-black text-slate-500 uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" /> Identity Threat Profiler
+                </h3>
+                <Card className="p-0 overflow-hidden border-red-500/20 bg-slate-900/40">
+                    <div className="table-container border-none rounded-none">
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th>User Principal</th>
+                                    <th>Threat Level</th>
+                                    <th>Risk Score Matrix</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {socStats?.highRiskUsers?.map((user) => (
+                                    <tr key={user._id} className="hover:bg-red-500/5 transition-all">
+                                        <td className="font-bold text-slate-200">
+                                            {user.email}
+                                            <div className="text-[10px] text-slate-500">Subject to conditional access blocks</div>
+                                        </td>
+                                        <td>
+                                            <Badge variant={user.behavioralMetadata?.threatLevel === 'CRITICAL' ? 'danger' : 'warning'}>
+                                                {user.behavioralMetadata?.threatLevel || 'HIGH'}
+                                            </Badge>
+                                        </td>
+                                        <td className="w-64">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex-1 h-2 bg-slate-800 rounded-full overflow-hidden">
+                                                    <div
+                                                        className={`h-full ${user.behavioralMetadata?.threatLevel === 'CRITICAL' ? 'bg-red-500' : 'bg-orange-500'}`}
+                                                        style={{ width: `${Math.min(user.behavioralMetadata?.riskScore || 0, 100)}%` }}
+                                                    />
+                                                </div>
+                                                <span className="text-xs font-black text-slate-400 w-10">{user.behavioralMetadata?.riskScore || 0}%</span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                ))}
+                                {(!socStats?.highRiskUsers || socStats.highRiskUsers.length === 0) && (
+                                    <tr><td colSpan="3" className="text-center py-6 text-slate-500 italic">No elevated Identity Threats detected in current window.</td></tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            </div>
+
             {/* Asset Performance & Risk Table */}
             <div className="mt-20">
                 <h3 className="text-sm font-black text-slate-500 uppercase tracking-[0.2em] mb-6 flex items-center gap-2">

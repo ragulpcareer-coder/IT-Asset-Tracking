@@ -47,6 +47,7 @@ const userSchema = new mongoose.Schema({
     commonIps: { type: [String], default: [] },        // Array of frequently used IPs
     trustedDevices: { type: [String], default: [] },   // Array of device fingerprint hashes
     riskScore: { type: Number, default: 0 },           // 0-100 dynamic risk score
+    threatLevel: { type: String, enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"], default: "LOW" },
     lastSecurityAuditAt: { type: Date }
   },
 

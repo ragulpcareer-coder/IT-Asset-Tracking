@@ -79,18 +79,23 @@ const getIncidentById = async (req, res) => {
 
 const getSocStats = async (req, res) => {
     try {
-        const [totalAlerts, activeIncidents, lockedAccounts, alertsByIp] = await Promise.all([
+        const [totalAlerts, activeIncidents, lockedAccounts, blockedIpsCount, highRiskUsers] = await Promise.all([
             SecurityAlert.countDocuments(),
             Incident.countDocuments({ status: { $in: ["OPEN", "INVESTIGATING"] } }),
-            User.countDocuments({ isActive: false }),
-            SecurityAlert.distinct("sourceIp")
+            User.countDocuments({ isActive: false, lockUntil: { $exists: true } }),
+            SecurityAlert.distinct("sourceIp"),
+            User.find({ "behavioralMetadata.threatLevel": { $in: ["HIGH", "CRITICAL"] } })
+                .select("email behavioralMetadata.riskScore behavioralMetadata.threatLevel")
+                .sort({ "behavioralMetadata.riskScore": -1 })
+                .limit(10)
         ]);
 
         res.json({
             totalAlerts,
             activeIncidents,
             lockedAccounts,
-            blockedIps: alertsByIp.length,
+            blockedIps: blockedIpsCount.length,
+            highRiskUsers,
             lastUpdated: new Date()
         });
     } catch (error) {
