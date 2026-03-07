@@ -1165,11 +1165,19 @@ const diagEmailTest = async (req, res) => {
       role: "User"
     };
     const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
+    const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
+
     await sendApprovalRequest(testUser);
     res.json({
       success: true,
       message: "Approval request email triggered!",
-      sentTo: adminEmail.replace(/(.{2}).*(@.*)/, "$1...$2")
+      sentTo: adminEmail.replace(/(.{2}).*(@.*)/, "$1...$2"),
+      diag: {
+        hasEmailUser: !!process.env.EMAIL_USER,
+        hasEmailPass: !!process.env.EMAIL_PASS,
+        hasResendKey: !!process.env.RESEND_API_KEY,
+        envHealthy: hasSystemMail
+      }
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1240,7 +1248,7 @@ const forgotPassword = async (req, res) => {
     const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
 
     // 6. PERSISTENCE (Requirement 3)
-    await PasswordResetToken.create({
+    const resetRecord = await PasswordResetToken.create({
       userId: user._id,
       tokenHash: hashedToken,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000)
@@ -1250,8 +1258,19 @@ const forgotPassword = async (req, res) => {
     // As per Requirement 1: Do NOT allow silent success.
     // We wait for the email to ensure delivery before returning 200.
     try {
-      console.log(`[Diagnostic] ENV CHECK: EMAIL_USER=${process.env.EMAIL_USER ? 'Present' : 'MISSING'}`);
-      console.log(`[Diagnostic] ENV CHECK: EMAIL_PASS=${process.env.EMAIL_PASS ? 'Present' : 'MISSING'}`);
+      // PROD DIAGNOSTIC: Check for required env vars before attempting dispatch
+      const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
+
+      if (!hasSystemMail) {
+        console.error(`[Auth] FATAL: Email service not configured on host. EMAIL_USER=${!!process.env.EMAIL_USER}, RESEND=${!!process.env.RESEND_API_KEY}`);
+        // Cleanup token since we can't send it
+        await PasswordResetToken.deleteOne({ _id: resetRecord._id });
+
+        return res.status(503).json({
+          message: "Email dispatch service is currently offline. Please contact an administrator.",
+          code: "EMAIL_SERVICE_MISSING"
+        });
+      }
 
       console.log(`[Auth] Initiating synchronous email dispatch to: ${user.email}`);
       const emailResult = await sendPasswordResetEmail(user, resetToken);
@@ -1281,9 +1300,13 @@ const forgotPassword = async (req, res) => {
     } catch (emailErr) {
       console.error(`[Auth] EXPLICIT RESET FAILURE for ${user.email}:`, emailErr.message);
 
-      return res.status(500).json({
-        message: "Email dispatch failed.",
-        meta: { userStatus: 'identified', error: emailErr.message }
+      // CLEANUP: Delete the token if it couldn't be sent
+      await PasswordResetToken.deleteOne({ _id: resetRecord._id });
+
+      return res.status(502).json({
+        message: "Failed to transmit recovery link. Please try again in 5 minutes.",
+        meta: { userStatus: 'identified', error: emailErr.message },
+        code: "EMAIL_DISPATCH_FAILURE"
       });
     }
 
