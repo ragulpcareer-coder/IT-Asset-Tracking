@@ -24,10 +24,23 @@ const {
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
 const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
 const zeroTrust = require("../middleware/zeroTrustMiddleware");
+const rateLimit = require("express-rate-limit");
+
+const loginLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 5, // Limit each IP to 5 login requests per `window` (here, per minute)
+    message: {
+        success: false,
+        message: "Too many login attempts from this IP, please try again after a minute",
+        code: "AUTH_429"
+    },
+    standardHeaders: true, // Return rate limit info in the `RateLimit-*` headers
+    legacyHeaders: false, // Disable the `X-RateLimit-*` headers
+});
 
 // ── Public Routes ────────────────────────────────────────────
 router.post("/register", register);
-router.post("/login", login);
+router.post("/login", loginLimiter, login);
 router.post("/verify-2fa", verify2FALogin);
 router.post("/refresh", refresh);
 

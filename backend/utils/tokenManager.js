@@ -29,9 +29,9 @@ class TokenManager {
   /**
    * Generate access token (Short-lived, 15 minutes)
    */
-  generateAccessToken(userId, role) {
+  generateAccessToken(userId, role, tokenVersion = 0) {
     return jwt.sign(
-      { userId, role, type: "access" },
+      { userId, role, type: "access", tokenVersion },
       this.accessSecret,
       { expiresIn: this.accessTokenExpiry }
     );
@@ -67,8 +67,8 @@ class TokenManager {
    * Generate token pair (access + refresh)
    * Use this on login
    */
-  generateTokenPair(userId, role) {
-    const accessToken = this.generateAccessToken(userId, role);
+  generateTokenPair(userId, role, tokenVersion = 0) {
+    const accessToken = this.generateAccessToken(userId, role, tokenVersion);
     const refreshTokenData = this.generateRefreshToken(userId, role);
 
     return {

@@ -38,6 +38,8 @@ const userSchema = new mongoose.Schema({
   lastLoginGeo: { type: mongoose.Schema.Types.Mixed }, // { country, city, coordinates }
   privilegeToken: { type: String },
   privilegeTokenExpires: { type: Date },
+  tokenVersion: { type: Number, default: 0 }, // Used to invalidate all JWTs upon password change
+
 
   // ─── BEHAVIORAL & SECURITY PROFILING (§Category 11) ─────────────
   behavioralMetadata: {

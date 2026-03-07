@@ -152,7 +152,7 @@ const register = async (req, res) => {
     }
 
     // Parallelize tasks
-    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
+    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
 
     // NON-BLOCKING Security Logging for faster registration response
     setImmediate(async () => {
@@ -303,7 +303,7 @@ const login = async (req, res) => {
 
     // 7️⃣ Generate JWT & System Updates
     const ip = req.ip || req.socket?.remoteAddress || 'unknown';
-    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
+    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
     const failedAttemptsBefore = user.failedLoginAttempts || 0;
 
     // NON-BLOCKING: Parallelize system updates and security engine checks
@@ -455,7 +455,7 @@ const verify2FALogin = async (req, res) => {
     }
 
     // 7️⃣ Generate JWT & System Updates
-    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role);
+    const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
 
     // NON-BLOCKING: Parallelize system updates and logging
     setImmediate(async () => {
@@ -554,6 +554,7 @@ const changePassword = async (req, res) => {
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(newPassword, salt);
     user.password = hashedPassword;
+    user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all active JWT sessions
 
     if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.passwordChangedAt = Date.now();
@@ -975,6 +976,7 @@ const adminResetPassword = async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(newPassword, salt);
+    user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all active JWT sessions
     await user.save();
 
     await AuditLog.create({
@@ -1391,6 +1393,7 @@ const resetPassword = async (req, res) => {
     // The User model's pre-save hook was removed. Hash manually.
     const salt = await bcrypt.genSalt(10);
     user.password = await bcrypt.hash(password, salt);
+    user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all active JWT sessions
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
 

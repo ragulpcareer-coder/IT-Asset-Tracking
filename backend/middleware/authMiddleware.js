@@ -87,11 +87,19 @@ const protect = async (req, res, next) => {
 
     // Zero Trust Optimization: Fetch minimal fields required for authorization
     const user = await User.findById(decoded.userId)
-      .select("email role isActive isApproved lockUntil lastLoginIp privilegeTokenExpires");
+      .select("email role isActive isApproved lockUntil lastLoginIp privilegeTokenExpires tokenVersion");
 
     if (!user) {
       console.log(`[AuthMiddleware] Failed: User not found in database for ID ${decoded.userId}`);
       return res.status(401).json({ message: "Not authorized, user not found" });
+    }
+
+    // Token Versioning: Session Invalidation Check
+    const userVersion = user.tokenVersion || 0;
+    const decodedVersion = decoded.tokenVersion || 0;
+    if (userVersion !== decodedVersion) {
+      console.log(`[AuthMiddleware] Failed: Token Version Mismatch (Revoked Session). User: ${userVersion}, Token: ${decodedVersion}`);
+      return res.status(401).json({ message: "Session expired due to security credential updates. Please log in again.", code: "SESSION_REVOKED" });
     }
 
     // Session Binding to IP (§11.1) - Relaxed for Cloud (Render/Vercel Proxy hops)
