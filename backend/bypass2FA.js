@@ -38,7 +38,7 @@ async function resetAndEnable2FA() {
         { email: TARGET_EMAIL },
         {
             $set: {
-                isTwoFactorEnabled: false,
+                twoFactorEnabled: false,
                 twoFactorBackupCodes: [],
             },
             $unset: {
@@ -78,7 +78,7 @@ async function resetAndEnable2FA() {
 
     // Assign via Mongoose — triggers field encryption plugin on save
     user.twoFactorSecret = secret.base32;
-    user.isTwoFactorEnabled = true;
+    user.twoFactorEnabled = true;
     user.twoFactorBackupCodes = [];
 
     await user.save();

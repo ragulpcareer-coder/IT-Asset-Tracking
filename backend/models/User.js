@@ -21,7 +21,7 @@ const userSchema = new mongoose.Schema({
     lastLogin: Date
 
   }],
-  isTwoFactorEnabled: { type: Boolean, default: false },
+  twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String },
   twoFactorBackupCodes: [{ type: String }],
   isEmailVerified: { type: Boolean, default: false },

@@ -19,8 +19,8 @@ const seedAdmin = async () => {
                         isApproved: true,
                         isActive: true,
                         lockUntil: null,
-                        failedLoginAttempts: 0,
-                        isTwoFactorEnabled: false
+                        failedLoginAttempts: 0
+                        // REMOVAL: do NOT reset twoFactorEnabled here anymore.
                     }
                 }
             );
@@ -37,7 +37,7 @@ const seedAdmin = async () => {
             isApproved: true,
             failedLoginAttempts: 0,
             lockUntil: null,
-            isTwoFactorEnabled: false
+            twoFactorEnabled: false
         });
 
         console.log('✅ [SEED] Default admin ragulp.career@gmail.com created successfully');

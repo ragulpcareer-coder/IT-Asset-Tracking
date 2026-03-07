@@ -14,7 +14,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
   const navigate = useNavigate();
 
   // Policy: Admin accounts MUST have 2FA enabled for privileged operations.
-  const adminNeeds2FA = ["Super Admin", "Admin"].includes(user?.role) && !user?.isTwoFactorEnabled;
+  const adminNeeds2FA = ["Super Admin", "Admin"].includes(user?.role) && !user?.twoFactorEnabled;
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -100,7 +100,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
                   {user?.role}
                 </Badge>
                 {["Super Admin", "Admin"].includes(user?.role) && (
-                  <div className={`w-1.5 h-1.5 rounded-full ${user?.isTwoFactorEnabled ? 'bg-green-500' : 'bg-amber-500'}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full ${user?.twoFactorEnabled ? 'bg-green-500' : 'bg-amber-500'}`} />
                 )}
               </div>
             </div>

@@ -56,8 +56,8 @@ function ConfirmationModal({ isOpen, title, message, confirmLabel, confirmVarian
           <button
             onClick={onConfirm}
             className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition ${confirmVariant === "danger"
-                ? "bg-red-600 hover:bg-red-500 text-white"
-                : "bg-blue-600 hover:bg-blue-500 text-white"
+              ? "bg-red-600 hover:bg-red-500 text-white"
+              : "bg-blue-600 hover:bg-blue-500 text-white"
               }`}
           >
             {confirmLabel}
@@ -99,7 +99,7 @@ export default function Settings() {
     securityAlerts: true,
     theme: "dark",
     sessionTimeout: 30,
-    twoFactorEnabled: user?.isTwoFactorEnabled || false,
+    twoFactorEnabled: user?.twoFactorEnabled || false,
   });
 
   const [tfaSetup, setTfaSetup] = useState({
@@ -155,7 +155,7 @@ export default function Settings() {
         trackIP: user.preferences?.trackIP ?? true,
         theme: user.preferences?.theme || "dark",
         sessionTimeout: user.preferences?.sessionTimeout || 30,
-        twoFactorEnabled: user.isTwoFactorEnabled || false,
+        twoFactorEnabled: user.twoFactorEnabled || false,
       });
       fetchActivity();
     }
@@ -506,8 +506,8 @@ export default function Settings() {
               {!tfaSetup.isSettingUp && (
                 <button
                   className={`px-4 py-2 rounded-lg font-medium text-sm transition ${preferences.twoFactorEnabled
-                      ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
-                      : "bg-blue-600 text-white hover:bg-blue-500"
+                    ? "bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/20"
+                    : "bg-blue-600 text-white hover:bg-blue-500"
                     }`}
                   onClick={async () => {
                     try {
@@ -798,8 +798,8 @@ export default function Settings() {
                 key={f}
                 onClick={() => setActivityFilter(f)}
                 className={`px-3 py-1.5 rounded-full text-xs font-semibold transition ${activityFilter === f
-                    ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
-                    : "bg-white/5 text-gray-500 hover:text-gray-300 border border-white/5"
+                  ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40"
+                  : "bg-white/5 text-gray-500 hover:text-gray-300 border border-white/5"
                   }`}
               >
                 {f}
@@ -829,8 +829,8 @@ export default function Settings() {
                         {(activity.actionType || "UNKNOWN").replace(/_/g, " ")}
                       </p>
                       <span className={`px-2 py-0.5 text-[10px] rounded border uppercase font-black shrink-0 ${activity.status === "success"
-                          ? "bg-green-500/10 text-green-400 border-green-500/20"
-                          : "bg-red-500/10 text-red-400 border-red-500/20"
+                        ? "bg-green-500/10 text-green-400 border-green-500/20"
+                        : "bg-red-500/10 text-red-400 border-red-500/20"
                         }`}>
                         {activity.status || "info"}
                       </span>
@@ -917,8 +917,8 @@ export default function Settings() {
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex-1 min-w-max py-3 md:py-4 px-4 md:px-6 border-b-2 transition text-xs md:text-sm font-medium flex items-center justify-center gap-2 focus:outline-none whitespace-nowrap ${activeTab === tab.id
-                  ? "text-white border-white bg-[#111]"
-                  : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-[#0a0a0a]"
+                ? "text-white border-white bg-[#111]"
+                : "text-gray-500 border-transparent hover:text-gray-300 hover:bg-[#0a0a0a]"
                 }`}
               variants={animationVariants.itemVariants}
               custom={idx}

@@ -283,7 +283,8 @@ const login = async (req, res) => {
     // 5️⃣ If password correct: Reset failedAttempts (handled below before token issue)
 
     // 6️⃣ If 2FA enabled:
-    if (user.isTwoFactorEnabled) {
+    console.log("User 2FA status:", user.twoFactorEnabled);
+    if (user.twoFactorEnabled) {
       // Split 2FA flow: If 2FA is enabled, we return 200 with a specific flag
       // so the frontend knows to show the OTP screen.
       // We use 200 instead of 401 to avoid unintended global catchers/interceptors.
@@ -292,13 +293,13 @@ const login = async (req, res) => {
         success: true,
         requires2FA: true,
         userId: user._id,
-        isTwoFactorEnabled: true,
+        twoFactorEnabled: true,
         user: {
           id: user._id,
           email: user.email,
           role: user.role,
           name: user.name,
-          isTwoFactorEnabled: true
+          twoFactorEnabled: true
         },
         message: "Two-factor authentication token required"
       });
@@ -377,7 +378,7 @@ const login = async (req, res) => {
         email: user.email,
         role: user.role,
         name: user.name,
-        isTwoFactorEnabled: user.isTwoFactorEnabled,
+        twoFactorEnabled: user.twoFactorEnabled,
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
       },
@@ -386,7 +387,7 @@ const login = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      isTwoFactorEnabled: user.isTwoFactorEnabled,
+      twoFactorEnabled: user.twoFactorEnabled,
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });
@@ -509,7 +510,7 @@ const verify2FALogin = async (req, res) => {
         email: user.email,
         role: user.role,
         name: user.name,
-        isTwoFactorEnabled: true,
+        twoFactorEnabled: true,
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
       },
@@ -517,7 +518,7 @@ const verify2FALogin = async (req, res) => {
       name: user.name,
       email: user.email,
       role: user.role,
-      isTwoFactorEnabled: true,
+      twoFactorEnabled: true,
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
     });
@@ -536,7 +537,7 @@ const getMe = async (req, res) => {
   try {
     // Optimized: Fetch only required metadata for session state
     const user = await User.findById(req.user._id)
-      .select("name email role preferences activityTimestamps isTwoFactorEnabled phone department location")
+      .select("name email role preferences activityTimestamps twoFactorEnabled phone department location")
       .lean(); // Use lean() for faster read-only access (§Performance)
 
     if (!user) return res.status(404).json({ message: "User registry entry not found." });
@@ -752,7 +753,7 @@ const verify2FA = async (req, res) => {
     });
 
     if (isVerified) {
-      user.isTwoFactorEnabled = true;
+      user.twoFactorEnabled = true;
       // Generate 10 random hex backup codes
       const crypto = require('crypto');
       const backupCodes = Array.from({ length: 10 }, () => crypto.randomBytes(4).toString('hex'));
@@ -779,7 +780,7 @@ const verify2FA = async (req, res) => {
 const disable2FA = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-    user.isTwoFactorEnabled = false;
+    user.twoFactorEnabled = false;
     user.twoFactorSecret = undefined;
     if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.tfaEnabledAt = undefined;

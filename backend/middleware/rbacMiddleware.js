@@ -99,7 +99,7 @@ const authorizeResource = (resource, action) => {
       }
 
       // Zero-Trust: Re-fetch role fresh from DB, never trust the token role alone
-      const freshUser = await User.findById(req.user._id).select("role isActive isTwoFactorEnabled");
+      const freshUser = await User.findById(req.user._id).select("role isActive twoFactorEnabled");
       if (!freshUser || freshUser.isActive === false) {
         return res.status(403).json({ message: "Account suspended or not found" });
       }
@@ -215,10 +215,10 @@ const requireAdmin2FA = async (req, res, next) => {
     // Only enforce on Privileged accounts (§2.1)
     if (!["Super Admin", "Admin", "Security Auditor"].includes(req.user.role)) return next();
 
-    const freshUser = await User.findById(req.user._id).select("isTwoFactorEnabled role");
+    const freshUser = await User.findById(req.user._id).select("twoFactorEnabled role");
     if (!freshUser) return res.status(401).json({ message: "User not found" });
 
-    if (!freshUser.isTwoFactorEnabled) {
+    if (!freshUser.twoFactorEnabled) {
       try {
         await AuditLog.create({
           action: "SECURITY: Admin 2FA Not Configured",

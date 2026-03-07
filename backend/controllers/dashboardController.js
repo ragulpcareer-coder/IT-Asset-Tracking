@@ -109,7 +109,7 @@ const getDashboardMetrics = async (req, res) => {
             User.countDocuments({ isActive: true, isApproved: true }),
 
             // 5b. Users with 2FA enabled
-            User.countDocuments({ isActive: true, isApproved: true, isTwoFactorEnabled: true }),
+            User.countDocuments({ isActive: true, isApproved: true, twoFactorEnabled: true }),
         ]);
 
         const securityPostureScore = computeSecurityPosture({

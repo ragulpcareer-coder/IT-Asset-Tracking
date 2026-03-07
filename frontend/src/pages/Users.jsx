@@ -133,7 +133,7 @@ export default function Users() {
                                                 )}
                                             </td>
                                             <td>
-                                                {u.isTwoFactorEnabled ? (
+                                                {u.twoFactorEnabled ? (
                                                     <Badge variant="success" className="font-bold">2FA ENABLED</Badge>
                                                 ) : (
                                                     <Badge variant="neutral" className="opacity-40">NOT CONFIGURED</Badge>

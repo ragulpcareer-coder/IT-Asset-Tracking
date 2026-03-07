@@ -22,7 +22,7 @@ const unlockDB = async () => {
             isApproved: true,
             lockUntil: null,
             failedLoginAttempts: 0,
-            isTwoFactorEnabled: false
+            twoFactorEnabled: false
         };
 
         await User.updateOne({ email: "ragulp.career@gmail.com" }, { $set: updates });
