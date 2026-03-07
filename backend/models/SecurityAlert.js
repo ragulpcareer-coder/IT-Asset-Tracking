@@ -33,6 +33,14 @@ const SecurityAlertSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: "Asset"
     },
+    incidentId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Incident"
+    },
+    riskScoreImpact: {
+        type: Number,
+        default: 0
+    },
     metadata: {
         type: mongoose.Schema.Types.Mixed,
         default: {}

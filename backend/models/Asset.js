@@ -93,6 +93,7 @@ const assetSchema = new mongoose.Schema(
       remarks: { type: String, default: '' }
     },
     riskScore: { type: Number, default: 0, min: 0, max: 100 },
+    activeAlertsScore: { type: Number, default: 0 },
     integrityHash: { type: String }, // SHA-256 integrity check (§4.1)
   },
   {
@@ -160,6 +161,14 @@ assetSchema.pre('save', function (next) {
   if (this.purchaseDate) {
     const yearsOld = (Date.now() - new Date(this.purchaseDate)) / (1000 * 60 * 60 * 24 * 365.25);
     if (yearsOld > 5) score += 10;
+  }
+
+  // ELITE: Factor in recent security alerts
+  // Note: This requires a pre-save check or a manual trigger. 
+  // Since we want it to be dynamic, we'll use a virtual or a manual field update from the engine.
+  // For now, we'll add a manual 'activeAlertsScore' field.
+  if (this.activeAlertsScore) {
+    score += this.activeAlertsScore;
   }
 
   // Clamp to 0–100 and store

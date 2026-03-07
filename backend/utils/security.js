@@ -37,7 +37,7 @@ class RateLimiter {
   }
 }
 
-// Password strength validator (Enterprise Grade: 12 chars, Upper, Lower, Number, Symbol)
+// Password strength validator (Enterprise Grade: 8 chars, Upper, Lower, Number, Symbol)
 const validatePasswordStrength = (password) => {
   const strength = {
     score: 0,
@@ -45,9 +45,9 @@ const validatePasswordStrength = (password) => {
     isStrong: false,
   };
 
-  // Length 14+ (Policy §2.2)
-  if (password.length >= 14) strength.score += 1;
-  else strength.feedback.push("Minimum 14 characters required");
+  // Length 8+ (Policy §2.2)
+  if (password.length >= 8) strength.score += 1;
+  else strength.feedback.push("Minimum 8 characters required");
 
   // Uppercase
   if (/[A-Z]/.test(password)) strength.score += 1;

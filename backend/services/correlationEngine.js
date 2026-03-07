@@ -1,5 +1,8 @@
 const SecurityAlert = require("../models/SecurityAlert");
 const User = require("../models/User");
+const Asset = require("../models/Asset");
+const Incident = require("../models/Incident");
+const threatIntel = require("./threatIntelService");
 
 // In-memory event ring buffer (per IP, last 10 minutes)
 const failedLoginsByIp = new Map(); // ip -> [timestamp, ...]
@@ -24,6 +27,13 @@ async function triggerAlert(type, data) {
     };
 
     try {
+        // Elite 1: Threat Intelligence Reputation Check
+        const intel = await threatIntel.checkIpReputation(payload.sourceIp);
+        if (intel.isMalicious) {
+            payload.severity = "CRITICAL";
+            payload.description += ` [INTEL: Known ${intel.category} via ${intel.provider}]`;
+        }
+
         // Prevent duplicate open alerts for the same thing in the last 15 mins
         const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
         const existing = await SecurityAlert.findOne({
@@ -36,8 +46,34 @@ async function triggerAlert(type, data) {
 
         if (existing) return;
 
+        // Elite 2: Asset Correlation & Risk Impact
+        const asset = await Asset.findOne({ ipAddress: payload.sourceIp });
+        if (asset) {
+            payload.assetId = asset._id;
+            payload.riskScoreImpact = (payload.severity === 'CRITICAL' ? 25 : (payload.severity === 'HIGH' ? 15 : 5));
+
+            // Increment Asset's active alert score
+            asset.activeAlertsScore = (asset.activeAlertsScore || 0) + payload.riskScoreImpact;
+            await asset.save();
+        }
+
         const alert = await SecurityAlert.create(payload);
+
+        // Elite 3: Incident Grouping & Timeline
+        await correlateToIncident(alert);
+
         console.log(`[CorrelationEngine] 🚨 ALERT TRIGGERED: ${alert.type} (${alert.severity})`);
+
+        // Trigger Automated Response (SOAR)
+        const soarService = require("./soarService");
+
+        // Elite 4: Provide "Context" (Threshold check) to SOAR
+        const recentAlertCount = await SecurityAlert.countDocuments({
+            sourceIp: payload.sourceIp,
+            createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+        });
+
+        soarService.processAlert(alert, { recentAlertCount });
 
         // Emit via WebSockets
         if (global.io) {
@@ -45,6 +81,52 @@ async function triggerAlert(type, data) {
         }
     } catch (err) {
         console.error("[SOC] Alert persistence failure:", err.message);
+    }
+}
+
+/**
+ * Correlate alert to an existing incident or create a new one.
+ */
+async function correlateToIncident(alert) {
+    try {
+        const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
+        let incident = await Incident.findOne({
+            sourceIp: alert.sourceIp,
+            status: { $in: ["OPEN", "INVESTIGATING"] },
+            createdAt: { $gte: fiveMinsAgo }
+        });
+
+        if (!incident) {
+            incident = new Incident({
+                title: `Threat from ${alert.sourceIp || 'Unknown'}`,
+                severity: alert.severity,
+                sourceIp: alert.sourceIp,
+                userId: alert.userId,
+                assetId: alert.assetId,
+                alerts: [alert._id],
+                timeline: [{
+                    event: "Incident Detected",
+                    details: `Initial alert: ${alert.type} - ${alert.description}`
+                }]
+            });
+        } else {
+            incident.alerts.push(alert._id);
+            // Upgrade severity if needed
+            const severities = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+            if (severities.indexOf(alert.severity) > severities.indexOf(incident.severity)) {
+                incident.severity = alert.severity;
+            }
+            incident.timeline.push({
+                event: "Additional Alert Correlated",
+                details: `Alert: ${alert.type} added to incident.`
+            });
+        }
+
+        await incident.save();
+        alert.incidentId = incident._id;
+        await alert.save();
+    } catch (err) {
+        console.error("[CorrelationEngine] Incident correlation error:", err);
     }
 }
 
@@ -160,6 +242,7 @@ function checkPrivilegeEscalation(userId, ip, isNewDevice) {
 }
 
 module.exports = {
+    triggerAlert,
     checkBruteForce,
     checkAnomalies,
     recordZeroTrustViolation,

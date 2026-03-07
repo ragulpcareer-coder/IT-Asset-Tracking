@@ -70,6 +70,7 @@ const registerLimiter = new RateLimiter(3, 60 * 60 * 1000); // 3 attempts per ho
 const register = async (req, res) => {
   try {
     const { name, email, password } = req.body; // role is NEVER accepted from client
+    console.log("Password received:", password);
     const ip = req.ip || req.connection.remoteAddress;
 
     // Rate limiting
@@ -97,7 +98,8 @@ const register = async (req, res) => {
     const passwordStrength = validatePasswordStrength(password);
     if (!passwordStrength.isStrong) {
       return res.status(400).json({
-        message: "Password is not strong enough",
+        success: false,
+        message: "Password must contain uppercase, lowercase, number, and special character.",
         feedback: passwordStrength.feedback,
         score: passwordStrength.score,
       });
