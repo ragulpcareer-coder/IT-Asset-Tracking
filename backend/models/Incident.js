@@ -60,4 +60,13 @@ incidentSchema.pre("validate", function (next) {
     next();
 });
 
+// Performance Indexes
+incidentSchema.index({ status: 1, severity: 1 });
+incidentSchema.index({ sourceIp: 1 });
+incidentSchema.index({ userId: 1 });
+incidentSchema.index({ createdAt: -1 });
+incidentSchema.index({ assetId: 1 }); // Added for SOC dashboard performance
+incidentSchema.index({ closedAt: 1 }); // Added for SOC dashboard performance
+incidentSchema.index({ status: 1, createdAt: -1 }); // Added for SOC dashboard performance
+
 module.exports = mongoose.model("Incident", incidentSchema);

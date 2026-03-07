@@ -74,6 +74,8 @@ const SecurityAlertSchema = new mongoose.Schema({
 // Fast retrieval indexes
 SecurityAlertSchema.index({ severity: 1, status: 1 });
 SecurityAlertSchema.index({ createdAt: -1 });
+SecurityAlertSchema.index({ incidentId: 1 }); // Required for alert grouping performance
+SecurityAlertSchema.index({ sourceIp: 1 }); // Critical for asset correlation
 SecurityAlertSchema.index({ type: 1, userId: 1, sourceIp: 1, createdAt: -1 });
 
 // NOTE: We deliberately do NOT emit WebSocket here.

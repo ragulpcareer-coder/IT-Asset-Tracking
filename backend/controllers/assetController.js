@@ -686,7 +686,11 @@ const getSecurityAlerts = async (req, res) => {
     // Also fetch dedicated security alerts if our SOC engine generated them
     let dbAlerts = [];
     try {
-      dbAlerts = await SecurityAlert.find().populate("assetId", "name type serialNumber").lean() || [];
+      dbAlerts = await SecurityAlert.find()
+        .populate("assetId", "name type serialNumber")
+        .sort({ createdAt: -1 })
+        .limit(50)
+        .lean() || [];
     } catch (e) {
       console.warn("Could not fetch from SecurityAlert model:", e.message);
     }
@@ -695,61 +699,73 @@ const getSecurityAlerts = async (req, res) => {
 
     // Safely generate dynamic alerts from Assets
     assets.forEach((asset) => {
-      // Check Security Risk
-      if (asset.securityRisk === "high" || (asset.securityStatus?.riskLevel && asset.securityStatus.riskLevel.toLowerCase() === "high")) {
-        alerts.push({
-          assetName: asset.name || "Unknown Asset",
-          issue: "High security risk detected",
-          severity: "high",
-          timestamp: new Date().toISOString()
-        });
-      }
+      try {
+        // Check Security Risk
+        if (asset.securityRisk === "high" || (asset.securityStatus?.riskLevel && asset.securityStatus.riskLevel.toLowerCase() === "high")) {
+          alerts.push({
+            assetName: asset.name || "Unknown Asset",
+            issue: "High security risk detected",
+            severity: "high",
+            timestamp: asset.updatedAt || new Date().toISOString()
+          });
+        }
 
-      // Check Vulnerabilities
-      if (asset.vulnerabilities?.length > 0) {
-        alerts.push({
-          assetName: asset.name || "Unknown Asset",
-          issue: `${asset.vulnerabilities.length} vulnerabilities detected`,
-          severity: "medium",
-          timestamp: new Date().toISOString()
-        });
-      }
+        // Check Vulnerabilities
+        if (asset.vulnerabilities?.length > 0) {
+          alerts.push({
+            assetName: asset.name || "Unknown Asset",
+            issue: `${asset.vulnerabilities.length} vulnerabilities detected`,
+            severity: "medium",
+            timestamp: asset.updatedAt || new Date().toISOString()
+          });
+        }
 
-      // Check Missing/Stolen Status
-      if (asset.status === "missing" || asset.status === "stolen") {
-        alerts.push({
-          assetName: asset.name || "Unknown Asset",
-          issue: `Asset flagged as ${asset.status.toUpperCase()}`,
-          severity: "critical",
-          timestamp: new Date().toISOString()
-        });
+        // Check Missing/Stolen Status
+        if (asset.status === "missing" || asset.status === "stolen") {
+          alerts.push({
+            assetName: asset.name || "Unknown Asset",
+            issue: `Asset flagged as ${asset.status.toUpperCase()}`,
+            severity: "critical",
+            timestamp: asset.updatedAt || new Date().toISOString()
+          });
+        }
+      } catch (innerErr) {
+        console.warn(`Skipping corrupted asset record ${asset._id}:`, innerErr.message);
       }
     });
 
     // Merge in Dedicated DB Alerts
     dbAlerts.forEach((alert) => {
-      const asset = alert.assetId || {};
-      alerts.push({
-        assetName: asset.name || "System Event",
-        issue: alert.message || alert.description || "Security Protocol Violation",
-        severity: (alert.severity || "medium").toLowerCase(),
-        timestamp: alert.createdAt || new Date().toISOString()
-      });
+      try {
+        const asset = alert.assetId || {};
+        alerts.push({
+          _id: alert._id,
+          assetName: asset.name || "System Event",
+          issue: alert.message || alert.description || "Security Protocol Violation",
+          severity: (alert.severity || "medium").toLowerCase(),
+          timestamp: alert.createdAt || new Date().toISOString()
+        });
+      } catch (innerErr) {
+        console.warn(`Skipping corrupted alert record ${alert._id}:`, innerErr.message);
+      }
     });
 
-    console.log("Assets fetched:", assets.length);
-    console.log("Alerts generated:", alerts.length);
+    // Sort combined alerts by time descending
+    alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    console.log("Assets processed:", assets.length);
+    console.log("Final Alerts generated:", alerts.length);
 
     return res.status(200).json({
       success: true,
       alerts: alerts
     });
   } catch (error) {
-    console.error("Security Alerts Error:", error);
+    console.error("Security Alerts Core Error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch security alerts",
+      message: "Strategic failure in security telemetry gathering. Forensic log captured.",
       alerts: []
     });
   }

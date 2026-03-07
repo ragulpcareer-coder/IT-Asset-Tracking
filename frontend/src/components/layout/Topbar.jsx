@@ -29,14 +29,20 @@ export default function Topbar({ toggleSidebar, openMobile }) {
 
   return (
     <>
-      {/* --- Mandatory Security Banner (§21) --- */}
+      {/* --- Mandatory Security Banner: 2FA Enforcement (§21) --- */}
       {adminNeeds2FA && (
-        <div className="bg-amber-500/10 border-b border-amber-500/20 py-2 px-6 flex justify-between items-center z-[60] relative">
-          <span className="text-amber-500 text-xs font-bold uppercase tracking-widest flex items-center gap-2">
-            ⚠️ Security Policy Alert: Administrator accounts must have Two-Factor Authentication (2FA) enabled.
-          </span>
-          <Link to="/settings" className="btn btn-primary" style={{ padding: '4px 12px', fontSize: '11px' }}>
-            Enable 2FA
+        <div className="bg-red-500/10 border-b border-red-500/20 py-2.5 px-6 flex justify-between items-center z-[60] relative backdrop-blur-sm">
+          <div className="flex items-center gap-3">
+            <span className="text-red-500 animate-pulse text-lg">⚠️</span>
+            <span className="text-red-400 text-[11px] font-bold uppercase tracking-[0.15em]">
+              Security Policy Alert: Administrator accounts must have Two-Factor Authentication (2FA) enabled.
+            </span>
+          </div>
+          <Link
+            to="/settings?tab=security"
+            className="bg-red-600 hover:bg-red-500 text-white text-[10px] font-black uppercase tracking-widest px-4 py-1.5 rounded-lg transition-all shadow-lg shadow-red-600/20"
+          >
+            Enable 2FA Now
           </Link>
         </div>
       )}

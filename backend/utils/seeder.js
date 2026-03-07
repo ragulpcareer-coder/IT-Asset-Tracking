@@ -14,7 +14,6 @@ const seedAdmin = async () => {
                 { email: adminEmail },
                 {
                     $set: {
-                        password: adminPassword,
                         role: 'Super Admin',
                         isApproved: true,
                         isActive: true,

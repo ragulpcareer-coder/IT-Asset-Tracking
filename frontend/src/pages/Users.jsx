@@ -21,7 +21,9 @@ export default function Users() {
         try {
             setLoading(true);
             const res = await axios.get("/auth/users");
-            setUsers(res.data);
+            // API unmasking: The backend returns a paginated object { users, total, pages, currentPage }
+            // We ensure we extract the users array and provide a fallback.
+            setUsers(res.data.users || res.data || []);
         } catch (err) {
             toast.error("Failed to sync IAM registry");
         } finally {
@@ -101,7 +103,7 @@ export default function Users() {
                                         <td colSpan="5" className="py-20 text-center text-slate-500 font-bold italic uppercase tracking-widest text-sm">No active identities found.</td>
                                     </tr>
                                 ) : (
-                                    users.map((u) => (
+                                    Array.isArray(users) && users.map((u) => (
                                         <motion.tr
                                             key={u._id}
                                             initial={{ opacity: 0 }}
@@ -179,8 +181,8 @@ export default function Users() {
                 message={actionUser?.actionType === 'promote'
                     ? `Are you sure you want to promote ${actionUser?.name} to Administrator? They will gain access to the Audit Logs and Identity Management pages.`
                     : actionUser?.actionType === 'approve'
-                    ? `Are you sure you want to approve the account for ${actionUser?.email}? They will be able to log in to the system immediately.`
-                    : `Are you sure you want to remove ${actionUser?.email}? Their account will be deleted and all active sessions will be terminated.`
+                        ? `Are you sure you want to approve the account for ${actionUser?.email}? They will be able to log in to the system immediately.`
+                        : `Are you sure you want to remove ${actionUser?.email}? Their account will be deleted and all active sessions will be terminated.`
                 }
                 confirmText={actionUser?.actionType === 'promote' ? "Confirm Promotion" : actionUser?.actionType === 'approve' ? "Approve Account" : "Confirm Removal"}
                 type={actionUser?.actionType === 'promote' ? "primary" : actionUser?.actionType === 'approve' ? "success" : "danger"}

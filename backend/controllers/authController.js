@@ -93,6 +93,7 @@ const register = async (req, res) => {
     // Sanitize inputs
     const sanitizedName = sanitizeInput(name);
     const sanitizedEmail = sanitizeInput(email).toLowerCase();
+    const sanitizedPassword = password; // Do not sanitize password content as it will be hashed, but we can't strip chars that might be valid in complex passwords.
 
     // Validate email format
     if (!isValidEmail(sanitizedEmail)) {
@@ -226,6 +227,16 @@ const login = async (req, res) => {
     }
 
     if (!process.env.JWT_SECRET) console.error("JWT_SECRET missing");
+
+    // Strategy 1: Defensive check for Encryption Secret stability
+    if (!process.env.DB_ENCRYPTION_SECRET) {
+      console.error("[Login] CRITICAL SECURITY ALERT: DB_ENCRYPTION_SECRET is missing. Decryption will fail.");
+      return res.status(500).json({
+        success: false,
+        message: "Strategic platform failure: Encryption services unavailable. Contact SOC security.",
+        code: "ENCRYPTION_ERROR"
+      });
+    }
 
     // Get Raw Document (for raw password)
     const mongoose = require('mongoose');
@@ -593,6 +604,7 @@ const verify2FALogin = async (req, res) => {
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
       },
+      message: "Biometric identity verified. Access granted.",
       _id: user._id,
       name: user.name,
       email: user.email,
@@ -759,21 +771,34 @@ const refresh = async (req, res) => {
     const decoded = verified.decoded;
 
     // Check stored refresh token record
-    const stored = await RefreshToken.findOne({ tokenId: decoded.tokenId, family: decoded.family, user: decoded.userId || decoded.userId });
+    const stored = await RefreshToken.findOne({ tokenId: decoded.tokenId, family: decoded.family, user: decoded.userId });
+
+    // SECURITY: Token Reuse Detection (§8.4)
+    // If a valid JWT refresh token is presented but not found in DB or already revoked,
+    // it implies it might have been stolen and used already. 
+    // We revoke the entire family to kill all related sessions.
     if (!stored || stored.revoked) {
-      return res.status(401).json({ message: 'Refresh token revoked or not found' });
+      if (decoded.family) {
+        await RefreshToken.updateMany({ family: decoded.family }, { revoked: true });
+        console.warn(`[RefreshSecurity] TOKEN REUSE DETECTED: Family ${decoded.family} revoked.`);
+      }
+      return res.status(401).json({
+        success: false,
+        message: 'Security Alert: Session integrity compromise detected. All related sessions revoked.',
+        code: 'TOKEN_REUSE_DETECTED'
+      });
     }
 
     // Rotate: revoke old token and issue new pair with same family
     stored.revoked = true;
     await stored.save();
 
-    const pair = tokenManager.rotateRefreshToken(decoded.userId || decoded.user, decoded.role, decoded.family);
+    const pair = tokenManager.rotateRefreshToken(decoded.userId, decoded.role, decoded.family);
 
     await RefreshToken.create({
       tokenId: pair.refreshTokenId,
       family: pair.refreshTokenFamily,
-      user: decoded.userId || decoded.user,
+      user: decoded.userId,
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 

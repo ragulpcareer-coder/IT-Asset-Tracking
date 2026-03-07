@@ -94,6 +94,17 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ message: "Not authorized, user not found" });
     }
 
+    // Zero Trust: Device Fingerprint Binding (§3.1)
+    const clientFingerprint = req.headers['x-device-fingerprint'];
+    const trustedDevices = user.behavioralMetadata?.trustedDevices || [];
+
+    if (clientFingerprint && trustedDevices.length > 0 && !trustedDevices.includes(clientFingerprint)) {
+      const { recordZeroTrustViolation } = require("../services/correlationEngine");
+      recordZeroTrustViolation(user._id, `Unrecognized Device Binding: ${clientFingerprint.substring(0, 8)}...`, ip);
+      console.warn(`[ZeroTrust] Violation: Unrecognized device for ${user.email} (${clientFingerprint.substring(0, 8)})`);
+      // We don't block yet (monitoring mode), but we log the high-severity alert.
+    }
+
     // Token Versioning: Session Invalidation Check
     const userVersion = user.tokenVersion || 0;
     const decodedVersion = decoded.tokenVersion || 0;

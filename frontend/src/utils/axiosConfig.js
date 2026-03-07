@@ -47,12 +47,13 @@ instance.interceptors.response.use(
 
     // Global Unauthorized Handler (only show if it's not a specific 2FA requirement)
     if (error.response?.status === 401 && !error.response?.data?.requires2FA) {
-      if (window.location.pathname !== "/login") {
-        // Fire-and-forget logout to clear cookie and record audit log before redirecting
-        axios.post(`${baseURL}/auth/logout`, {}, { withCredentials: true }).catch(() => { });
-        localStorage.removeItem("token");
-        window.location.href = "/login";
-      }
+      // If we're already on login page, don't redirect or clear, just let the local error handle it
+      if (window.location.pathname === "/login") return Promise.reject(error);
+
+      // Fire-and-forget logout to clear cookie and record audit log before redirecting
+      axios.post(`${baseURL}/auth/logout`, {}, { withCredentials: true }).catch(() => { });
+      localStorage.removeItem("token");
+      window.location.href = "/login";
     }
 
     return Promise.reject(error);
