@@ -121,7 +121,7 @@ export default function AuditLogs() {
         </Card>
         <Card className="flex flex-col border-white/5 bg-slate-900/40">
           <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Unique Users</span>
-          <span className="text-3xl font-black text-white">{new Set(logs.map(l => l.performedBy)).size}</span>
+          <span className="text-3xl font-black text-white">{new Set((Array.isArray(logs) ? logs : []).map(l => l.performedBy)).size}</span>
         </Card>
       </div>
 
@@ -165,7 +165,7 @@ export default function AuditLogs() {
               </tr>
             </thead>
             <tbody>
-              {filteredLogs.map((log, idx) => (
+              {Array.isArray(filteredLogs) && filteredLogs.map((log, idx) => (
                 <tr key={log._id || idx}>
                   <td>
                     <Badge variant={getActionVariant(log.action)} className="font-bold">

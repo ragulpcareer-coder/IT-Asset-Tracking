@@ -631,10 +631,10 @@ const getMe = async (req, res) => {
       .select("name email role preferences activityTimestamps twoFactorEnabled phone department location")
       .lean(); // Use lean() for faster read-only access (§Performance)
 
-    if (!user) return res.status(404).json({ message: "User registry entry not found." });
-    res.status(200).json(user);
+    if (!user) return res.status(404).json({ success: false, message: "User registry entry not found." });
+    res.status(200).json({ success: true, user });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -668,10 +668,9 @@ const changePassword = async (req, res) => {
 
     await logUserActivity(user._id, "PASSWORD_CHANGE", "User changed their password", req);
 
-
-    res.json({ message: "Password changed successfully" });
+    res.json({ success: true, message: "Password changed successfully" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -704,9 +703,9 @@ const updateProfile = async (req, res) => {
     await user.save();
     await logUserActivity(user._id, "PROFILE_UPDATE", "User updated their profile information", req);
 
-    res.json(user);
+    res.json({ success: true, user, message: "Profile updated successfully." });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -835,10 +834,10 @@ const generate2FA = async (req, res) => {
 
     qrcode.toDataURL(secret.otpauth_url, (err, data_url) => {
       if (err) throw err;
-      res.json({ secret: secret.base32, qrCode: data_url });
+      res.json({ success: true, secret: secret.base32, qrCode: data_url });
     });
   } catch (error) {
-    res.status(500).json({ message: "Error generating 2FA secret" });
+    res.status(500).json({ success: false, message: "Error generating 2FA secret" });
   }
 };
 
@@ -922,6 +921,7 @@ const getAllUsers = async (req, res) => {
     const total = await User.countDocuments();
 
     res.json({
+      success: true,
       users,
       total,
       pages: Math.ceil(total / limit),
@@ -929,7 +929,7 @@ const getAllUsers = async (req, res) => {
     });
   } catch (error) {
     logger.error("IAM Fetch Registry Error:", error);
-    res.status(500).json({ message: "Strategic Error: Failed to synchronize identity registry." });
+    res.status(500).json({ success: false, message: "Strategic Error: Failed to synchronize identity registry." });
   }
 };
 
@@ -978,7 +978,7 @@ const promoteUser = async (req, res) => {
           ip: req.ip || req.connection?.remoteAddress
         });
 
-        return res.json({ message: "Action Executed: User successfully promoted via Dual Authorization." });
+        return res.json({ success: true, message: "Action Executed: User successfully promoted via Dual Authorization." });
       }
     }
 
@@ -997,11 +997,12 @@ const promoteUser = async (req, res) => {
     });
 
     res.status(202).json({
+      success: true,
       message: "Dual Authorization Required: This critical role change requires a second administrator's approval.",
       pendingActionId: pending._id
     });
   } catch (error) {
-    res.status(500).json({ message: "Error in promotion procedure: " + error.message });
+    res.status(500).json({ success: false, message: "Error in promotion procedure: " + error.message });
   }
 };
 
@@ -1072,9 +1073,9 @@ const suspendUser = async (req, res) => {
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.json({ message: `User account successfully ${isActive ? "enabled" : "suspended"}` });
+    res.json({ success: true, message: `User account successfully ${isActive ? "enabled" : "suspended"}` });
   } catch (error) {
-    res.status(500).json({ message: "Error updating user status" });
+    res.status(500).json({ success: false, message: "Error updating user status" });
   }
 };
 

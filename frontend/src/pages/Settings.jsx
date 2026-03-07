@@ -346,7 +346,7 @@ export default function Settings() {
               style={{ color: profileData.department ? "white" : "#6b7280" }}
             >
               <option value="">Select your department</option>
-              {DEPARTMENTS.map((d) => (
+              {(Array.isArray(DEPARTMENTS) ? DEPARTMENTS : []).map((d) => (
                 <option key={d} value={d}>
                   {d}
                 </option>
@@ -449,8 +449,8 @@ export default function Settings() {
                       { key: "hasNumber", label: "One number" },
                       { key: "hasSpecial", label: "One special character (@, #, !...)" },
                     ].map((req) => (
-                      <p key={req.key} className={`text-[11px] flex items-center gap-1 ${pwdReqs[req.key] ? "text-green-400" : "text-gray-500"}`}>
-                        {pwdReqs[req.key] ? "✓" : "○"} {req.label}
+                      <p key={req.key} className={`text-[11px] flex items-center gap-1 ${(Array.isArray(pwdReqs) ? pwdReqs[req.key] : pwdReqs?.[req.key]) ? "text-green-400" : "text-gray-500"}`}>
+                        {(Array.isArray(pwdReqs) ? pwdReqs[req.key] : pwdReqs?.[req.key]) ? "✓" : "○"} {req.label}
                       </p>
                     ))}
                   </div>
@@ -607,12 +607,12 @@ export default function Settings() {
 
         <div className="mb-6 p-6 rounded-xl border border-white/10 bg-[#0a0a0a]">
           <div className="space-y-4">
-            {[
+            {(Array.isArray(preferences.list) ? preferences.list : [
               { key: "emailNotifications", label: "Email Notifications", description: "Receive updates and alerts via email.", icon: "email" },
               { key: "pushNotifications", label: "Push Notifications", description: "Receive real-time alerts inside the application.", icon: "notification" },
               { key: "activityNotifications", label: "Activity Updates", description: "Get notified when assets are added, changed, or removed.", icon: "activity" },
               { key: "securityAlerts", label: "Security Alerts", description: "Alerts for login attempts, password changes, and suspicious activity.", icon: "alert" },
-            ].map((pref) => (
+            ]).map((pref) => (
               <motion.div
                 key={pref.key}
                 className="flex items-center justify-between p-4 rounded-lg bg-[#111] hover:bg-white/5 border border-white/5 transition"
@@ -651,7 +651,7 @@ export default function Settings() {
             <p className="text-sm text-gray-400 mb-4">
               Control how your data is collected for security and device management purposes.
             </p>
-            {[
+            {(Array.isArray(preferences.tracking) ? preferences.tracking : [
               {
                 key: "trackLocation",
                 label: "Track General Location",
@@ -664,7 +664,7 @@ export default function Settings() {
                 description: "Monitors login IP addresses and device behavior to detect unauthorized access.",
                 icon: "activity",
               },
-            ].map((pref) => (
+            ]).map((pref) => (
               <motion.div
                 key={pref.key}
                 className="flex items-center justify-between p-4 rounded-lg bg-[#111] hover:bg-white/5 border border-white/5 transition"
@@ -793,7 +793,7 @@ export default function Settings() {
 
           {/* Activity Filter Tabs */}
           <div className="flex gap-2 flex-wrap mb-6">
-            {filterOptions.map((f) => (
+            {(Array.isArray(filterOptions) ? filterOptions : []).map((f) => (
               <button
                 key={f}
                 onClick={() => setActivityFilter(f)}
@@ -808,13 +808,13 @@ export default function Settings() {
           </div>
 
           <div className="space-y-4">
-            {filteredActivity.length === 0 ? (
+            {!Array.isArray(filteredActivity) || filteredActivity.length === 0 ? (
               <div className="text-center py-10 border border-white/5 bg-white/5 rounded-xl">
                 <p className="text-gray-500">No activity found{activityFilter !== "All" ? ` for filter: ${activityFilter}` : ""}.</p>
                 <p className="text-gray-600 text-xs mt-1">Activity events will appear here as you use the application.</p>
               </div>
             ) : (
-              filteredActivity.map((activity, idx) => (
+              Array.isArray(filteredActivity) && filteredActivity.map((activity, idx) => (
                 <motion.div
                   key={activity._id || idx}
                   className="flex gap-4 p-4 rounded-xl border border-white/10 bg-[#0a0a0a] hover:bg-white/5 transition group"
@@ -912,7 +912,7 @@ export default function Settings() {
       {/* Tabs */}
       <motion.div className="bg-[#050505] rounded-xl border border-white/10 overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
         <div className="flex border-b border-white/10 overflow-x-auto scrollbar-hide no-scrollbar">
-          {tabs.map((tab, idx) => (
+          {(Array.isArray(tabs) ? tabs : []).map((tab, idx) => (
             <motion.button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}

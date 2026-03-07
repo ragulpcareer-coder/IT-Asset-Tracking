@@ -10,7 +10,7 @@ import {
   QuantumButton,
   HolographicPanel,
   GradientMesh,
-} from "./components/FuturisticUI";
+} from "./FuturisticUI";
 
 /**
  * ============================================================================

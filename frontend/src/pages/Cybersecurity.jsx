@@ -228,7 +228,7 @@ function Cybersecurity() {
                             <path d="M150,150 L250,120 L350,130 L400,200 L450,180 L550,220 L700,180 L850,250 L800,400 L600,450 L400,420 L200,400 Z" fill="none" stroke="rgba(34, 211, 238, 0.2)" strokeWidth="1" />
 
                             {/* Plotting Threat Points */}
-                            {threatPoints.map((point, i) => {
+                            {Array.isArray(threatPoints) && threatPoints.map((point, i) => {
                                 // Project Lat/Lon to SVG Coords (Approx)
                                 const x = (point.lon + 180) * (1000 / 360);
                                 const y = (90 - point.lat) * (500 / 180);
@@ -280,7 +280,7 @@ function Cybersecurity() {
                     </div>
 
                     <div className="w-full space-y-3">
-                        {geoDistribution.map((item, i) => (
+                        {Array.isArray(geoDistribution) && geoDistribution.map((item, i) => (
                             <div key={i} className="flex items-center justify-between">
                                 <span className="text-[10px] font-bold text-slate-400 uppercase">{item._id}</span>
                                 <div className="flex-1 mx-3 h-1 bg-white/5 rounded-full overflow-hidden">
@@ -382,7 +382,7 @@ function Cybersecurity() {
                     </div>
 
                     <div className="flex-1 overflow-y-auto space-y-6 pr-2 scrollbar-hide">
-                        {securityAlerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH').slice(0, 10).map((alert, i) => (
+                        {(Array.isArray(securityAlerts) ? securityAlerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH').slice(0, 10) : []).map((alert, i) => (
                             <div key={alert._id || i} className="relative pl-6 border-l border-white/10 group">
                                 <div className={`absolute -left-1 top-0 w-2 h-2 rounded-full ${alert.severity === 'CRITICAL' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-orange-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} />
                                 <div className="text-[10px] font-mono text-slate-500 mb-1">{new Date(alert.createdAt).toLocaleTimeString()}</div>
@@ -396,7 +396,7 @@ function Cybersecurity() {
                                 </div>
                             </div>
                         ))}
-                        {securityAlerts.length === 0 && (
+                        {(Array.isArray(securityAlerts) && securityAlerts.length === 0) && (
                             <div className="h-full flex-center flex-col text-slate-600 gap-3 grayscale opacity-30">
                                 <div className="text-4xl">🧘‍♂️</div>
                                 <div className="text-[10px] font-black uppercase tracking-widest">No Active Threats Correlated</div>
@@ -428,7 +428,7 @@ function Cybersecurity() {
                             </tr>
                         </thead>
                         <tbody>
-                            {securityAlerts.map((alert) => (
+                            {Array.isArray(securityAlerts) && securityAlerts.map((alert) => (
                                 <tr key={alert._id} className="hover:bg-white/5 transition-all group">
                                     <td>
                                         <Badge variant={alert.severity === 'CRITICAL' || alert.severity === 'HIGH' ? 'danger' : 'warning'}>
@@ -467,7 +467,7 @@ function Cybersecurity() {
                                     </td>
                                 </tr>
                             ))}
-                            {securityAlerts.length === 0 && !loading && (
+                            {(Array.isArray(securityAlerts) && securityAlerts.length === 0) && !loading && (
                                 <tr>
                                     <td colSpan="5" className="text-center py-10 text-slate-500 italic">No autonomous threats detected.</td>
                                 </tr>
@@ -513,7 +513,7 @@ function Cybersecurity() {
                             <div className="p-4 bg-slate-950 rounded-xl border border-white/5">
                                 <div className="text-[10px] font-black text-cyan-500 uppercase mb-3 tracking-widest">Incident Timeline</div>
                                 <div className="space-y-3 relative before:absolute before:inset-y-0 before:left-2 before:w-[1px] before:bg-white/10">
-                                    {selectedIncident.timeline.map((item, i) => (
+                                    {Array.isArray(selectedIncident.timeline) && selectedIncident.timeline.map((item, i) => (
                                         <div key={i} className="relative pl-6 text-[11px]">
                                             <div className="absolute left-1 top-2 w-2 h-2 rounded-full bg-cyan-500" />
                                             <div className="text-white font-bold">{item.event}</div>
@@ -577,7 +577,7 @@ function Cybersecurity() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {socStats?.highRiskUsers?.map((user) => (
+                                {Array.isArray(socStats?.highRiskUsers) && socStats.highRiskUsers.map((user) => (
                                     <tr key={user._id} className="hover:bg-red-500/5 transition-all">
                                         <td className="font-bold text-slate-200">
                                             {user.email}
@@ -627,7 +627,7 @@ function Cybersecurity() {
                                 </tr>
                             </thead>
                             <tbody>
-                                {assetAlerts.map((asset) => (
+                                {Array.isArray(assetAlerts) && assetAlerts.map((asset) => (
                                     <tr key={asset._id}>
                                         <td className="font-bold text-slate-200 uppercase text-xs">{asset.name}</td>
                                         <td className="font-mono text-[10px] text-slate-500">{asset.ipAddress}</td>

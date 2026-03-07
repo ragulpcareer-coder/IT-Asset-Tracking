@@ -12,9 +12,9 @@ const getTickets = async (req, res) => {
             filters.reportedBy = req.user._id;
         }
         const tickets = await Ticket.find(filters).populate("assetId", "name serialNumber").populate("reportedBy", "name email").sort({ createdAt: -1 });
-        res.json(tickets);
+        res.json({ success: true, tickets });
     } catch (error) {
-        res.status(500).json({ message: "Failed to fetch tickets" });
+        res.status(500).json({ success: false, message: "Failed to fetch tickets" });
     }
 };
 
@@ -48,9 +48,9 @@ const createTicket = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.status(201).json(ticket);
+        res.status(201).json({ success: true, ticket, message: "Ticket created successfully." });
     } catch (error) {
-        res.status(500).json({ message: "Failed to create ticket" });
+        res.status(500).json({ success: false, message: "Failed to create ticket" });
     }
 };
 
@@ -83,9 +83,9 @@ const updateTicket = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.json(ticket);
+        res.json({ success: true, ticket, message: "Ticket updated successfully." });
     } catch (error) {
-        res.status(500).json({ message: "Failed to update ticket" });
+        res.status(500).json({ success: false, message: "Failed to update ticket" });
     }
 };
 

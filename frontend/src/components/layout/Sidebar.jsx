@@ -67,7 +67,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
 
         {/* Navigation Core */}
         <nav style={{ flex: 1, padding: '0 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {navItems.map((item) => {
+          {(Array.isArray(navItems) ? navItems : []).map((item) => {
             const active = isActive(item.path);
             return (
               <Link

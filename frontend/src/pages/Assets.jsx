@@ -138,7 +138,7 @@ export default function Assets() {
 
       // Generate Deterministic Checksum
       const generateChecksum = (assetsArr) => {
-        let payload = JSON.stringify(assetsArr.map(a => a._id || a.uuid || a.serialNumber));
+        let payload = JSON.stringify((Array.isArray(assetsArr) ? assetsArr : []).map(a => a._id || a.uuid || a.serialNumber));
         let hash = 0;
         for (let i = 0; i < payload.length; i++) {
           const char = payload.charCodeAt(i);
@@ -154,12 +154,12 @@ export default function Assets() {
       doc.text(`Integrity Checksum: ${checksum} [VALID]`, 14, 46);
 
       // Generate Table Headers Dynamically from Schema
-      const schemaKeys = Object.keys(assetSchema.exportableFields);
-      const tableColumn = schemaKeys.map((key) => assetSchema.exportableFields[key]);
+      const schemaKeys = Object.keys(assetSchema?.exportableFields || {});
+      const tableColumn = (Array.isArray(schemaKeys) ? schemaKeys : []).map((key) => assetSchema.exportableFields[key]);
 
       // Generate Table Rows Dynamically
-      const tableRows = assets.map((asset) => {
-        return schemaKeys.map((key) => {
+      const tableRows = (Array.isArray(assets) ? assets : []).map((asset) => {
+        return (Array.isArray(schemaKeys) ? schemaKeys : []).map((key) => {
           return assetSchema.formatters[key] ? assetSchema.formatters[key](asset) : "N/A";
         });
       });
@@ -217,7 +217,7 @@ export default function Assets() {
     retired: assets.filter(a => a.status === "retired").length,
   };
 
-  const assetTypes = [...new Set(assets.map(a => a.type))].filter(Boolean);
+  const assetTypes = [...new Set((Array.isArray(assets) ? assets : []).map(a => a.type))].filter(Boolean);
 
   return (
     <div className="fade-in pb-12">
@@ -290,7 +290,7 @@ export default function Assets() {
             onChange={(e) => setTypeFilter(e.target.value)}
           >
             <option value="All">Filter by Asset Type</option>
-            {assetTypes.map(t => <option key={t} value={t}>{t}</option>)}
+            {Array.isArray(assetTypes) && assetTypes.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
           <select
             className="input bg-slate-950/40 border-white/5"

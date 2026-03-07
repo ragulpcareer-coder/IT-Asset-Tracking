@@ -98,53 +98,47 @@ export default function Users() {
                                     <tr>
                                         <td colSpan="5" className="py-20 text-center"><LoadingSpinner message="Scanning IAM Database..." /></td>
                                     </tr>
-                                ) : users.length === 0 ? (
+                                ) : (Array.isArray(users) && users.length === 0) ? (
                                     <tr>
                                         <td colSpan="5" className="py-20 text-center text-slate-500 font-bold italic uppercase tracking-widest text-sm">No active identities found.</td>
                                     </tr>
-                                ) : (
+                                ) : (Array.isArray(users) && users.length > 0) ? (
                                     Array.isArray(users) && users.map((u) => (
                                         <motion.tr
                                             key={u._id}
                                             initial={{ opacity: 0 }}
                                             animate={{ opacity: 1 }}
-                                            className="hover:bg-white/5 transition-all"
+                                            className="hover:bg-white/5 transition-colors"
                                         >
                                             <td>
-                                                <div className="flex items-center gap-4">
-                                                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-950 border border-white/10 flex items-center justify-center font-bold text-white shadow-lg">
-                                                        {u.name.charAt(0).toUpperCase()}
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center border border-white/10 group-hover:border-cyan-500/50 transition-colors">
+                                                        <span className="text-xs font-black text-cyan-500">{(u.name?.[0] || u.email?.[0] || "?").toUpperCase()}</span>
                                                     </div>
                                                     <div>
-                                                        <div className="font-bold text-slate-100 text-sm">
-                                                            {u.name} {u.email === currentUser.email && <Badge variant="info" className="ml-2 py-0">SELF</Badge>}
-                                                        </div>
-                                                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 uppercase tracking-tighter">{u.email}</div>
+                                                        <div className="text-white font-bold text-xs">{u.name || (u.email ? u.email.split("@")[0] : "Unknown Identity")}</div>
+                                                        <div className="text-[10px] text-slate-500">{u.email || "No Email Recorded"}</div>
                                                     </div>
                                                 </div>
                                             </td>
                                             <td>
-                                                <Badge variant={["Super Admin", "Admin"].includes(u.role) ? "info" : "neutral"} className="font-bold px-2 py-0.5">
-                                                    {u.role.toUpperCase()}
+                                                <Badge variant={u.role === "ADMIN" ? "danger" : "info"}>
+                                                    {u.role || "EMPLOYEE"}
                                                 </Badge>
                                             </td>
                                             <td>
-                                                {u.lockUntil && new Date(u.lockUntil) > new Date() ? (
-                                                    <Badge variant="danger" className="animate-pulse">ACCOUNT LOCKED</Badge>
-                                                ) : u.failedLoginAttempts > 0 ? (
-                                                    <div className="text-amber-500 text-[10px] font-black uppercase tracking-widest">{u.failedLoginAttempts} Failed Attempts</div>
-                                                ) : !u.isApproved ? (
-                                                    <Badge variant="warning" className="animate-pulse">PENDING APPROVAL</Badge>
-                                                ) : (
-                                                    <div className="text-green-500 text-[10px] font-black uppercase tracking-widest">Nominal / Secure</div>
-                                                )}
+                                                <div className="flex items-center gap-2">
+                                                    <div className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-red-500"}`} />
+                                                    <span className="text-[10px] font-black text-slate-300 uppercase">{u.isActive ? "Active" : "Suspended"}</span>
+                                                </div>
                                             </td>
                                             <td>
-                                                {u.twoFactorEnabled ? (
-                                                    <Badge variant="success" className="font-bold">2FA ENABLED</Badge>
-                                                ) : (
-                                                    <Badge variant="neutral" className="opacity-40">NOT CONFIGURED</Badge>
-                                                )}
+                                                <div className="flex items-center gap-2">
+                                                    <span className={`text-[10px] font-bold ${u.twoFactorEnabled ? "text-cyan-500" : "text-slate-600"}`}>
+                                                        {u.twoFactorEnabled ? "VERIFIED" : "UNSET"}
+                                                    </span>
+                                                    {u.twoFactorEnabled && <span className="text-[10px]">🛡️</span>}
+                                                </div>
                                             </td>
                                             <td className="text-right">
                                                 <div className="flex justify-end gap-2">
@@ -167,7 +161,7 @@ export default function Users() {
                                             </td>
                                         </motion.tr>
                                     ))
-                                )}
+                                ) : null}
                             </AnimatePresence>
                         </tbody>
                     </table>

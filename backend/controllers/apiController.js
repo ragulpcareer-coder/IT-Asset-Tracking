@@ -8,9 +8,9 @@ const crypto = require("crypto");
 const getKeys = async (req, res) => {
     try {
         const keys = await ApiKey.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
-        res.json(keys);
+        res.json({ success: true, keys });
     } catch (error) {
-        res.status(500).json({ message: "Failed to fetch API keys" });
+        res.status(500).json({ success: false, message: "Failed to fetch API keys" });
     }
 };
 
@@ -39,9 +39,13 @@ const createKey = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.status(201).json({ _id: apiKey._id, name: apiKey.name, key: apiKey.key, createdAt: apiKey.createdAt });
+        res.status(201).json({
+            success: true,
+            message: "API Key generated successfully",
+            key: { _id: apiKey._id, name: apiKey.name, key: apiKey.key, createdAt: apiKey.createdAt }
+        });
     } catch (error) {
-        res.status(500).json({ message: "Failed to create API key" });
+        res.status(500).json({ success: false, message: "Failed to create API key" });
     }
 };
 
@@ -63,9 +67,9 @@ const revokeKey = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.json(apiKey);
+        res.json({ success: true, message: "API Key revoked", key: apiKey });
     } catch (error) {
-        res.status(500).json({ message: "Failed to revoke API key" });
+        res.status(500).json({ success: false, message: "Failed to revoke API key" });
     }
 };
 

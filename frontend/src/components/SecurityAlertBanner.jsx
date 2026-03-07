@@ -85,7 +85,7 @@ export default function SecurityAlertBanner() {
         <>
             {/* ── CRITICAL ALERTS — Top Banner ─────────── */}
             <AnimatePresence>
-                {criticalAlerts.map((alert) => (
+                {Array.isArray(criticalAlerts) && criticalAlerts.map((alert) => (
                     <motion.div
                         key={alert.id}
                         initial={{ y: -100, opacity: 0 }}
@@ -130,7 +130,7 @@ export default function SecurityAlertBanner() {
             {/* ── CARD ALERTS — Bottom-Right ──────────── */}
             <div className="fixed bottom-8 right-8 z-[200] w-80 space-y-3 pointer-events-none">
                 <AnimatePresence>
-                    {(isExpanded ? cardAlerts : cardAlerts.slice(0, 1)).map((alert, i) => (
+                    {(Array.isArray(cardAlerts) ? (isExpanded ? cardAlerts : cardAlerts.slice(0, 1)) : []).map((alert, i) => (
                         <motion.div
                             key={alert.id}
                             initial={{ opacity: 0, x: 50 }}
@@ -169,7 +169,7 @@ export default function SecurityAlertBanner() {
                     ))}
                 </AnimatePresence>
 
-                {cardAlerts.length > 1 && (
+                {Array.isArray(cardAlerts) && cardAlerts.length > 1 && (
                     <button
                         onClick={() => setIsExpanded(!isExpanded)}
                         className="pointer-events-auto w-full text-center text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition"
@@ -178,9 +178,6 @@ export default function SecurityAlertBanner() {
                     </button>
                 )}
             </div>
-        </>
-    );
-}
         </>
     );
 }

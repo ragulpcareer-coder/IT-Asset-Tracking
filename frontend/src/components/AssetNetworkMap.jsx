@@ -65,7 +65,7 @@ export default function AssetNetworkMap({ onClose }) {
 
         // Build nodes: central server + all assets
         const centerNode = { id: "__server__", label: "Server", type: "server", isCenter: true };
-        const assetNodes = assets.map(a => ({
+        const assetNodes = (Array.isArray(assets) ? assets : []).map(a => ({
             id: a._id,
             label: a.name,
             type: a.type || "Device",
@@ -78,7 +78,7 @@ export default function AssetNetworkMap({ onClose }) {
         }));
 
         const nodes = [centerNode, ...assetNodes];
-        const links = assetNodes.map(n => ({ source: "__server__", target: n.id }));
+        const links = (Array.isArray(assetNodes) ? assetNodes : []).map(n => ({ source: "__server__", target: n.id }));
 
         // Force simulation
         const simulation = d3.forceSimulation(nodes)

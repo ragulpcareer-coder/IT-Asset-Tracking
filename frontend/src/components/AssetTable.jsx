@@ -55,7 +55,7 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {assets.map((asset, idx) => (
+                    {Array.isArray(assets) && assets.map((asset, idx) => (
                         <tr key={asset._id || idx}>
                             <td>
                                 <div className="font-bold text-slate-100">{asset.name}</div>

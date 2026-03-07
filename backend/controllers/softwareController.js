@@ -12,9 +12,9 @@ const getSoftware = async (req, res) => {
             query.assignedUsers = req.user._id;
         }
         const licenses = await SoftwareLicense.find(query).populate("assignedUsers", "name email");
-        res.json(licenses);
+        res.json({ success: true, count: licenses.length, licenses });
     } catch (error) {
-        res.status(500).json({ message: "Failed to fetch software licenses" });
+        res.status(500).json({ success: false, message: "Failed to fetch software licenses" });
     }
 };
 
@@ -32,9 +32,9 @@ const createSoftware = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.status(201).json(license);
+        res.status(201).json({ success: true, message: "Software license created", license });
     } catch (error) {
-        res.status(500).json({ message: "Failed to create license" });
+        res.status(500).json({ success: false, message: "Failed to create license" });
     }
 };
 
@@ -52,7 +52,7 @@ const assignUser = async (req, res) => {
         }
 
         if (license.assignedUsers.length >= license.totalSeats) {
-            return res.status(400).json({ message: "No seats available for this license" });
+            return res.status(400).json({ success: false, message: "No seats available for this license" });
         }
 
         license.assignedUsers.push(userId);
@@ -66,9 +66,9 @@ const assignUser = async (req, res) => {
         });
 
         const updatedLicense = await SoftwareLicense.findById(req.params.id).populate("assignedUsers", "name email");
-        res.json(updatedLicense);
+        res.json({ success: true, message: "User assigned successfully", license: updatedLicense });
     } catch (error) {
-        res.status(500).json({ message: "Failed to assign user" });
+        res.status(500).json({ success: false, message: "Failed to assign user" });
     }
 };
 

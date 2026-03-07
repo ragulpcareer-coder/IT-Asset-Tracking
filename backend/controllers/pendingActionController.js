@@ -11,9 +11,9 @@ exports.getPendingActions = async (req, res) => {
     try {
         const actions = await PendingAction.find({ status: "PENDING" })
             .populate("createdBy", "name email");
-        res.json(actions);
+        res.json({ success: true, count: actions.length, actions });
     } catch (error) {
-        res.status(500).json({ message: "Error fetching pending actions" });
+        res.status(500).json({ success: false, message: "Error fetching pending actions" });
     }
 };
 
@@ -21,15 +21,15 @@ exports.getPendingActions = async (req, res) => {
 exports.approveAction = async (req, res) => {
     try {
         const action = await PendingAction.findById(req.params.id);
-        if (!action) return res.status(404).json({ message: "Pending action not found" });
+        if (!action) return res.status(404).json({ success: false, message: "Pending action not found" });
 
         if (action.status !== "PENDING") {
-            return res.status(400).json({ message: "Action is no longer pending." });
+            return res.status(400).json({ success: false, message: "Action is no longer pending." });
         }
 
         // 4-Eyes Principle Enforcement (§3.1): Approver cannot be the Creator
         if (action.createdBy.toString() === req.user._id.toString()) {
-            return res.status(403).json({ message: "Security Violation: You cannot approve your own request (4-Eyes Principle)." });
+            return res.status(403).json({ success: false, message: "Security Violation: You cannot approve your own request (4-Eyes Principle)." });
         }
 
         action.approvals.push({
@@ -46,9 +46,9 @@ exports.approveAction = async (req, res) => {
             ip: req.ip || req.connection?.remoteAddress
         });
 
-        res.json({ message: "Action approved. The original requester can now execute the operation.", action });
+        res.json({ success: true, message: "Action approved. The original requester can now execute the operation.", action });
     } catch (error) {
-        res.status(500).json({ message: "Error approving action" });
+        res.status(500).json({ success: false, message: "Error approving action" });
     }
 };
 
@@ -56,7 +56,7 @@ exports.approveAction = async (req, res) => {
 exports.rejectAction = async (req, res) => {
     try {
         const action = await PendingAction.findById(req.params.id);
-        if (!action) return res.status(404).json({ message: "Pending action not found" });
+        if (!action) return res.status(404).json({ success: false, message: "Pending action not found" });
 
         action.status = "REJECTED";
         await action.save();
@@ -68,8 +68,8 @@ exports.rejectAction = async (req, res) => {
             ip: req.ip || req.connection?.remoteAddress
         });
 
-        res.json({ message: "Action rejected." });
+        res.json({ success: true, message: "Action rejected." });
     } catch (error) {
-        res.status(500).json({ message: "Error rejecting action" });
+        res.status(500).json({ success: false, message: "Error rejecting action" });
     }
 };

@@ -418,7 +418,7 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="space-y-4">
-            {logs.slice(0, 3).map((log, i) => (
+            {Array.isArray(logs) && logs.slice(0, 3).map((log, i) => (
               <div
                 key={log._id || i}
                 className="flex flex-col md:flex-row md:items-center justify-between gap-2 p-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 cursor-pointer transition-colors"

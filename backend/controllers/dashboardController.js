@@ -121,6 +121,7 @@ const getDashboardMetrics = async (req, res) => {
         });
 
         return res.status(200).json({
+            success: true,
             activeAssets: {
                 online: onlineAssets,
                 total: totalAssets,
@@ -143,6 +144,7 @@ const getDashboardMetrics = async (req, res) => {
         console.error('[Dashboard] Metrics fetch error:', error.message);
         // Return safe zeros — never crash the dashboard
         return res.status(200).json({
+            success: false,
             activeAssets: { online: 0, total: 0 },
             securityPostureScore: null,
             activeIncidents: 0,

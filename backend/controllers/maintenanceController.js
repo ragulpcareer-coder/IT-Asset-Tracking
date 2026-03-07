@@ -25,11 +25,12 @@ exports.rotateSystemSecrets = async (req, res) => {
         });
 
         res.json({
+            success: true,
             message: "System security keys rotated. All future API requests must be signed with the newly generated keys.",
             warning: "Existing client-side sessions using old signatures will need to re-fetch keys or re-authenticate."
         });
     } catch (error) {
-        res.status(500).json({ message: "Key rotation procedure failed." });
+        res.status(500).json({ success: false, message: "Key rotation procedure failed." });
     }
 };
 
@@ -43,6 +44,7 @@ exports.getSecurityStatus = async (req, res) => {
         const adminAlert = adminCount > 5;
 
         res.json({
+            success: true,
             trustScore: "High-Assurance",
             adminCount,
             adminAlert: adminAlert ? "CRITICAL: High number of administrative accounts detected. Violates §24 Operational Policy." : "Compliant",
@@ -51,7 +53,7 @@ exports.getSecurityStatus = async (req, res) => {
             timestamp: new Date()
         });
     } catch (error) {
-        res.status(500).json({ message: "Security health check failed." });
+        res.status(500).json({ success: false, message: "Security health check failed." });
     }
 };
 
@@ -88,9 +90,9 @@ exports.triggerManualBackup = async (req, res) => {
             ip: req.ip || req.connection?.remoteAddress
         });
 
-        res.json({ message: "Enterprise backup successfully encrypted and stored on-site.", filename });
+        res.json({ success: true, message: "Enterprise backup successfully encrypted and stored on-site.", filename });
     } catch (error) {
-        res.status(500).json({ message: "Manual backup failed: " + error.message });
+        res.status(500).json({ success: false, message: "Manual backup failed: " + error.message });
     }
 };
 
@@ -108,6 +110,6 @@ exports.downloadBackup = async (req, res) => {
 
         res.download(backupFile);
     } catch (error) {
-        res.status(500).json({ message: "Download failed." });
+        res.status(500).json({ success: false, message: "Download failed." });
     }
 };

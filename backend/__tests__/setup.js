@@ -33,7 +33,7 @@ const jestConfig = {
 
 // Sample test for TokenManager
 const tokenManagerTest = `
-const TokenManager = require('../../utils/tokenManager');
+const TokenManager = require('../utils/tokenManager');
 
 describe('TokenManager', () => {
   let tokenManager;
@@ -134,7 +134,7 @@ describe('TokenManager', () => {
 
 // Sample RBAC test
 const rbacTest = `
-const { ROLE_PERMISSIONS, hasPermission, authorizeRoles } = require('../../middleware/rbacMiddleware');
+const { ROLE_PERMISSIONS, hasPermission, authorizeRoles } = require('../middleware/rbacMiddleware');
 
 describe('RBAC Middleware', () => {
   describe('hasPermission', () => {
@@ -237,7 +237,7 @@ module.exports = {
 // API Integration test example
 const apiIntegrationTest = `
 const request = require('supertest');
-const app = require('../../server');
+const app = require('../server');
 
 describe('Auth API Integration Tests', () => {
   describe('POST /api/v1/auth/register', () => {

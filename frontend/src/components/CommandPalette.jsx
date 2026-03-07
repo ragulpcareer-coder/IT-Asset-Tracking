@@ -96,7 +96,7 @@ export default function CommandPalette() {
                             {!loading && results.length > 0 && (
                                 <div className="space-y-1 mt-2">
                                     <div className="px-3 py-1 text-xs font-medium text-gray-500 uppercase tracking-wider">Assets</div>
-                                    {results.map((asset) => (
+                                    {Array.isArray(results) && results.map((asset) => (
                                         <button
                                             key={asset._id}
                                             onClick={() => handleSelect(asset)}

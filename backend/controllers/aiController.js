@@ -73,7 +73,7 @@ const analyzeAlert = async (req, res) => {
         res.json({ success: true, analysis });
     } catch (error) {
         console.error("[AI-Analysis] Error:", error);
-        res.status(500).json({ message: "AI Analysis failed to complete.", error: error.message });
+        res.status(500).json({ success: false, message: "AI Analysis failed to complete.", error: error.message });
     }
 };
 
@@ -88,10 +88,10 @@ const getSecurityAlerts = async (req, res) => {
             .limit(50)
             .lean();
 
-        return res.status(200).json(alerts || []);
+        return res.status(200).json({ success: true, alerts: alerts || [] });
     } catch (error) {
         console.error("AI Controller Security Alerts Error:", error);
-        return res.status(500).json([]);
+        return res.status(500).json({ success: false, alerts: [] });
     }
 };
 

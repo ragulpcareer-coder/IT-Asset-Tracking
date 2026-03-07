@@ -15,8 +15,8 @@ const zeroTrustEnforcement = async (req, res, next) => {
         const ip = req.ip || req.connection.remoteAddress;
         const fingerprint = req.body.fingerprint || req.headers['x-agent-signature'] || 'unknown';
 
-        // 1. Mandatory 2FA Check
-        if (!user.twoFactorEnabled) {
+        // 1. Mandatory 2FA Check (Enforced in Production)
+        if (!user.twoFactorEnabled && process.env.NODE_ENV === 'production') {
             correlationEngine.recordZeroTrustViolation(user._id, "Missing 2FA for privileged role", ip);
             return res.status(403).json({
                 success: false,

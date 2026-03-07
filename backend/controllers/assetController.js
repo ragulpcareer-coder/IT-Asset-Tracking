@@ -133,13 +133,14 @@ const getAssets = async (req, res) => {
     const count = await Asset.countDocuments(query);
 
     res.json({
+      success: true,
       assets,
       totalPages: Math.ceil(count / limit),
       currentPage: page,
       totalAssets: count,
     });
   } catch (error) {
-    res.status(500).json({ message: "Failed to fetch assets" });
+    res.status(500).json({ success: false, message: "Failed to fetch assets" });
   }
 };
 
@@ -155,9 +156,9 @@ const getAssetById = async (req, res) => {
       }
     }
 
-    res.json(asset);
+    res.json({ success: true, asset });
   } catch (error) {
-    res.status(500).json({ message: "Error retrieving asset details" });
+    res.status(500).json({ success: false, message: "Error retrieving asset details" });
   }
 };
 
@@ -191,10 +192,10 @@ const createAsset = async (req, res) => {
       ip: req.ip || req.connection?.remoteAddress
     });
 
-    res.status(201).json(asset);
+    res.status(201).json({ success: true, asset, message: "Node provisioned successfully." });
   } catch (error) {
     logger.error("Provisioning Error:", error);
-    res.status(500).json({ message: "Registry error: Node creation rejected." });
+    res.status(500).json({ success: false, message: "Registry error: Node creation rejected." });
   }
 };
 
@@ -243,10 +244,10 @@ const updateAsset = async (req, res) => {
     const io = req.app.get("io");
     if (io) io.emit("assetUpdated", asset);
 
-    res.json(asset);
+    res.json({ success: true, asset, message: "Registry node updated successfully." });
   } catch (error) {
     logger.error("Registry Sync Failure:", error);
-    res.status(500).json({ message: "Strategic Error: Asset modification protocol failed." });
+    res.status(500).json({ success: false, message: "Strategic Error: Asset modification protocol failed." });
   }
 };
 
@@ -286,7 +287,7 @@ const deleteAsset = async (req, res) => {
 
         const io = req.app.get("io");
         io.emit("assetDeleted", assetId);
-        return res.json({ message: "Asset deleted successfully via Dual Authorization." });
+        return res.json({ success: true, message: "Asset deleted successfully via Dual Authorization." });
       }
     }
 
@@ -310,11 +311,12 @@ const deleteAsset = async (req, res) => {
     });
 
     res.status(202).json({
+      success: true,
       message: "Dual Authorization Required: A secondary administrator must approve this deletion for safety.",
       pendingActionId: pending._id
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -475,12 +477,13 @@ const bulkUploadAssets = async (req, res) => {
         io.emit("bulkAssetsUploaded");
 
         res.json({
+          success: true,
           message: `Successfully processed ${successCount} assets`,
           errors
         });
       });
   } catch (error) {
-    res.status(500).json({ message: "Bulk upload failed" });
+    res.status(500).json({ success: false, message: "Bulk upload failed" });
   }
 };
 
@@ -862,10 +865,10 @@ const agentReport = async (req, res) => {
       else io.emit("assetUpdated", asset);
     }
 
-    res.json({ message: "Telemetry received" });
+    res.json({ success: true, message: "Telemetry received", assetId: asset._id });
 
   } catch (error) {
-    res.status(500).json({ message: "Error processing report" });
+    res.status(500).json({ success: false, message: "Error processing report" });
   }
 };
 
@@ -899,6 +902,7 @@ const verifyAssetIntegrity = async (req, res) => {
     }
 
     res.json({
+      success: true,
       assetId: asset._id,
       isIntegrityValid: !isTampered,
       storedHash: asset.integrityHash,
@@ -906,7 +910,7 @@ const verifyAssetIntegrity = async (req, res) => {
       status: isTampered ? "SECURITY BREACH DETECTED" : "VERIFIED SAFE"
     });
   } catch (error) {
-    res.status(500).json({ message: "Integrity verification system failure." });
+    res.status(500).json({ success: false, message: "Integrity verification system failure." });
   }
 };
 
