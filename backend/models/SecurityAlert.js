@@ -5,12 +5,25 @@ const SecurityAlertSchema = new mongoose.Schema({
         type: String,
         required: true,
         enum: [
+            // Auth / Login Threats
             "BRUTE_FORCE",
+            "BRUTE_FORCE_ATTEMPT",
             "SUSPICIOUS_IP",
             "UNUSUAL_LOGIN_TIME",
             "NEW_DEVICE_ADMIN",
             "ZERO_TRUST_VIOLATION",
-            "AI_FLAGGED_ANOMALY"
+            "AI_FLAGGED_ANOMALY",
+            // Network / Asset Threats
+            "ROGUE_NODE",
+            "NETWORK_ANOMALY",
+            "TAMPERING",
+            // Identity & Privilege
+            "INSIDER_THREAT",
+            "PRIVILEGE_ESCALATION",
+            "DATA_EXFILTRATION",
+            "UNAUTHORIZED_CMD",
+            "LATERAL_MOVEMENT",
+            "PERSISTENCE"
         ]
     },
     severity: {
@@ -23,6 +36,7 @@ const SecurityAlertSchema = new mongoose.Schema({
         enum: ["OPEN", "INVESTIGATING", "RESOLVED", "DISMISSED"],
         default: "OPEN"
     },
+    // Canonical field names used by correlationEngine
     description: String,
     sourceIp: String,
     userId: {
@@ -57,14 +71,13 @@ const SecurityAlertSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Index for fast dashboard retrieval
+// Fast retrieval indexes
 SecurityAlertSchema.index({ severity: 1, status: 1 });
 SecurityAlertSchema.index({ createdAt: -1 });
+SecurityAlertSchema.index({ type: 1, userId: 1, sourceIp: 1, createdAt: -1 });
 
-SecurityAlertSchema.post("save", function (doc) {
-    if (global.io) {
-        global.io.emit("security_alert", doc);
-    }
-});
+// NOTE: We deliberately do NOT emit WebSocket here.
+// correlationEngine.triggerAlert() is the single source of truth for
+// creating alerts + emitting WebSocket events (preventing double emissions).
 
 module.exports = mongoose.model("SecurityAlert", SecurityAlertSchema);

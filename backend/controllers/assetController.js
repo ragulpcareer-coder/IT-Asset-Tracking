@@ -10,6 +10,7 @@ const os = require('os');
 const net = require('net');
 const logger = require("../utils/logger");
 const riskScoringService = require("../services/riskScoringService");
+const correlationEngine = require("../services/correlationEngine");
 
 // Private/Local IP Check (RFC 1918 + loopback/link-local)
 const isPrivateIP = (ip) => {
@@ -628,15 +629,13 @@ const scanNetwork = async (req, res) => {
           `<b>SECURITY BREACH:</b> A new unknown device was detected at physical address <b>${device.mac}</b>. Access source: ${device.ip}. Integrity check pending.`
         );
 
-        await SecurityAlert.create({
-          type: "ROGUE_NODE",
-          severity: openPorts.length > 0 ? "High" : "Medium",
-          message: `Unauthorized device detected: ${rogueAsset.name}`,
-          details: `Unregistered device found on local segment. IP: ${device.ip}. MAC: ${device.mac}. Open services: [${openPorts.join(', ') || 'none'}]`,
-          assetId: rogueAsset._id,
+        // Route ROGUE_NODE alert through the central pipeline:
+        // correlationEngine handles deduplication, SOAR, incident grouping, and single WS broadcast.
+        await correlationEngine.triggerAlert("ROGUE_NODE", {
+          message: `Unauthorized device detected: ${rogueAsset.name} — IP: ${device.ip} MAC: ${device.mac}. Open services: [${openPorts.join(', ') || 'none'}]`,
           ip: device.ip,
-          mitreTactic: "Initial Access",
-          mitreTechnique: "T1190"
+          severity: openPorts.length > 0 ? "HIGH" : "MEDIUM",
+          metadata: { assetId: String(rogueAsset._id), mac: device.mac, openPorts }
         });
 
         await AuditLog.create({
@@ -647,8 +646,7 @@ const scanNetwork = async (req, res) => {
         });
 
         const io = req.app.get("io");
-        io.emit("assetCreated", rogueAsset);
-        io.emit("securityAlert", rogueAsset);
+        if (io) io.emit("assetCreated", rogueAsset);
 
         rogueDevicesFound.push(rogueAsset);
       }
@@ -868,14 +866,12 @@ const verifyAssetIntegrity = async (req, res) => {
     const isTampered = asset.integrityHash !== calculatedHash;
 
     if (isTampered) {
-      await SecurityAlert.create({
-        type: "TAMPERING",
-        severity: "Critical",
-        message: `DEEP INTEGRITY BREACH: Asset tampering detected for ${asset.name}`,
-        details: `Calculated hash mismatch for asset ${asset._id}. Data may have been manually modified in database skipping secure registry hooks.`,
-        assetId: asset._id,
-        mitreTactic: "Defense Evasion",
-        mitreTechnique: "T1562"
+      // Route through central pipeline: dedup + SOAR + single WS broadcast
+      await correlationEngine.triggerAlert("TAMPERING", {
+        message: `INTEGRITY BREACH: Asset tampering detected for ${asset.name} (ID: ${asset._id}). Hash mismatch — possible out-of-band DB modification.`,
+        ip: req.ip || "Unknown",
+        severity: "CRITICAL",
+        metadata: { assetId: String(asset._id), storedHash: asset.integrityHash, calculatedHash }
       });
 
       await AuditLog.create({

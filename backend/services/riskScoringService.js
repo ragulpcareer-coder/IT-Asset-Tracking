@@ -65,21 +65,16 @@ class RiskScoringService {
                 }
             );
 
-            // Escalate to Global Real-time WebSockets if the Threat climbs
-            if (global.io && threatLevel !== previousThreatLevel && (threatLevel === "HIGH" || threatLevel === "CRITICAL")) {
-                global.io.emit("security_event", {
-                    severity: threatLevel.toLowerCase(),
-                    message: `User Threat Escalation: ${user.email} is now classified as ${threatLevel} Risk (Score: ${newScore}). Cause: ${eventType}`,
-                    time: new Date()
-                });
-
-                // Also persist the escalation to the dedicated system log
-                await SecurityAlert.create({
-                    type: "ZERO_TRUST_VIOLATION",
+            // Escalate to SOC via central pipeline (handles dedup + WS broadcast)
+            if (threatLevel !== previousThreatLevel && (threatLevel === "HIGH" || threatLevel === "CRITICAL")) {
+                // Central pipeline handles WS broadcast — no direct io.emit here
+                const correlationEngine = require("./correlationEngine");
+                await correlationEngine.triggerAlert("ZERO_TRUST_VIOLATION", {
+                    message: `User Threat Escalation: ${user.email} is now ${threatLevel} Risk (Score: ${newScore}). Trigger: ${eventType}`,
+                    ip: "Internal",
+                    userId: user._id,
                     severity: threatLevel,
-                    message: `User Risk Score crossed threshold into ${threatLevel}`,
-                    details: `User risk score is now ${newScore} after recent event: ${eventType}`,
-                    userId: user._id
+                    metadata: { email: user.email, riskScore: newScore, eventType }
                 });
             }
 

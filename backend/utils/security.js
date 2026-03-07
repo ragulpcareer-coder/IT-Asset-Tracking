@@ -45,9 +45,9 @@ const validatePasswordStrength = (password) => {
     isStrong: false,
   };
 
-  // Length 8+ (Policy §2.2)
-  if (password.length >= 8) strength.score += 1;
-  else strength.feedback.push("Minimum 8 characters required");
+  // Length 12+ (Policy §2.2)
+  if (password.length >= 12) strength.score += 1;
+  else strength.feedback.push("Minimum 12 characters required");
 
   // Uppercase
   if (/[A-Z]/.test(password)) strength.score += 1;

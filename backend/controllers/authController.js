@@ -1097,7 +1097,7 @@ const adminDisable2FA = async (req, res) => {
       return res.status(403).json({ message: "Cannot disable 2FA for a Super Admin" });
     }
 
-    user.isTwoFactorEnabled = false;
+    user.twoFactorEnabled = false;
     user.twoFactorSecret = undefined;
     user.twoFactorBackupCodes = [];
     await user.save();

@@ -75,11 +75,9 @@ const getIncidentById = async (req, res) => {
     }
 };
 
-// --- SOC Stats ---
-
 const getSocStats = async (req, res) => {
     try {
-        const [totalAlerts, activeIncidents, lockedAccounts, blockedIpsCount, highRiskUsers] = await Promise.all([
+        const [totalAlerts, activeIncidents, lockedAccounts, blockedIpsCount, highRiskUsers, geoTelemetry] = await Promise.all([
             SecurityAlert.countDocuments(),
             Incident.countDocuments({ status: { $in: ["OPEN", "INVESTIGATING"] } }),
             User.countDocuments({ isActive: false, lockUntil: { $exists: true } }),
@@ -87,7 +85,13 @@ const getSocStats = async (req, res) => {
             User.find({ "behavioralMetadata.threatLevel": { $in: ["HIGH", "CRITICAL"] } })
                 .select("email behavioralMetadata.riskScore behavioralMetadata.threatLevel")
                 .sort({ "behavioralMetadata.riskScore": -1 })
-                .limit(10)
+                .limit(10),
+            SecurityAlert.aggregate([
+                { $match: { "metadata.country": { $exists: true, $ne: "Unknown" } } },
+                { $group: { _id: "$metadata.country", count: { $sum: 1 } } },
+                { $sort: { count: -1 } },
+                { $limit: 8 }
+            ])
         ]);
 
         res.json({
@@ -96,10 +100,41 @@ const getSocStats = async (req, res) => {
             lockedAccounts,
             blockedIps: blockedIpsCount.length,
             highRiskUsers,
+            geoTelemetry,
             lastUpdated: new Date()
         });
     } catch (error) {
         res.status(500).json({ message: "Failed to fetch SOC stats.", error: error.message });
+    }
+};
+
+/**
+ * @desc    Get GPS coordinates for the World Threat Map
+ * @route   GET /api/security/threat-map
+ * @access  Private/Admin
+ */
+const getThreatMapPoints = async (req, res) => {
+    try {
+        const alerts = await SecurityAlert.find({
+            "metadata.lat": { $exists: true, $ne: 0 },
+            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+        })
+            .select("type severity sourceIp metadata.lat metadata.lon createdAt")
+            .limit(100);
+
+        const points = alerts.map(a => ({
+            id: a._id,
+            type: a.type,
+            severity: a.severity,
+            ip: a.sourceIp,
+            lat: a.metadata.lat,
+            lon: a.metadata.lon,
+            time: a.createdAt
+        }));
+
+        res.json(points);
+    } catch (error) {
+        res.status(500).json({ message: "Failed to fetch threat map points." });
     }
 };
 
@@ -110,5 +145,6 @@ module.exports = {
     simulateExploitPattern,
     getIncidents,
     getIncidentById,
-    getSocStats
+    getSocStats,
+    getThreatMapPoints
 };

@@ -21,17 +21,26 @@ function Cybersecurity() {
     const [analyzingId, setAnalyzingId] = useState(null);
     const [selectedAlert, setSelectedAlert] = useState(null);
     const [selectedIncident, setSelectedIncident] = useState(null);
+    const [threatPoints, setThreatPoints] = useState([]);
+    const [geoDistribution, setGeoDistribution] = useState([]);
+    const [scanProgress, setScanProgress] = useState(0);
+    const [isScanning, setIsScanning] = useState(false);
 
     useEffect(() => {
         fetchData();
         socket.connect();
 
         socket.on("security_alert", (newAlert) => {
-            setSecurityAlerts(prev => [newAlert, ...prev].slice(0, 50));
-            fetchStats(); // Update stats on new alert
+            // Deduplicate: ignore if same _id already exists in state
+            setSecurityAlerts(prev => {
+                if (prev.some(a => a._id === newAlert._id)) return prev;
+                return [newAlert, ...prev].slice(0, 50);
+            });
+            fetchStats(); // Update metrics bar on new alert
             toast.error(`🚨 ${newAlert.type}: ${newAlert.description}`, {
                 position: "bottom-right",
-                autoClose: 10000
+                autoClose: 10000,
+                toastId: newAlert._id // Prevents duplicate toasts for same alert
             });
         });
 
@@ -50,14 +59,18 @@ function Cybersecurity() {
     const fetchData = async () => {
         setLoading(true);
         try {
-            const [assetsRes, securityRes, statsRes] = await Promise.all([
+            const [assetsRes, securityRes, statsRes, mapRes] = await Promise.all([
                 axios.get(`/assets/security-alerts`),
                 axios.get(`/security/alerts`),
-                axios.get(`/security/stats`)
+                axios.get(`/security/stats`),
+                axios.get(`/security/threat-map`)
             ]);
-            setAssetAlerts(assetsRes.data.data || []);
+            // /assets/security-alerts returns { success, count, alerts }
+            setAssetAlerts(assetsRes.data.alerts || assetsRes.data.data || []);
             setSecurityAlerts(securityRes.data || []);
             setSocStats(statsRes.data);
+            setGeoDistribution(statsRes.data.geoTelemetry || []);
+            setThreatPoints(mapRes.data || []);
         } catch (err) {
             console.error("Failed to fetch SOC data:", err);
             toast.error("Telemetry failure: Could not reach SOC backend.");
@@ -96,6 +109,35 @@ function Cybersecurity() {
             setSelectedIncident(data);
         } catch (err) {
             toast.error("Failed to fetch incident details.");
+        }
+    };
+
+    const handleScanAssets = async () => {
+        setIsScanning(true);
+        setScanProgress(0);
+
+        // Progress Simulation
+        const interval = setInterval(() => {
+            setScanProgress(p => {
+                if (p >= 100) {
+                    clearInterval(interval);
+                    return 100;
+                }
+                return p + 5;
+            });
+        }, 100);
+
+        try {
+            await axios.post("/maintenance/scan-network");
+            setTimeout(() => {
+                setIsScanning(false);
+                toast.success("Network scan complete. Asset inventory synchronized.");
+                fetchData();
+            }, 2000);
+        } catch (err) {
+            clearInterval(interval);
+            setIsScanning(false);
+            toast.error("Network scan aborted: Endpoint unreachable.");
         }
     };
 
@@ -171,6 +213,86 @@ function Cybersecurity() {
                 </div>
             </div>
 
+            {/* 🌍 World Threat Map & Geo-Intelligence */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
+                <Card className="lg:col-span-2 bg-slate-950 border-cyan-500/10 min-h-[400px] overflow-hidden relative">
+                    <div className="absolute top-4 left-4 z-10">
+                        <div className="text-[10px] font-black text-cyan-500 uppercase tracking-[0.3em] mb-1">Live Threat Map</div>
+                        <div className="text-xs text-slate-400">Geographic Attack Vectors (24h)</div>
+                    </div>
+
+                    {/* SVG Base Map with Pulsing Dots */}
+                    <div className="w-full h-full flex items-center justify-center p-4">
+                        <svg viewBox="0 0 1000 500" className="w-full h-full opacity-60">
+                            {/* Simple World Map Outline (Simplified) */}
+                            <path d="M150,150 L250,120 L350,130 L400,200 L450,180 L550,220 L700,180 L850,250 L800,400 L600,450 L400,420 L200,400 Z" fill="none" stroke="rgba(34, 211, 238, 0.2)" strokeWidth="1" />
+
+                            {/* Plotting Threat Points */}
+                            {threatPoints.map((point, i) => {
+                                // Project Lat/Lon to SVG Coords (Approx)
+                                const x = (point.lon + 180) * (1000 / 360);
+                                const y = (90 - point.lat) * (500 / 180);
+                                return (
+                                    <g key={point.id || i}>
+                                        <circle cx={x} cy={y} r="3" fill={point.severity === 'CRITICAL' ? '#ef4444' : '#f59e0b'}>
+                                            <animate attributeName="r" from="2" to="10" dur="2s" begin="0s" repeatCount="indefinite" />
+                                            <animate attributeName="opacity" from="1" to="0" dur="2s" begin="0s" repeatCount="indefinite" />
+                                        </circle>
+                                        <circle cx={x} cy={y} r="2" fill={point.severity === 'CRITICAL' ? '#ef4444' : '#f59e0b'} />
+                                    </g>
+                                );
+                            })}
+                        </svg>
+                    </div>
+
+                    <div className="absolute bottom-4 right-4 flex gap-4">
+                        <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-red-500" />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Critical</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-orange-500" />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">Warning</span>
+                        </div>
+                    </div>
+                </Card>
+
+                <Card className="bg-slate-900/60 border-white/5 p-6 flex flex-col items-center justify-center text-center">
+                    <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em] mb-6 w-full text-left">Security Posture Dial</div>
+
+                    <div className="relative w-48 h-48 flex items-center justify-center mb-6">
+                        <svg className="w-full h-full transform -rotate-90">
+                            <circle cx="96" cy="96" r="88" fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="12" />
+                            <circle
+                                cx="96" cy="96" r="88" fill="none"
+                                stroke={socStats.activeIncidents > 5 ? "#ef4444" : "#22d3ee"}
+                                strokeWidth="12"
+                                strokeDasharray={2 * Math.PI * 88}
+                                strokeDashoffset={2 * Math.PI * 88 * (1 - (Math.max(0, 100 - (socStats.activeIncidents * 10)) / 100))}
+                                strokeLinecap="round"
+                                className="transition-all duration-1000 ease-out"
+                            />
+                        </svg>
+                        <div className="absolute inset-0 flex flex-col items-center justify-center">
+                            <div className="text-4xl font-black text-white">{Math.max(0, 100 - (socStats.activeIncidents * 10))}%</div>
+                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest mt-1">Health Index</div>
+                        </div>
+                    </div>
+
+                    <div className="w-full space-y-3">
+                        {geoDistribution.map((item, i) => (
+                            <div key={i} className="flex items-center justify-between">
+                                <span className="text-[10px] font-bold text-slate-400 uppercase">{item._id}</span>
+                                <div className="flex-1 mx-3 h-1 bg-white/5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-cyan-500/50" style={{ width: `${(item.count / socStats.totalAlerts) * 100}%` }} />
+                                </div>
+                                <span className="text-[10px] font-black text-slate-500">{item.count}</span>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            </div>
+
             {/* Attack Simulation Engine */}
             <Card className="border-cyan-500/20 bg-slate-900/40 mb-10 overflow-hidden relative shadow-2xl">
                 <div className="absolute top-0 right-0 p-2">
@@ -222,6 +344,67 @@ function Cybersecurity() {
                     </div>
                 </div>
             </Card>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-10">
+                <Card className="bg-slate-900/40 border-cyan-500/20 shadow-xl p-8 flex flex-col items-center justify-center text-center relative overflow-hidden group">
+                    <div className="absolute inset-0 bg-gradient-to-br from-cyan-500/5 to-transparent pointer-events-none" />
+                    <div className="text-5xl mb-6 group-hover:scale-110 transition-transform duration-500">📡</div>
+                    <h3 className="text-xl font-black text-white mb-2 uppercase tracking-tighter">Network Asset Discovery</h3>
+                    <p className="text-slate-400 text-sm max-w-xs mb-8">Perform deep-packet inspection and hardware inventory sync across the internal subnet.</p>
+
+                    {isScanning ? (
+                        <div className="w-full max-w-xs transition-all duration-500">
+                            <div className="flex justify-between text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-2">
+                                <span>Scanning Subnet...</span>
+                                <span>{scanProgress}%</span>
+                            </div>
+                            <div className="h-2 w-full bg-white/5 rounded-full overflow-hidden">
+                                <div
+                                    className="h-full bg-cyan-400 shadow-[0_0_15px_rgba(34,211,238,0.5)] transition-all duration-300"
+                                    style={{ width: `${scanProgress}%` }}
+                                />
+                            </div>
+                        </div>
+                    ) : (
+                        <button onClick={handleScanAssets} className="btn bg-cyan-500/10 border border-cyan-500/20 text-cyan-400 hover:bg-cyan-500 hover:text-white px-8 py-3 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg hover:shadow-cyan-500/20">
+                            Launch Probe
+                        </button>
+                    )}
+                </Card>
+
+                <Card className="bg-slate-900/60 border-white/5 p-6 h-[400px] flex flex-col">
+                    <div className="flex items-center justify-between mb-6">
+                        <div className="text-[10px] font-black text-slate-500 uppercase tracking-[0.3em]">Investigation Timeline</div>
+                        <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-full bg-cyan-500 animate-pulse" />
+                            <span className="text-[10px] font-bold text-cyan-500/80 uppercase tracking-widest">Active Watch</span>
+                        </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto space-y-6 pr-2 scrollbar-hide">
+                        {securityAlerts.filter(a => a.severity === 'CRITICAL' || a.severity === 'HIGH').slice(0, 10).map((alert, i) => (
+                            <div key={alert._id || i} className="relative pl-6 border-l border-white/10 group">
+                                <div className={`absolute -left-1 top-0 w-2 h-2 rounded-full ${alert.severity === 'CRITICAL' ? 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]' : 'bg-orange-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]'}`} />
+                                <div className="text-[10px] font-mono text-slate-500 mb-1">{new Date(alert.createdAt).toLocaleTimeString()}</div>
+                                <div className="text-xs font-bold text-slate-200 group-hover:text-white transition-colors uppercase tracking-tight">{alert.type}</div>
+                                <div className="text-[11px] text-slate-500 mt-1 leading-relaxed">{alert.description}</div>
+                                <div className="flex items-center gap-3 mt-2">
+                                    <span className="text-[9px] font-black text-slate-600 uppercase bg-white/5 px-2 py-0.5 rounded tracking-widest">{alert.sourceIp}</span>
+                                    {alert.metadata?.country && (
+                                        <span className="text-[9px] font-black text-cyan-500/40 uppercase tracking-widest">{alert.metadata.country}</span>
+                                    )}
+                                </div>
+                            </div>
+                        ))}
+                        {securityAlerts.length === 0 && (
+                            <div className="h-full flex-center flex-col text-slate-600 gap-3 grayscale opacity-30">
+                                <div className="text-4xl">🧘‍♂️</div>
+                                <div className="text-[10px] font-black uppercase tracking-widest">No Active Threats Correlated</div>
+                            </div>
+                        )}
+                    </div>
+                </Card>
+            </div>
 
             {/* Security Alert Ledger */}
             <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40 mb-10">

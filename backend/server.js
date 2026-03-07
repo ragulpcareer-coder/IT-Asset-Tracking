@@ -271,7 +271,7 @@ apiV1.use("/keys", require("./routes/apiRoutes"));
 apiV1.use("/pending", require("./routes/pendingActionRoutes"));
 apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
 apiV1.use("/dashboard", require("./routes/dashboardRoutes"));
-apiV1.use("/security", require("./routes/securityRoutes"));
+apiV1.use("/security", require("./routes/securityRoutes")); // SOC Platform — alerts, incidents, simulations
 
 // Multi-version support (§39)
 app.use("/api/v1", apiV1);
