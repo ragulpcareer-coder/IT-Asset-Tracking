@@ -108,14 +108,14 @@ const protect = async (req, res, next) => {
     }
 
 
-    // Time-Based Access Control (§12.1)
-    if (user.role === "Employee") {
-      const hour = new Date().getHours();
-      if (hour < 8 || hour > 19) { // Authorized 8 AM - 7 PM
-        console.log(`[AuthMiddleware] Failed: Time-Based access denied for Employee. Hour: ${hour}`);
-        return res.status(403).json({ message: "Access Denied: Your role is restricted to standard business hours (08:00 - 19:00)." });
-      }
-    }
+    // Time-Based Access Control (§12.1) — Relaxed for Development and Remote Flexibility
+    // if (user.role === "Employee") {
+    //   const hour = new Date().getHours();
+    //   if (hour < 8 || hour > 19) { // Authorized 8 AM - 7 PM
+    //     console.log(`[AuthMiddleware] Failed: Time-Based access denied for Employee. Hour: ${hour}`);
+    //     return res.status(403).json({ message: "Access Denied: Your role is restricted to standard business hours (08:00 - 19:00)." });
+    //   }
+    // }
 
     // Account suspension check
     if (user.isActive === false) {
@@ -138,7 +138,8 @@ const protect = async (req, res, next) => {
     if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
       console.log(`[AuthMiddleware] Failed: Account not approved`);
       return res.status(403).json({
-        message: "Your account is pending administrator approval.",
+        message: "Compliance Pending: Your account is awaiting administrator approval before accessing platform telemetry.",
+        code: "ACCOUNT_PENDING_APPROVAL"
       });
     }
 

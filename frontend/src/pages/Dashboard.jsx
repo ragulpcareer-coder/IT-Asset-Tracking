@@ -121,13 +121,31 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
 
   const fetchMetrics = useCallback(async () => {
+    // SECURITY: Only Admins/Super Admins/Auditors should fetch system-wide metrics
+    if (!["Super Admin", "Admin", "Security Auditor"].includes(user?.role)) {
+      setMetrics({
+        activeAssets: { online: 0, total: 0 },
+        securityPostureScore: null,
+        activeIncidents: 0,
+        auditEvents24h: 0,
+        _meta: {}
+      });
+      return;
+    }
+
     try {
       const res = await axios.get("/dashboard/metrics");
       setMetrics(res.data);
       setMetricsError(false);
     } catch (err) {
       console.error("[Dashboard] Metrics fetch error:", err.message);
-      setMetricsError(true);
+      // Logic for 403 handling (e.g. if role was changed mid-session)
+      if (err.response?.status === 403) {
+        setMetricsError(false); // Don't show error banner for expected RBAC block
+      } else {
+        setMetricsError(true);
+      }
+
       // Fallback to safe zeros so cards don't crash
       setMetrics({
         activeAssets: { online: 0, total: 0 },
@@ -137,7 +155,7 @@ export default function Dashboard() {
         _meta: {}
       });
     }
-  }, []);
+  }, [user?.role]);
 
   const fetchChartData = useCallback(async () => {
     try {
@@ -231,49 +249,88 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+        {["Super Admin", "Admin", "Security Auditor"].includes(user?.role) ? (
+          <>
+            {/* 1 — Active Assets */}
+            <KpiCard
+              label="Active Assets"
+              value={`${m.activeAssets?.online ?? 0} / ${m.activeAssets?.total ?? 0}`}
+              sub="Endpoints reporting within 5 minutes"
+              accent="border-l-blue-500"
+              icon="🖥"
+              loading={false}
+            />
 
-        {/* 1 — Active Assets */}
-        <KpiCard
-          label="Active Assets"
-          value={`${m.activeAssets?.online ?? 0} / ${m.activeAssets?.total ?? 0}`}
-          sub="Endpoints reporting within 5 minutes"
-          accent="border-l-blue-500"
-          icon="🖥"
-          loading={false}
-        />
+            {/* 2 — Security Posture Score */}
+            <PostureCard
+              score={m.securityPostureScore ?? 0}
+              meta={m._meta?.posture}
+              loading={false}
+            />
 
-        {/* 2 — Security Posture Score */}
-        <PostureCard
-          score={m.securityPostureScore ?? 0}
-          meta={m._meta?.posture}
-          loading={false}
-        />
+            {/* 3 — Active Incidents */}
+            <KpiCard
+              label="Active Incidents"
+              value={m.activeIncidents ?? 0}
+              sub="Open / In-Progress tickets"
+              accent={
+                (m.activeIncidents ?? 0) === 0
+                  ? "border-l-emerald-500"
+                  : (m.activeIncidents ?? 0) < 5
+                    ? "border-l-amber-500"
+                    : "border-l-red-500"
+              }
+              icon="🎫"
+              loading={false}
+            />
 
-        {/* 3 — Active Incidents */}
-        <KpiCard
-          label="Active Incidents"
-          value={m.activeIncidents ?? 0}
-          sub="Open / In-Progress tickets"
-          accent={
-            (m.activeIncidents ?? 0) === 0
-              ? "border-l-emerald-500"
-              : (m.activeIncidents ?? 0) < 5
-                ? "border-l-amber-500"
-                : "border-l-red-500"
-          }
-          icon="🎫"
-          loading={false}
-        />
-
-        {/* 4 — Audit Events 24h */}
-        <KpiCard
-          label="Audit Events (24h)"
-          value={(m.auditEvents24h ?? 0).toLocaleString()}
-          sub="Audit log entries in the last 24 hours"
-          accent="border-l-purple-500"
-          icon="📋"
-          loading={false}
-        />
+            {/* 4 — Audit Events 24h */}
+            <KpiCard
+              label="Audit Events (24h)"
+              value={(m.auditEvents24h ?? 0).toLocaleString()}
+              sub="Audit log entries in the last 24 hours"
+              accent="border-l-purple-500"
+              icon="📋"
+              loading={false}
+            />
+          </>
+        ) : (
+          <>
+            {/* Member KPI View */}
+            <KpiCard
+              label="My Assigned Assets"
+              value={assets.length}
+              sub="Nodes currently provisioned to you"
+              accent="border-l-emerald-500"
+              icon="💻"
+              loading={false}
+            />
+            <KpiCard
+              label="Open Requests"
+              value={0} // Placeholder for user tickets
+              sub="Support tickets pending resolution"
+              accent="border-l-blue-500"
+              icon="📥"
+              loading={false}
+            />
+            <KpiCard
+              label="Account Integrity"
+              value={user?.twoFactorEnabled ? "Secure" : "At Risk"}
+              sub={user?.twoFactorEnabled ? "2FA Protection Active" : "Enable 2FA in Settings"}
+              accent={user?.twoFactorEnabled ? "border-l-emerald-500" : "border-l-red-500"}
+              icon="🔐"
+              loading={false}
+            />
+            <KpiCard
+              label="Last Login"
+              value={new Date(user?.lastLogin || Date.now()).toLocaleDateString()}
+              sub="Session tracking active"
+              accent="border-l-purple-500"
+              icon="🕒"
+              loading={false}
+            />
+          </>
+        )}
       </div>
 
       {/* Charts Section */}
