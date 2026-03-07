@@ -102,18 +102,9 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ message: "Session expired due to security credential updates. Please log in again.", code: "SESSION_REVOKED" });
     }
 
-    // Session Binding to IP (§11.1) - Relaxed for Cloud (Render/Vercel Proxy hops)
-    if (user.lastLoginIp && user.lastLoginIp !== ip) {
-      // Just log the anomaly for investigation rather than blocking the user
-      await AuditLog.create({
-        action: "SECURITY ANOMALY: Session IP Shift",
-        performedBy: user.email,
-        details: `Session IP variation detected. Initial: ${user.lastLoginIp}, Current: ${ip}. Monitoring for high-velocity shifts.`,
-        ip: ip,
-      });
-      // Update IP via native updateOne — do NOT call user.save() (triggers bcrypt pre-save hook)
-      await User.updateOne({ _id: user._id }, { $set: { lastLoginIp: ip } });
-    }
+    // Session Binding to IP - Legacy IP Shift tracking removed.
+    // Anomalous IP shifts and Impossible Travels are now securely handled 
+    // during Authentication flows via the robust UserSession telematic engine.
 
 
     // Time-Based Access Control (§12.1) — Relaxed for Development and Remote Flexibility

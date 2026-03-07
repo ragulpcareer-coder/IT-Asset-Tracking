@@ -5,6 +5,9 @@ const AuditLog = require("../models/AuditLog");
 const RefreshToken = require("../models/RefreshToken");
 const UserActivity = require("../models/UserActivity");
 const TokenManager = require("../utils/tokenManager");
+const UserSession = require("../models/UserSession");
+const SecurityAlert = require("../models/SecurityAlert");
+const { getGeoLocation } = require("../utils/geoIpService");
 const speakeasy = require("speakeasy");
 const qrcode = require("qrcode");
 const {
@@ -277,6 +280,42 @@ const login = async (req, res) => {
     }
 
     // 5️⃣ If password correct: Reset failedAttempts (handled below before token issue)
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || req.ip || 'unknown';
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const geoData = await getGeoLocation(ip);
+
+    // Smart SOC Anomaly Detection
+    const lastSession = await UserSession.findOne({ userId: user._id }).sort({ loginTime: -1 });
+    if (lastSession) {
+      if (lastSession.country !== "Unknown" && geoData.country !== "Unknown" && lastSession.country !== geoData.country) {
+        await SecurityAlert.create({
+          type: "AI_FLAGGED_ANOMALY",
+          severity: "CRITICAL",
+          message: `Impossible Travel: Login from ${geoData.country} but last login was ${lastSession.country}`,
+          details: `User teleported across borders. Last IP: ${lastSession.ipAddress}, Current IP: ${ip}`,
+          userId: user._id,
+          sourceIp: ip
+        });
+      } else if (lastSession.ipAddress !== ip && lastSession.userAgent !== userAgent) {
+        await SecurityAlert.create({
+          type: "SUSPICIOUS_IP",
+          severity: "HIGH",
+          message: `Suspicious Login: New Device and IP Address detected.`,
+          details: `Prev IP: ${lastSession.ipAddress}, New IP: ${ip}. Agent changed from [${lastSession.userAgent}] to [${userAgent}].`,
+          userId: user._id,
+          sourceIp: ip
+        });
+      }
+    }
+
+    // Persist current session telematic data
+    await UserSession.create({
+      userId: user._id,
+      ipAddress: ip,
+      userAgent,
+      country: geoData.country,
+      city: geoData.city
+    });
 
     // 6️⃣ If 2FA enabled:
     console.log("User 2FA status:", user.twoFactorEnabled);
@@ -302,7 +341,6 @@ const login = async (req, res) => {
     }
 
     // 7️⃣ Generate JWT & System Updates
-    const ip = req.ip || req.socket?.remoteAddress || 'unknown';
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
     const failedAttemptsBefore = user.failedLoginAttempts || 0;
 
@@ -392,7 +430,7 @@ const login = async (req, res) => {
 const verify2FALogin = async (req, res) => {
   try {
     const { userId, token } = req.body;
-    const ip = req.ip || req.connection?.remoteAddress;
+    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || req.ip || 'unknown';
 
     // 1️⃣ Rate Limiting
     if (loginLimiter.isLimited(ip)) {
@@ -453,6 +491,42 @@ const verify2FALogin = async (req, res) => {
         code: "2FA_INVALID"
       });
     }
+
+    const userAgent = req.headers['user-agent'] || 'unknown';
+    const geoData = await getGeoLocation(ip);
+
+    // Smart SOC Anomaly Detection
+    const lastSession = await UserSession.findOne({ userId: user._id }).sort({ loginTime: -1 });
+    if (lastSession) {
+      if (lastSession.country !== "Unknown" && geoData.country !== "Unknown" && lastSession.country !== geoData.country) {
+        await SecurityAlert.create({
+          type: "AI_FLAGGED_ANOMALY",
+          severity: "CRITICAL",
+          message: `Impossible Travel: Login from ${geoData.country} but last login was ${lastSession.country}`,
+          details: `User teleported across borders. Last IP: ${lastSession.ipAddress}, Current IP: ${ip}`,
+          userId: user._id,
+          sourceIp: ip
+        });
+      } else if (lastSession.ipAddress !== ip && lastSession.userAgent !== userAgent) {
+        await SecurityAlert.create({
+          type: "SUSPICIOUS_IP",
+          severity: "HIGH",
+          message: `Suspicious Login: New Device and IP Address detected.`,
+          details: `Prev IP: ${lastSession.ipAddress}, New IP: ${ip}. Agent changed from [${lastSession.userAgent}] to [${userAgent}].`,
+          userId: user._id,
+          sourceIp: ip
+        });
+      }
+    }
+
+    // Persist current session telematic data
+    await UserSession.create({
+      userId: user._id,
+      ipAddress: ip,
+      userAgent,
+      country: geoData.country,
+      city: geoData.city
+    });
 
     // 7️⃣ Generate JWT & System Updates
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
