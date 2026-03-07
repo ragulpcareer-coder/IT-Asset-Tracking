@@ -39,6 +39,15 @@ const userSchema = new mongoose.Schema({
   privilegeToken: { type: String },
   privilegeTokenExpires: { type: Date },
 
+  // ─── BEHAVIORAL & SECURITY PROFILING (§Category 11) ─────────────
+  behavioralMetadata: {
+    typicalLoginHours: { type: [Number], default: [] }, // Array of hours (0-23)
+    commonIps: { type: [String], default: [] },        // Array of frequently used IPs
+    trustedDevices: { type: [String], default: [] },   // Array of device fingerprint hashes
+    riskScore: { type: Number, default: 0 },           // 0-100 dynamic risk score
+    lastSecurityAuditAt: { type: Date }
+  },
+
   // ─── SETTINGS & PREFERENCES (§Category 10) ──────────────────────────
   preferences: {
     emailNotifications: { type: Boolean, default: true },

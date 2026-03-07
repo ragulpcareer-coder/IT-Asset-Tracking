@@ -19,44 +19,48 @@ const ALERT_ICONS = {
     ACCOUNT_LOCKED: "🔒",
     ADMIN_PROMOTED: "⭐",
     NEW_DEVICE_LOGIN: "📱",
-    BRUTE_FORCE_DETECTED: "🚨",
+    BRUTE_FORCE: "🚨",
     PRIVILEGE_ESCALATION_ALERT: "⚠️",
-    OFF_HOURS_LOGIN: "🌙",
-    HIGH_RISK_ALERT: "🚨",
+    UNUSUAL_LOGIN_TIME: "🌙",
+    NEW_DEVICE_ADMIN: "🚨",
+    ZERO_TRUST_VIOLATION: "🛡️",
+    AI_FLAGGED_ANOMALY: "✧",
     DEFAULT: "⚠️",
 };
 
 const CARD_COLORS = {
-    FAILED_LOGIN: "border-yellow-500/40 bg-yellow-500/10",
-    ACCOUNT_LOCKED: "border-red-500/40 bg-red-500/10",
-    ADMIN_PROMOTED: "border-blue-500/40 bg-blue-500/10",
-    NEW_DEVICE_LOGIN: "border-cyan-500/40 bg-cyan-500/10",
-    BRUTE_FORCE_DETECTED: "border-red-600/50 bg-red-600/20",
-    PRIVILEGE_ESCALATION_ALERT: "border-orange-500/40 bg-orange-500/10",
-    OFF_HOURS_LOGIN: "border-purple-500/40 bg-purple-500/10",
-    DEFAULT: "border-white/20 bg-white/5",
+    FAILED_LOGIN: "border-yellow-500/40 bg-slate-900",
+    ACCOUNT_LOCKED: "border-red-500/40 bg-slate-900",
+    BRUTE_FORCE: "border-red-600/50 bg-red-950/40",
+    NEW_DEVICE_ADMIN: "border-orange-500/40 bg-slate-900",
+    ZERO_TRUST_VIOLATION: "border-emerald-500/40 bg-slate-900",
+    AI_FLAGGED_ANOMALY: "border-cyan-500/40 bg-slate-900",
+    DEFAULT: "border-white/20 bg-slate-900/80",
 };
 
 export default function SecurityAlertBanner() {
-    // Critical full-banner alerts (HIGH_RISK_ALERT)
+    // Critical full-banner alerts
     const [criticalAlerts, setCriticalAlerts] = useState([]);
     // Regular card-style alerts
     const [cardAlerts, setCardAlerts] = useState([]);
     const [isExpanded, setIsExpanded] = useState(false);
 
     const addAlert = useCallback((alert) => {
-        const id = Date.now() + Math.random();
-        const enriched = { ...alert, id, timestamp: new Date() };
+        const id = alert._id || (Date.now() + Math.random());
+        const enriched = {
+            ...alert,
+            id,
+            timestamp: alert.createdAt || new Date(),
+            message: alert.description || alert.message || "Security event detected."
+        };
 
-        if (alert.type === "HIGH_RISK_ALERT" || alert.severity === "critical") {
-            // Critical alerts stay until manually dismissed
-            setCriticalAlerts((prev) => [enriched, ...prev].slice(0, 3));
+        if (alert.severity === "CRITICAL" || alert.severity === "critical") {
+            setCriticalAlerts((prev) => [enriched, ...prev.filter(a => a.id !== id)].slice(0, 3));
         } else {
-            setCardAlerts((prev) => [enriched, ...prev].slice(0, 5));
-            // Auto-dismiss regular alerts after 8 seconds
+            setCardAlerts((prev) => [enriched, ...prev.filter(a => a.id !== id)].slice(0, 5));
             setTimeout(() => {
                 setCardAlerts((prev) => prev.filter((a) => a.id !== id));
-            }, 8000);
+            }, 10000);
         }
     }, []);
 
@@ -66,7 +70,7 @@ export default function SecurityAlertBanner() {
     }, [addAlert]);
 
     const timeAgo = (date) => {
-        const s = Math.floor((Date.now() - date) / 1000);
+        const s = Math.floor((Date.now() - new Date(date)) / 1000);
         if (s < 5) return "Just now";
         if (s < 60) return `${s}s ago`;
         return `${Math.floor(s / 60)}m ago`;
@@ -79,80 +83,41 @@ export default function SecurityAlertBanner() {
 
     return (
         <>
-            {/* ── CRITICAL HIGH RISK ALERTS — Full-width top banner ─────────── */}
+            {/* ── CRITICAL ALERTS — Top Banner ─────────── */}
             <AnimatePresence>
                 {criticalAlerts.map((alert) => (
                     <motion.div
                         key={alert.id}
-                        initial={{ y: -80, opacity: 0 }}
+                        initial={{ y: -100, opacity: 0 }}
                         animate={{ y: 0, opacity: 1 }}
-                        exit={{ y: -80, opacity: 0 }}
-                        transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                        className="fixed top-0 left-0 right-0 z-[500] bg-red-900 border-b-2 border-red-500 shadow-2xl"
+                        exit={{ y: -100, opacity: 0 }}
+                        className="fixed top-0 left-0 right-0 z-[500] bg-red-950 border-b-2 border-red-500 shadow-2xl"
                     >
-                        {/* Pulsing red glow line */}
-                        <div className="absolute top-0 left-0 right-0 h-0.5 bg-red-500 animate-pulse" />
-
-                        <div className="max-w-7xl mx-auto px-4 py-3">
-                            <div className="flex items-start gap-4">
-                                {/* Blinking icon */}
-                                <span className="text-2xl mt-0.5 animate-pulse shrink-0">🚨</span>
-
-                                <div className="flex-1 min-w-0">
-                                    {/* Title row */}
-                                    <div className="flex items-center gap-3 flex-wrap mb-1">
-                                        <span className="text-red-200 font-black text-sm uppercase tracking-widest">
-                                            HIGH RISK ALERT
-                                        </span>
-                                        <span className="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider animate-pulse">
-                                            CRITICAL
-                                        </span>
-                                        <span className="text-red-400 text-xs">{timeAgo(alert.timestamp)}</span>
+                        <div className="max-w-7xl mx-auto px-6 py-4">
+                            <div className="flex items-center gap-6">
+                                <span className="text-3xl animate-pulse shrink-0">🚨</span>
+                                <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-1">
+                                        <span className="text-red-500 font-black text-xs uppercase tracking-[0.2em]">SOC CRITICAL ALERT</span>
+                                        <span className="text-slate-500 text-[10px] font-mono">{timeAgo(alert.timestamp)}</span>
                                     </div>
-
-                                    {/* Main message */}
-                                    <p className="text-white font-semibold text-sm leading-snug mb-2">
+                                    <p className="text-white font-bold text-base leading-tight">
                                         {alert.message}
                                     </p>
-
-                                    {/* Conditions met — show exactly what triggered this */}
-                                    {alert.conditions && (
-                                        <div className="flex flex-wrap gap-2 mb-2">
-                                            {alert.conditions.privilegedAccount && (
-                                                <span className="text-[10px] bg-red-800/60 text-red-200 px-2 py-0.5 rounded border border-red-700/50 font-mono">
-                                                    ⭐ Privileged Account ({alert.role})
-                                                </span>
-                                            )}
-                                            {alert.conditions.priorFailedLogins > 0 && (
-                                                <span className="text-[10px] bg-red-800/60 text-red-200 px-2 py-0.5 rounded border border-red-700/50 font-mono">
-                                                    🔐 {alert.conditions.priorFailedLogins} Prior Failed Login{alert.conditions.priorFailedLogins > 1 ? "s" : ""}
-                                                </span>
-                                            )}
-                                            {alert.conditions.newDevice && (
-                                                <span className="text-[10px] bg-red-800/60 text-red-200 px-2 py-0.5 rounded border border-red-700/50 font-mono">
-                                                    📱 Unrecognized Device
-                                                </span>
-                                            )}
-                                            {alert.ip && (
-                                                <span className="text-[10px] bg-red-800/60 text-red-300 px-2 py-0.5 rounded border border-red-700/50 font-mono">
-                                                    IP: {alert.ip}
-                                                </span>
-                                            )}
-                                        </div>
-                                    )}
-
-                                    {/* Recommended action */}
-                                    {alert.recommendedAction && (
-                                        <p className="text-red-300 text-xs italic">
-                                            ⚡ {alert.recommendedAction}
-                                        </p>
-                                    )}
+                                    <div className="mt-2 flex gap-3">
+                                        <span className="text-[10px] bg-red-500/20 text-red-500 px-2 py-0.5 rounded border border-red-500/30 font-mono">
+                                            IP: {alert.sourceIp || alert.ip}
+                                        </span>
+                                        {alert.type && (
+                                            <span className="text-[10px] bg-white/10 text-white px-2 py-0.5 rounded border border-white/10 font-mono">
+                                                TYPE: {alert.type}
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
-
-                                {/* Dismiss — requires intentional click */}
                                 <button
                                     onClick={() => dismissCritical(alert.id)}
-                                    className="shrink-0 text-red-300 hover:text-white text-xs font-bold border border-red-700 hover:border-red-400 px-3 py-1.5 rounded transition mt-0.5"
+                                    className="px-4 py-2 border border-red-500/50 text-red-500 text-xs font-black uppercase hover:bg-red-500 hover:text-white transition"
                                 >
                                     Dismiss
                                 </button>
@@ -162,42 +127,42 @@ export default function SecurityAlertBanner() {
                 ))}
             </AnimatePresence>
 
-            {/* ── REGULAR CARD ALERTS — bottom-right sliding panel ──────────── */}
-            <div className="fixed bottom-5 right-5 z-[200] w-80 space-y-2 pointer-events-none">
+            {/* ── CARD ALERTS — Bottom-Right ──────────── */}
+            <div className="fixed bottom-8 right-8 z-[200] w-80 space-y-3 pointer-events-none">
                 <AnimatePresence>
                     {(isExpanded ? cardAlerts : cardAlerts.slice(0, 1)).map((alert, i) => (
                         <motion.div
                             key={alert.id}
-                            initial={{ opacity: 0, x: 60, scale: 0.95 }}
-                            animate={{ opacity: 1, x: 0, scale: 1 }}
-                            exit={{ opacity: 0, x: 60, scale: 0.92 }}
-                            transition={{ duration: 0.25, delay: i * 0.05 }}
-                            className={`pointer-events-auto rounded-xl border p-4 shadow-2xl backdrop-blur-md
-                ${CARD_COLORS[alert.type] || CARD_COLORS.DEFAULT}`}
+                            initial={{ opacity: 0, x: 50 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            exit={{ opacity: 0, scale: 0.9 }}
+                            className={`pointer-events-auto rounded-xl border p-5 shadow-2xl backdrop-blur-xl relative overflow-hidden ${CARD_COLORS[alert.type] || CARD_COLORS.DEFAULT}`}
                         >
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="flex items-start gap-3 flex-1 min-w-0">
-                                    <span className="text-xl shrink-0 mt-0.5">
-                                        {ALERT_ICONS[alert.type] || ALERT_ICONS.DEFAULT}
-                                    </span>
-                                    <div className="flex-1 min-w-0">
-                                        <p className="text-white font-bold text-xs uppercase tracking-wider mb-1">
-                                            {(alert.type || "SECURITY ALERT").replace(/_/g, " ")}
-                                        </p>
-                                        <p className="text-gray-300 text-xs leading-relaxed">
-                                            {alert.message || "A security event was detected."}
-                                        </p>
-                                        {alert.ip && (
-                                            <p className="text-gray-500 text-[10px] mt-1 font-mono">IP: {alert.ip}</p>
-                                        )}
-                                        <p className="text-gray-600 text-[10px] mt-0.5">{timeAgo(alert.timestamp)}</p>
+                            {/* Decorative accent */}
+                            <div className={`absolute left-0 top-0 bottom-0 w-1 ${alert.severity === 'HIGH' ? 'bg-orange-500' : 'bg-blue-500'}`} />
+
+                            <div className="flex items-start gap-4">
+                                <span className="text-2xl mt-1 shrink-0">
+                                    {ALERT_ICONS[alert.type] || ALERT_ICONS.DEFAULT}
+                                </span>
+                                <div className="flex-1">
+                                    <h4 className="text-white font-black text-[10px] uppercase tracking-widest mb-1.5 opacity-70">
+                                        {alert.type?.replace(/_/g, " ")}
+                                    </h4>
+                                    <p className="text-slate-200 text-xs font-medium leading-relaxed">
+                                        {alert.message}
+                                    </p>
+                                    <div className="mt-3 flex items-center justify-between">
+                                        <span className="text-[9px] font-mono text-slate-500">
+                                            {alert.sourceIp || alert.ip || "0.0.0.0"}
+                                        </span>
+                                        <span className="text-[9px] font-bold text-slate-600 uppercase">
+                                            {timeAgo(alert.timestamp)}
+                                        </span>
                                     </div>
                                 </div>
-                                <button
-                                    onClick={() => dismissCard(alert.id)}
-                                    className="text-gray-500 hover:text-white transition text-lg leading-none shrink-0"
-                                >
-                                    ×
+                                <button onClick={() => dismissCard(alert.id)} className="text-slate-500 hover:text-white transition text-sm font-black">
+                                    ✕
                                 </button>
                             </div>
                         </motion.div>
@@ -205,18 +170,17 @@ export default function SecurityAlertBanner() {
                 </AnimatePresence>
 
                 {cardAlerts.length > 1 && (
-                    <motion.button
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        onClick={() => setIsExpanded((p) => !p)}
-                        className="pointer-events-auto w-full text-center text-[10px] font-bold uppercase tracking-widest text-gray-500 hover:text-white transition py-1"
+                    <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="pointer-events-auto w-full text-center text-[10px] font-black uppercase tracking-widest text-slate-500 hover:text-white transition"
                     >
-                        {isExpanded
-                            ? "Show Less ▲"
-                            : `+${cardAlerts.length - 1} More Alert${cardAlerts.length > 2 ? "s" : ""} ▼`}
-                    </motion.button>
+                        {isExpanded ? "Show Less ▲" : `+${cardAlerts.length - 1} More Activity ▼`}
+                    </button>
                 )}
             </div>
+        </>
+    );
+}
         </>
     );
 }

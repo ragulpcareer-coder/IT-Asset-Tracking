@@ -265,17 +265,7 @@ const login = async (req, res) => {
       await User.updateOne({ _id: user._id }, { $set: updateFields });
 
       // Correlation Engine: Brute force detection
-      const io = req.app.get('io');
-      correlationEngine.checkBruteForce(io, req.ip || req.connection?.remoteAddress, email);
-
-      // Emit account-locked alert
-      if (newFailCount >= 5) {
-        correlationEngine.emitAlert(io, 'ACCOUNT_LOCKED', {
-          message: `Account locked after ${newFailCount} failed attempts.`,
-          email,
-          ip: req.ip || req.connection?.remoteAddress,
-        });
-      }
+      correlationEngine.checkBruteForce(req.ip || req.connection?.remoteAddress, email);
 
       return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
     }
@@ -339,26 +329,15 @@ const login = async (req, res) => {
           logUserActivity(user._id, "LOGIN", "Successful authentication.", req)
         ]);
 
-        // Correlation Engine Checks
-        correlationEngine.checkOffHoursLogin(ioInst, ip, email, user.role);
-        correlationEngine.checkHighRiskCompound(ioInst, {
-          email,
-          role: user.role,
-          failedAttempts: failedAttemptsBefore,
-          isNewDevice,
-          ip,
-          userId: user._id,
+        // Feature 1 & 3: Autonomous Threat Detection & Behavior Monitoring
+        await correlationEngine.checkAnomalies(user._id, ip, {
+          fingerprint: req.body.fingerprint || 'unknown',
+          isNewDevice
         });
 
-        if (isNewDevice && knownDevices.length > 0) {
-          correlationEngine.emitAlert(ioInst, 'NEW_DEVICE_LOGIN', {
-            message: `Login from a new, unrecognized device or IP address.`,
-            ip,
-            email,
-            role: user.role,
-            severity: 'medium',
-          });
-          correlationEngine.checkPrivilegeEscalation(ioInst, user._id, ip, true);
+        // Feature 4: Zero Trust - Check if this should be a high-risk escalation
+        if (isNewDevice && ["Super Admin", "Admin"].includes(user.role)) {
+          correlationEngine.checkPrivilegeEscalation(user._id, ip, true);
         }
       } catch (postLoginErr) {
         console.error("Post-Login Update Error:", postLoginErr.message);
@@ -461,6 +440,7 @@ const verify2FALogin = async (req, res) => {
     }
 
     if (!isVerified) {
+      correlationEngine.checkBruteForce(ip, user.email); // Track 2FA brute force attempts
       return res.status(401).json({
         success: false,
         message: "Invalid 2FA token. Please try again.",

@@ -108,6 +108,7 @@ const io = new Server(server, {
   allowEIO3: true // Helps with some older connection transports
 });
 app.set("io", io);
+global.io = io; // Set global.io for utils/services to access easily
 
 // 6. Security & Optimization Middlewares
 app.use(helmet({
@@ -266,6 +267,7 @@ apiV1.use("/keys", require("./routes/apiRoutes"));
 apiV1.use("/pending", require("./routes/pendingActionRoutes"));
 apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
 apiV1.use("/dashboard", require("./routes/dashboardRoutes"));
+apiV1.use("/security", require("./routes/securityRoutes"));
 
 // Multi-version support (§39)
 app.use("/api/v1", apiV1);

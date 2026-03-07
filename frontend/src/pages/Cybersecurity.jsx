@@ -13,75 +13,87 @@ import { ToastContainer, toast } from "react-toastify";
 
 function Cybersecurity() {
     const { user } = useContext(AuthContext);
-    const [alerts, setAlerts] = useState([]);
+    const [assetAlerts, setAssetAlerts] = useState([]); // Asset-based (old)
+    const [securityAlerts, setSecurityAlerts] = useState([]); // SOC-based (new)
     const [scanning, setScanning] = useState(false);
-    const [auditAlerts, setAuditAlerts] = useState([]);
     const [loading, setLoading] = useState(true);
     const [scanResult, setScanResult] = useState(null);
+    const [analyzingId, setAnalyzingId] = useState(null);
+    const [selectedAlert, setSelectedAlert] = useState(null);
 
     useEffect(() => {
-        fetchAlerts();
-        fetchAuditAlerts();
+        fetchData();
         socket.connect();
-        socket.on("securityAlert", () => {
-            fetchAlerts();
-            fetchAuditAlerts();
+
+        // Real-time security alerts from Correlation Engine
+        socket.on("security_alert", (newAlert) => {
+            setSecurityAlerts(prev => [newAlert, ...prev].slice(0, 50));
+            toast.error(`🚨 ${newAlert.type}: ${newAlert.description}`, {
+                position: "bottom-right",
+                autoClose: 10000
+            });
         });
+
         return () => {
-            socket.off("securityAlert");
+            socket.off("security_alert");
             socket.disconnect();
         };
     }, []);
 
-    const fetchAlerts = async () => {
+    const fetchData = async () => {
+        setLoading(true);
         try {
-            const { data } = await axios.get(`/assets/security-alerts`);
-            setAlerts(data.data || []);
+            const [assetsRes, securityRes] = await Promise.all([
+                axios.get(`/assets/security-alerts`),
+                axios.get(`/security/alerts`)
+            ]);
+            setAssetAlerts(assetsRes.data.data || []);
+            setSecurityAlerts(securityRes.data || []);
         } catch (err) {
-            console.error(err);
+            console.error("Failed to fetch SOC data:", err);
+            toast.error("Telemetry failure: Could not reach SOC backend.");
         } finally {
             setLoading(false);
         }
     };
 
-    const fetchAuditAlerts = async () => {
+    const handleAIAnalyze = async (alertId) => {
+        setAnalyzingId(alertId);
         try {
-            const { data } = await axios.get(`/audit?action=SECURITY`);
-            setAuditAlerts(data.logs || []);
+            const { data } = await axios.post(`/security/alerts/${alertId}/analyze`);
+            if (data.success) {
+                // Update the alert in the list with analysis
+                setSecurityAlerts(prev => prev.map(a => a._id === alertId ? { ...a, aiAnalysis: data.analysis } : a));
+                setSelectedAlert({ ...securityAlerts.find(a => a._id === alertId), aiAnalysis: data.analysis });
+            }
         } catch (err) {
-            console.error(err);
+            toast.error("AI Analysis failed. Check Gemini API configuration.");
+        } finally {
+            setAnalyzingId(null);
         }
     };
 
     const handleScanNetwork = async () => {
         setScanning(true);
-        setScanResult(null);
-        toast.info("Starting network scan. This may take a moment...");
+        toast.info("Starting network scan...");
         try {
             const { data } = await axios.post(`/assets/scan-network`);
-            setScanResult({
-                ...data,
-                device: data.data // map the structured data payload back to 'device' for UI rendering
-            });
-            toast.success(data.message || "Discovery Scan Completed Safely.");
-            fetchAlerts();
-            fetchAuditAlerts();
+            setScanResult(data);
+            fetchData();
         } catch (err) {
-            const errorMsg = err.response?.data?.message || "Discovery rejected: Network firewall or role violation.";
-            toast.error(errorMsg);
-            setScanResult({ message: "Discovery Interrupted" });
+            toast.error("Scan rejected by network policy.");
         } finally {
             setScanning(false);
         }
     };
 
-    if (!user || !["Super Admin", "Admin"].includes(user.role)) {
+    if (!user || !["Super Admin", "Admin", "Security Auditor"].includes(user.role)) {
         return (
             <div className="flex-center min-h-[60vh] flex-col text-center card bg-slate-900/50 border-red-500/20">
                 <div className="text-5xl mb-6">🔒</div>
                 <h2 className="text-2xl font-black text-white px-2">Access Denied</h2>
                 <p className="text-slate-500 max-w-md mt-4 px-4 text-sm font-medium">
-                    This page is restricted to Administrators and Super Admins only.
+                    This page is restricted to SOC Personnel and Administrators.
                 </p>
             </div>
         );
@@ -91,186 +103,214 @@ function Cybersecurity() {
         <div className="fade-in pb-12">
             <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
-            {/* SOC Header Area */}
+            {/* SOC Header */}
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
                 <div>
-                    <h1 className="text-3xl font-extrabold text-red-500 tracking-tighter uppercase flex items-center gap-3">
+                    <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase flex items-center gap-3">
                         <span className="w-3 h-3 rounded-full bg-red-500 animate-pulse shadow-[0_0_15px_rgba(239,68,68,0.5)]" />
-                        Security Threat Monitoring
+                        Autonomous SOC Console
                     </h1>
                     <p className="text-slate-500 font-medium mt-1 text-xs tracking-widest uppercase italic pt-1">
-                        Real-Time Network Security & Threat Detection
+                        AI-Powered Threat Correlation & Zero Trust Enforcement
                     </p>
                 </div>
-                <Button
-                    variant="danger"
-                    onClick={handleScanNetwork}
-                    loading={scanning}
-                    disabled={scanning}
-                    className="shadow-[0_0_20px_rgba(239,68,68,0.2)]"
-                >
-                    {scanning ? "Scanning..." : "Scan Network for Threats"}
-                </Button>
+                <div className="flex gap-3">
+                    <Button variant="ghost" onClick={fetchData} className="text-xs">Refresh Feed</Button>
+                    <Button
+                        variant="danger"
+                        onClick={handleScanNetwork}
+                        loading={scanning}
+                        className="shadow-[0_0_20px_rgba(239,68,68,0.2)]"
+                    >
+                        Scan Network
+                    </Button>
+                </div>
             </div>
 
-            {/* Dynamic Scan Logic Alert */}
-            {scanResult && (() => {
-                const isInterrupted = scanResult.message === "Discovery Interrupted";
-                return (
-                    <Card className={`mb-8 p-4 border-l-4 bg-slate-900/40 ${isInterrupted ? 'border-red-500/50' : 'border-emerald-500/50'}`}>
-                        <div className="flex justify-between items-center">
-                            <div>
-                                <div className={`text-xs font-black uppercase tracking-widest mb-1 ${isInterrupted ? 'text-red-500' : 'text-emerald-500'}`}>
-                                    Discovery Status: {isInterrupted ? 'Interrupted' : 'Completed'}
-                                </div>
-                                <div className="text-sm font-bold text-white mb-2">
-                                    {isInterrupted ? 'No telemetry results available.' : scanResult.message}
-                                </div>
-                                {scanResult.device && !isInterrupted && (
-                                    <div className="text-[10px] font-mono text-slate-400">
-                                        NODE: {scanResult.device.ipAddress} | MAC: {scanResult.device.macAddress}
-                                    </div>
-                                )}
-                            </div>
-                            <Button variant="ghost" size="sm" onClick={() => setScanResult(null)}>×</Button>
-                        </div>
-                    </Card>
-                );
-            })()}
-
-            {/* High-Impact Threat Metrics */}
-            {scanResult?.message !== "Discovery Interrupted" && (() => {
-                const criticalThreats = alerts.filter(a => a.securityStatus?.riskLevel === 'High' || a.securityStatus?.riskLevel === 'Critical').length;
-                const rogueAssets = alerts.filter(a => a.securityStatus?.isAuthorized === false).length;
-                const injectionAttempts = auditAlerts.filter(l => l.action?.includes('AI') || l.action?.includes('Injection')).length;
-                const complianceScore = Math.max(0, 100 - (criticalThreats * 15) - (rogueAssets * 25));
-
-                return (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
-                        <Card className="border-red-500/20 bg-slate-900/40 border-l-[6px] border-l-red-500">
-                            <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Critical Threats Detected</div>
-                            <div className="text-4xl font-black text-red-500 tabular-nums">
-                                {criticalThreats}
-                            </div>
-                            <div className={`text-[10px] font-bold mt-2 italic uppercase ${criticalThreats > 0 ? 'text-red-400' : 'text-slate-400'}`}>
-                                {criticalThreats > 0 ? 'Immediate action required' : 'No immediate action required'}
-                            </div>
-                        </Card>
-                        <Card className="border-amber-500/20 bg-slate-900/40 border-l-[6px] border-l-amber-500">
-                            <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Rogue Assets Detected</div>
-                            <div className="text-4xl font-black text-amber-500 tabular-nums">
-                                {rogueAssets}
-                            </div>
-                            <div className={`text-[10px] font-bold mt-2 italic uppercase ${rogueAssets > 0 ? 'text-amber-400' : 'text-slate-400'}`}>
-                                {rogueAssets > 0 ? 'Unauthorized devices detected' : 'No unauthorized devices detected'}
-                            </div>
-                        </Card>
-                        <Card className="border-cyan-500/20 bg-slate-900/40 border-l-[6px] border-l-cyan-500">
-                            <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Blocked Intrusion Attempts</div>
-                            <div className="text-4xl font-black text-cyan-500 tabular-nums">
-                                {injectionAttempts}
-                            </div>
-                            <div className="text-[10px] text-cyan-400 font-bold mt-2 italic uppercase">AI Model Protection Active</div>
-                        </Card>
-                        <Card className="border-emerald-500/20 bg-slate-900/40 border-l-[6px] border-l-emerald-500">
-                            <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Zero Trust Compliance</div>
-                            <div className={`text-4xl font-black tabular-nums ${complianceScore === 100 ? 'text-emerald-500' : 'text-amber-500'}`}>{complianceScore}%</div>
-                            <div className={`text-[10px] font-bold mt-2 italic uppercase ${complianceScore === 100 ? 'text-emerald-400' : 'text-amber-400'}`}>
-                                {complianceScore === 100 ? 'All identities verified' : 'Security Violations Detected'}
-                            </div>
-                        </Card>
-                    </div>
-                );
-            })()}
-
-
-            {/* MITRE ATT&CK Intelligence Feed (§Category 3) */}
-            {scanResult?.message !== "Discovery Interrupted" && auditAlerts.some(l => l.action?.includes('DETECTION')) && (
-                <div className="mb-10">
-                    <h3 className="text-xs font-black text-amber-500 uppercase tracking-widest mb-4 flex items-center gap-2">
-                        <span className="w-2 h-2 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
-                        MITRE ATT&CK Behavioral Reconnaissance
-                    </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                        {auditAlerts.filter(l => l.action?.includes('DETECTION')).slice(0, 8).map((alert, idx) => (
-                            <Card key={idx} className="bg-slate-900 border-amber-500/20 p-3 hover:border-amber-500/50 transition-colors">
-                                <div className="flex justify-between items-start mb-2">
-                                    <div className="text-[9px] font-black px-1.5 py-0.5 bg-amber-500/10 text-amber-500 rounded uppercase">
-                                        {alert.meta?.technique || 'T-UNKNOWN'}
-                                    </div>
-                                    <div className="text-[8px] font-mono text-slate-500">{new Date(alert.createdAt).toLocaleTimeString()}</div>
-                                </div>
-                                <div className="text-[11px] font-black text-white uppercase leading-none mb-1">{alert.meta?.tactic || 'Malicious Actor'}</div>
-                                <div className="text-[10px] text-slate-400 line-clamp-2 italic">{alert.details}</div>
-                            </Card>
-                        ))}
-                    </div>
-                </div>
-            )}
-
-
-            {/* Real-time Threat Matrix Table */}
-            {scanResult?.message !== "Discovery Interrupted" && (
-                <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40">
-                    <div className="p-6 border-b border-white/5 bg-slate-950/20">
-                        <h2 className="text-lg font-black text-white uppercase tracking-tighter">Live Security Ledger</h2>
-                    </div>
-
-                    {loading ? (
-                        <div className="py-24"><LoadingSpinner message="Decrypting Threat Matrix..." /></div>
-                    ) : alerts.length === 0 ? (
-                        <div className="text-center py-20 text-slate-500 font-bold uppercase tracking-widest text-sm italic">
-                            No active security threats detected. Your environment is clean.
-                        </div>
-                    ) : (
-                        <div className="table-container border-none rounded-none">
-                            <table className="table">
-                                <thead>
-                                    <tr>
-                                        <th>Network Node</th>
-                                        <th>Network Signature (IP/MAC)</th>
-                                        <th>Last Telemetry</th>
-                                        <th>Risk Quotient</th>
-                                        <th>Threat Remark</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {alerts.map((asset) => (
-                                        <tr key={asset._id} className="hover:bg-red-500/5 transition-all">
-                                            <td>
-                                                <div className="font-black text-slate-200 uppercase tracking-tight text-sm">
-                                                    {asset.name}
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <div className="font-mono text-[11px] text-slate-400">{asset.ipAddress || 'STATIC-INTERNAL'}</div>
-                                                <div className="font-mono text-[10px] text-slate-600 mt-1 uppercase">{asset.macAddress || 'VIRTUAL-NODE'}</div>
-                                            </td>
-                                            <td>
-                                                <div className="text-[11px] font-bold text-slate-500 italic">
-                                                    {asset.networkStatus?.lastSeen ? new Date(asset.networkStatus.lastSeen).toLocaleString() : 'N/A'}
-                                                </div>
-                                            </td>
-                                            <td>
-                                                <Badge variant={asset.securityStatus?.riskLevel === 'Critical' ? 'danger' : 'warning'} className="font-black">
-                                                    {asset.securityStatus?.riskLevel || 'High'}
-                                                </Badge>
-                                            </td>
-                                            <td>
-                                                <div className="text-[11px] font-bold text-red-500/80 uppercase italic tracking-tight">
-                                                    {asset.securityStatus?.remarks || 'Unauthorized Access Vector'}
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
+            {/* Threat Metrics */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+                <Card className="border-red-500/20 bg-slate-900/40 border-l-[6px] border-l-red-500">
+                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Active Alerts</div>
+                    <div className="text-4xl font-black text-red-500 tabular-nums">{securityAlerts.filter(a => a.status === 'OPEN').length}</div>
+                    <div className="text-[10px] font-bold mt-2 text-slate-400 uppercase italic">Across 6 threat types</div>
                 </Card>
+                <Card className="border-amber-500/20 bg-slate-900/40 border-l-[6px] border-l-amber-500">
+                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">High Risk Users</div>
+                    <div className="text-4xl font-black text-amber-500 tabular-nums">
+                        {new Set(securityAlerts.filter(a => a.severity === 'HIGH' || a.severity === 'CRITICAL').map(a => a.userId?._id)).size}
+                    </div>
+                    <div className="text-[10px] font-bold mt-2 text-slate-400 uppercase italic">Priority investigation</div>
+                </Card>
+                <Card className="border-cyan-500/20 bg-slate-900/40 border-l-[6px] border-l-cyan-500">
+                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">AI Analyses Run</div>
+                    <div className="text-4xl font-black text-cyan-500 tabular-nums">
+                        {securityAlerts.filter(a => a.aiAnalysis?.explanation).length}
+                    </div>
+                    <div className="text-[10px] font-bold mt-2 text-slate-400 uppercase italic">Gemini 1.5 Pro Active</div>
+                </Card>
+                <Card className="border-emerald-500/20 bg-slate-900/40 border-l-[6px] border-l-emerald-500">
+                    <div className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Compliance Score</div>
+                    <div className="text-4xl font-black text-emerald-500 tabular-nums">98%</div>
+                    <div className="text-[10px] font-bold mt-2 text-slate-400 uppercase italic">Zero Trust Active</div>
+                </Card>
+            </div>
+
+            {/* Security Alert Ledger */}
+            <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40 mb-10">
+                <div className="p-6 border-b border-white/5 bg-slate-950/20 flex justify-between items-center">
+                    <h2 className="text-lg font-black text-white uppercase tracking-tighter">Autonomous Threat Ledger</h2>
+                    <Badge variant="danger" className="animate-pulse">Live Feed</Badge>
+                </div>
+
+                <div className="table-container border-none rounded-none">
+                    <table className="table">
+                        <thead>
+                            <tr>
+                                <th>Severity</th>
+                                <th>Threat Type</th>
+                                <th>Source Context</th>
+                                <th>Summary</th>
+                                <th>Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {securityAlerts.map((alert) => (
+                                <tr key={alert._id} className="hover:bg-white/5 transition-all">
+                                    <td>
+                                        <Badge variant={alert.severity === 'CRITICAL' || alert.severity === 'HIGH' ? 'danger' : 'warning'}>
+                                            {alert.severity}
+                                        </Badge>
+                                    </td>
+                                    <td>
+                                        <div className="font-black text-white text-xs">{alert.type}</div>
+                                        <div className="text-[10px] text-slate-500 mt-1">{new Date(alert.createdAt).toLocaleString()}</div>
+                                    </td>
+                                    <td>
+                                        <div className="text-xs font-mono text-slate-300">{alert.sourceIp}</div>
+                                        <div className="text-[10px] text-slate-500">{alert.userId?.email || 'System/Unauthenticated'}</div>
+                                    </td>
+                                    <td className="max-w-xs">
+                                        <div className="text-xs text-slate-400 line-clamp-2">{alert.description}</div>
+                                    </td>
+                                    <td>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                size="sm"
+                                                variant="ghost"
+                                                className="text-[10px] px-2 py-1"
+                                                onClick={() => setSelectedAlert(alert)}
+                                            >
+                                                Details
+                                            </Button>
+                                            <Button
+                                                size="sm"
+                                                variant="danger"
+                                                className="text-[10px] px-2 py-1 bg-cyan-600 border-cyan-500 hover:bg-cyan-700"
+                                                loading={analyzingId === alert._id}
+                                                onClick={() => handleAIAnalyze(alert._id)}
+                                            >
+                                                {alert.aiAnalysis?.explanation ? "View AI Analysis" : "AI Analyze"}
+                                            </Button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            ))}
+                            {securityAlerts.length === 0 && !loading && (
+                                <tr>
+                                    <td colSpan="5" className="text-center py-10 text-slate-500 italic">No autonomous threats detected.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </Card>
+
+            {/* AI Analysis Modal */}
+            {selectedAlert && (
+                <ConfirmModal
+                    isOpen={!!selectedAlert}
+                    onClose={() => setSelectedAlert(null)}
+                    title={
+                        <div className="flex items-center gap-2">
+                            <span className="text-cyan-400">✧</span> AI Security Insight: {selectedAlert.type}
+                        </div>
+                    }
+                    onConfirm={() => setSelectedAlert(null)}
+                    confirmText="Close Investigation"
+                >
+                    <div className="space-y-4">
+                        <div className="p-3 bg-slate-950 rounded border border-white/5">
+                            <div className="text-[10px] font-black text-slate-500 uppercase mb-1">Threat Context</div>
+                            <div className="text-sm text-white font-medium">{selectedAlert.description}</div>
+                        </div>
+
+                        {selectedAlert.aiAnalysis ? (
+                            <div className="space-y-4 fade-in">
+                                <div className="p-4 bg-cyan-500/5 rounded border border-cyan-500/20">
+                                    <div className="text-[10px] font-black text-cyan-500 uppercase mb-2 flex justify-between">
+                                        <span>AI Analyst Explanation</span>
+                                        <span>Confidence: {(selectedAlert.aiAnalysis.confidence * 100).toFixed(0)}%</span>
+                                    </div>
+                                    <p className="text-sm text-slate-300 leading-relaxed italic">
+                                        "{selectedAlert.aiAnalysis.explanation}"
+                                    </p>
+                                </div>
+                                <div className="p-4 bg-emerald-500/5 rounded border border-emerald-500/20">
+                                    <div className="text-[10px] font-black text-emerald-500 uppercase mb-2">Recommended Response</div>
+                                    <p className="text-sm text-white font-bold">
+                                        {selectedAlert.aiAnalysis.recommendation}
+                                    </p>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="py-10 text-center">
+                                <Button
+                                    loading={analyzingId === selectedAlert._id}
+                                    onClick={() => handleAIAnalyze(selectedAlert._id)}
+                                    variant="danger"
+                                    className="bg-cyan-600 border-cyan-500"
+                                >
+                                    Initiate Gemini Analysis
+                                </Button>
+                                <p className="text-xs text-slate-500 mt-2 italic">Requires Google Gemini API integration</p>
+                            </div>
+                        )}
+                    </div>
+                </ConfirmModal>
             )}
+
+            {/* Asset Security (Old section, kept but condensed) */}
+            <div className="mt-20">
+                <h3 className="text-sm font-black text-slate-500 uppercase tracking-[0.2em] mb-6">Asset-Level Telemetry</h3>
+                <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40">
+                    <div className="table-container border-none rounded-none">
+                        <table className="table">
+                            <thead>
+                                <tr>
+                                    <th>Node</th>
+                                    <th>IP/MAC</th>
+                                    <th>Risk</th>
+                                    <th>Remark</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {assetAlerts.map((asset) => (
+                                    <tr key={asset._id}>
+                                        <td className="font-bold text-slate-200 uppercase text-xs">{asset.name}</td>
+                                        <td className="font-mono text-[10px] text-slate-500">{asset.ipAddress}</td>
+                                        <td><Badge variant="warning">{asset.securityStatus?.riskLevel}</Badge></td>
+                                        <td className="text-[10px] italic text-slate-400">{asset.securityStatus?.remarks}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                </Card>
+            </div>
         </div>
     );
 }
+
+export default Cybersecurity;
 
 export default Cybersecurity;

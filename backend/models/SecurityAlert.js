@@ -1,25 +1,56 @@
 const mongoose = require("mongoose");
 
-const securityAlertSchema = new mongoose.Schema({
+const SecurityAlertSchema = new mongoose.Schema({
     type: {
         type: String,
         required: true,
-        enum: ["BRUTE_FORCE", "ROGUE_NODE", "UNAUTHORIZED_CMD", "DATA_EXFILTRATION", "PRIVILEGE_ESCALATION", "LATERAL_MOVEMENT", "PERSISTENCE", "TAMPERING", "NETWORK_ANOMALY"]
+        enum: [
+            "BRUTE_FORCE",
+            "SUSPICIOUS_IP",
+            "UNUSUAL_LOGIN_TIME",
+            "NEW_DEVICE_ADMIN",
+            "ZERO_TRUST_VIOLATION",
+            "AI_FLAGGED_ANOMALY"
+        ]
     },
     severity: {
         type: String,
-        required: true,
-        enum: ["Low", "Medium", "High", "Critical"]
+        enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"],
+        default: "LOW"
     },
-    message: { type: String, required: true },
-    details: { type: String },
-    assetId: { type: mongoose.Schema.Types.ObjectId, ref: 'Asset' },
-    performedBy: { type: String },
-    ip: { type: String },
-    mitreTactic: { type: String },
-    mitreTechnique: { type: String },
-    status: { type: String, enum: ["New", "Investigating", "Resolved", "Dismissed"], default: "New" },
-    createdAt: { type: Date, default: Date.now }
-});
+    status: {
+        type: String,
+        enum: ["OPEN", "INVESTIGATING", "RESOLVED", "DISMISSED"],
+        default: "OPEN"
+    },
+    description: String,
+    sourceIp: String,
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+    },
+    assetId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Asset"
+    },
+    metadata: {
+        type: mongoose.Schema.Types.Mixed,
+        default: {}
+    },
+    aiAnalysis: {
+        explanation: String,
+        recommendation: String,
+        confidence: Number,
+        analyzedAt: Date
+    },
+    createdAt: {
+        type: Date,
+        default: Date.now
+    }
+}, { timestamps: true });
 
-module.exports = mongoose.model("SecurityAlert", securityAlertSchema);
+// Index for fast dashboard retrieval
+SecurityAlertSchema.index({ severity: 1, status: 1 });
+SecurityAlertSchema.index({ createdAt: -1 });
+
+module.exports = mongoose.model("SecurityAlert", SecurityAlertSchema);

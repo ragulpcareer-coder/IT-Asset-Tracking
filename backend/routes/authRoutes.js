@@ -23,6 +23,7 @@ const {
 
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
 const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
+const zeroTrust = require("../middleware/zeroTrustMiddleware");
 
 // ── Public Routes ────────────────────────────────────────────
 router.post("/register", register);
@@ -61,12 +62,12 @@ router.post("/2fa/disable", protect, disable2FA);
 //   2. Admin role fresh from DB (admin)
 //   3. 2FA enabled on Admin account (requireAdmin2FA)
 //   4. Step-up Auth (requireReAuth) for destructive actions (§3.4)
-router.get("/users", protect, admin, requireAdmin2FA, getAllUsers);
-router.put("/users/:id/promote", protect, admin, requireAdmin2FA, requireReAuth, promoteUser);
-router.put("/users/:id/demote", protect, admin, requireAdmin2FA, requireReAuth, demoteUser);
-router.put("/users/:id/suspend", protect, admin, requireAdmin2FA, suspendUser);
-router.put("/users/:id/reset-password", protect, admin, requireAdmin2FA, requireReAuth, adminResetPassword);
-router.put("/users/:id/disable-2fa", protect, admin, requireAdmin2FA, adminDisable2FA);
-router.delete("/users/:id", protect, admin, requireAdmin2FA, requireReAuth, deleteUser);
+router.get("/users", protect, admin, zeroTrust, getAllUsers);
+router.put("/users/:id/promote", protect, admin, zeroTrust, requireReAuth, promoteUser);
+router.put("/users/:id/demote", protect, admin, zeroTrust, requireReAuth, demoteUser);
+router.put("/users/:id/suspend", protect, admin, zeroTrust, suspendUser);
+router.put("/users/:id/reset-password", protect, admin, zeroTrust, requireReAuth, adminResetPassword);
+router.put("/users/:id/disable-2fa", protect, admin, zeroTrust, adminDisable2FA);
+router.delete("/users/:id", protect, admin, zeroTrust, requireReAuth, deleteUser);
 
 module.exports = router;
