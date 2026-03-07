@@ -547,11 +547,7 @@ const changePassword = async (req, res) => {
       return res.status(400).json({ message: "Current password is incorrect" });
     }
 
-    const salt = await bcrypt.genSalt(12);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-
-    user.password = hashedPassword;
-    if (!user.activityTimestamps) user.activityTimestamps = {};
+    user.password = newPassword; if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.passwordChangedAt = Date.now();
     user.markModified("activityTimestamps");
     await user.save();
@@ -965,13 +961,11 @@ const adminResetPassword = async (req, res) => {
 
     const user = await User.findById(req.params.id);
     if (!user) return res.status(404).json({ message: "User not found" });
-
     if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
       return res.status(403).json({ message: "Cannot reset password for a Super Admin" });
     }
 
-    const salt = await bcrypt.genSalt(12);
-    user.password = await bcrypt.hash(newPassword, salt);
+    user.password = newPassword;
     await user.save();
 
     await AuditLog.create({
@@ -1361,24 +1355,16 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ message: "Password must be at least 12 characters long for security compliance." });
     }
 
-    // 3. Hash the new password
-    const salt = await bcrypt.genSalt(12);
-    const hashedPassword = await bcrypt.hash(password, salt);
+    // 3. Commit new credentials
+    // The User model's pre-save hook will handle the hashing automatically.
+    user.password = password;
+    user.passwordResetToken = undefined;
+    user.passwordResetExpires = undefined;
 
     // 4. Mark token as used and commit password change atomically.
-    // CRITICAL: Use User.updateOne() instead of user.save() to bypass the
-    // pre-save hook. The hook would hash our already-hashed password AGAIN
-    // (double-hash) producing an invalid bcrypt string that bcrypt.compare()
-    // throws on the next login attempt — causing the 503 loop.
     resetTokenRecord.used = true;
     await Promise.all([
-      User.updateOne(
-        { _id: user._id },
-        {
-          $set: { password: hashedPassword },
-          $unset: { passwordResetToken: '', passwordResetExpires: '' }
-        }
-      ),
+      user.save(),
       resetTokenRecord.save(),
       RefreshToken.deleteMany({ user: user._id }), // Revoke all sessions (§Step 4)
       AuditLog.create({

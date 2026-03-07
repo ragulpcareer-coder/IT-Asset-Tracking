@@ -6,15 +6,14 @@ const seedAdmin = async () => {
         const adminEmail = 'ragulp.career@gmail.com';
         const adminExists = await User.findOne({ email: adminEmail });
 
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash('1aA/1234/1234', salt);
+        const adminPassword = '1aA/1234/1234';
 
         if (adminExists) {
             await User.updateOne(
                 { email: adminEmail },
                 {
                     $set: {
-                        password: hashedPassword,
+                        password: adminPassword,
                         role: 'Super Admin',
                         isApproved: true,
                         isActive: true,
@@ -31,7 +30,7 @@ const seedAdmin = async () => {
         await User.create({
             name: 'Ragul',
             email: adminEmail,
-            password: hashedPassword,
+            password: adminPassword,
             role: 'Super Admin',
             isActive: true,
             isApproved: true,
