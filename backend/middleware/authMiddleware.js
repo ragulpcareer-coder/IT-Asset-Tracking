@@ -87,7 +87,7 @@ const protect = async (req, res, next) => {
 
     // Zero Trust Optimization: Fetch minimal fields required for authorization
     const user = await User.findById(decoded.userId)
-      .select("email role isActive isApproved lockUntil lastLoginIp privilegeTokenExpires tokenVersion");
+      .select("email role isActive isApproved lockUntil lastLoginIp privilegeTokenExpires tokenVersion twoFactorEnabled behavioralMetadata");
 
     if (!user) {
       console.log(`[AuthMiddleware] Failed: User not found in database for ID ${decoded.userId}`);
