@@ -676,49 +676,72 @@ const scanNetwork = async (req, res) => {
 const getSecurityAlerts = async (req, res) => {
   try {
     console.log("Fetching security alerts...");
+    const assets = await Asset.find().lean() || [];
 
-    // 1. Fetch alerts from dedicated model (§SOC Category 3)
-    // We sort by newest first and limit to 50 for performance
-    const alertsData = await SecurityAlert.find()
-      .populate("assetId", "name type serialNumber")
-      .sort({ createdAt: -1 })
-      .limit(50)
-      .lean();
-
-    console.log("Alerts found from DB:", alertsData ? alertsData.length : 0);
-
-    // 2. Proactive response hardening: ensure array even if empty
-    if (!alertsData) {
-      return res.status(200).json({
-        success: true,
-        alerts: []
-      });
+    // Also fetch dedicated security alerts if our SOC engine generated them
+    let dbAlerts = [];
+    try {
+      dbAlerts = await SecurityAlert.find().populate("assetId", "name type serialNumber").lean() || [];
+    } catch (e) {
+      console.warn("Could not fetch from SecurityAlert model:", e.message);
     }
 
-    // Process alerts to structure fields safely and avoid "undefined" crashes
-    const sanitizedAlerts = alertsData.map((alert) => {
-      const asset = alert.assetId || {};
+    const alerts = [];
 
-      // Ensure all accessed fields are defensively checked
-      return {
-        ...alert,
-        assetName: asset.name || "Unknown Asset",
-        issue: alert.message || alert.description || "Security issue detected",
-        severity: alert.severity || "medium",
-        timestamp: alert.createdAt || new Date().toISOString()
-      };
+    // Safely generate dynamic alerts from Assets
+    assets.forEach((asset) => {
+      // Check Security Risk
+      if (asset.securityRisk === "high" || (asset.securityStatus?.riskLevel && asset.securityStatus.riskLevel.toLowerCase() === "high")) {
+        alerts.push({
+          assetName: asset.name || "Unknown Asset",
+          issue: "High security risk detected",
+          severity: "high",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Check Vulnerabilities
+      if (asset.vulnerabilities?.length > 0) {
+        alerts.push({
+          assetName: asset.name || "Unknown Asset",
+          issue: `${asset.vulnerabilities.length} vulnerabilities detected`,
+          severity: "medium",
+          timestamp: new Date().toISOString()
+        });
+      }
+
+      // Check Missing/Stolen Status
+      if (asset.status === "missing" || asset.status === "stolen") {
+        alerts.push({
+          assetName: asset.name || "Unknown Asset",
+          issue: `Asset flagged as ${asset.status.toUpperCase()}`,
+          severity: "critical",
+          timestamp: new Date().toISOString()
+        });
+      }
     });
+
+    // Merge in Dedicated DB Alerts
+    dbAlerts.forEach((alert) => {
+      const asset = alert.assetId || {};
+      alerts.push({
+        assetName: asset.name || "System Event",
+        issue: alert.message || alert.description || "Security Protocol Violation",
+        severity: (alert.severity || "medium").toLowerCase(),
+        timestamp: alert.createdAt || new Date().toISOString()
+      });
+    });
+
+    console.log("Assets fetched:", assets.length);
+    console.log("Alerts generated:", alerts.length);
 
     return res.status(200).json({
       success: true,
-      count: sanitizedAlerts.length,
-      alerts: sanitizedAlerts,
-      timestamp: new Date().toISOString()
+      alerts: alerts
     });
   } catch (error) {
     console.error("Security Alerts Error:", error);
 
-    // Always return valid JSON to prevent 500 crash handlers from breaking frontend UI
     return res.status(500).json({
       success: false,
       message: "Failed to fetch security alerts",
