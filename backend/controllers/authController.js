@@ -255,7 +255,11 @@ const login = async (req, res) => {
     }
 
     if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
-      return res.status(403).json({ success: false, message: "Account pending approval.", code: "AUTH_403" });
+      return res.status(403).json({
+        success: false,
+        message: "Compliance Pending: Your account is awaiting administrator approval. Please contact a SOC manager.",
+        code: "ACCOUNT_PENDING_APPROVAL"
+      });
     }
 
     // 4️⃣ Validate password using bcrypt.compare
@@ -1403,8 +1407,8 @@ const forgotPassword = async (req, res) => {
       // CLEANUP: Delete the token if it couldn't be sent
       await PasswordResetToken.deleteOne({ _id: resetRecord._id });
 
-      return res.status(502).json({
-        message: "Failed to transmit recovery link. Please try again in 5 minutes.",
+      return res.status(503).json({
+        message: "Network Error: Failed to transmit recovery link. Please try again in 5 minutes.",
         meta: { userStatus: 'identified', error: emailErr.message },
         code: "EMAIL_DISPATCH_FAILURE"
       });
@@ -1510,6 +1514,37 @@ const resetPassword = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Admin-Direct Approval (Dashboard)
+ * @route   PUT /api/auth/users/:id/approve
+ * @access  Private/Admin
+ */
+const approveUserByAdmin = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "Identity not found in registry." });
+
+    if (user.isApproved) {
+      return res.status(400).json({ message: "This account is already in a compliant approved state." });
+    }
+
+    user.isApproved = true;
+    await user.save();
+
+    await AuditLog.create({
+      action: "SECURITY: Identity Approved",
+      performedBy: req.user.email,
+      details: `Manually approved account for ${user.email} via IAM Dashboard.`,
+      ip: req.ip || req.connection.remoteAddress,
+    });
+
+    res.json({ success: true, message: `Account for ${user.email} has been white-listed and approved.` });
+  } catch (error) {
+    console.error("IAM Approval Error:", error);
+    res.status(500).json({ message: "Strategic Error: Failed to commit approval state." });
+  }
+};
+
 module.exports = {
   register,
   login,
@@ -1534,6 +1569,7 @@ module.exports = {
   deleteUser,
   approveUser,
   rejectUser,
+  approveUserByAdmin,
   diagEmailTest,
   getUserActivity,
   verify2FALogin

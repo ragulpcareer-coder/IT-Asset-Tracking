@@ -17,7 +17,7 @@ const {
     logoutAll, refresh, generate2FA, verify2FA, disable2FA,
     getAllUsers, promoteUser, demoteUser, suspendUser,
     adminResetPassword, adminDisable2FA, deleteUser,
-    approveUser, rejectUser, diagEmailTest, getUserActivity,
+    approveUser, rejectUser, approveUserByAdmin, diagEmailTest, getUserActivity,
     forgotPassword, validateResetToken, resetPassword,
 } = require("../controllers/authController");
 
@@ -79,6 +79,7 @@ router.get("/users", protect, admin, zeroTrust, getAllUsers);
 router.put("/users/:id/promote", protect, admin, zeroTrust, requireReAuth, promoteUser);
 router.put("/users/:id/demote", protect, admin, zeroTrust, requireReAuth, demoteUser);
 router.put("/users/:id/suspend", protect, admin, zeroTrust, suspendUser);
+router.put("/users/:id/approve", protect, admin, zeroTrust, approveUserByAdmin);
 router.put("/users/:id/reset-password", protect, admin, zeroTrust, requireReAuth, adminResetPassword);
 router.put("/users/:id/disable-2fa", protect, admin, zeroTrust, adminDisable2FA);
 router.delete("/users/:id", protect, admin, zeroTrust, requireReAuth, deleteUser);

@@ -8,19 +8,36 @@ const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KE
 // REQUIREMENT: Use Port 465 + SSL (secure: true) for cloud reliability
 // Initialize Transporter with Render-optimized IPv4 settings
 // FIX: Force IPv4 (family: 4) to bypass ENETUNREACH IPv6 routing deadlock on Render
+// FIX: Force IPv4 (family: 4) to bypass ENETUNREACH IPv6 routing deadlock on Render
+// Primary Strategy: Port 465 (SSL/TLS) for reliability
 const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
-    port: 587,
-    secure: false,         // must be false for 587
-    requireTLS: true,      // enforces secure connection
-    family: 4,             // 🔥 FORCE IPv4 (Fixes ENETUNREACH)
+    port: 465,
+    secure: true,          // true for 465
+    family: 4,             // 🔥 FORCE IPv4
     auth: {
         user: process.env.EMAIL_USER,
         pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''),
     },
     tls: {
-        rejectUnauthorized: false, // Prevents certificate errors on dynamic IPs
+        rejectUnauthorized: false,
     },
+});
+
+// Fallback Strategy: Port 587 (STARTTLS)
+const fallbackTransporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 587,
+    secure: false,
+    requireTLS: true,
+    family: 4,
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''),
+    },
+    tls: {
+        rejectUnauthorized: false,
+    }
 });
 
 // Pre-flight connection verification (Non-blocking bootstrap)
@@ -80,9 +97,7 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
 
     // Strategy 2: SMTP Relay (Gmail) - The Local/Fallback Engine
     try {
-        console.log(`[Email Engine] P2: Attempting SMTP Relay (timeout 8s)...`);
-
-        // Render/Heroku often block SMTP. We use a race to prevent the API from hanging.
+        console.log(`[Email Engine] P2: Attempting SMTP (Port 465)...`);
         const info = await Promise.race([
             transporter.sendMail({
                 from: fromEmail,
@@ -91,16 +106,30 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
                 html,
                 replyTo: reply_to
             }),
-            new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_NETWORK_TIMEOUT_PORT_BLOCKED')), 8000))
+            new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_PORT_465_TIMEOUT')), 10000))
         ]);
+        console.log(`[Email Engine] SMTP P2 SUCCESS: ${info.messageId}`);
+        return { ...info, provider: 'smtp-465' };
+    } catch (smtp465Error) {
+        console.warn(`[Email Engine] SMTP P2 FAILED: ${smtp465Error.message}. Trying P3 (587)...`);
 
-        console.log(`[Email Engine] SMTP SUCCESS: Dispatch ID: ${info.messageId}`);
-        return { ...info, provider: 'smtp' };
-    } catch (smtpError) {
-        console.error(`[Email Engine] SMTP FINAL FAILURE:`, smtpError.message);
-
-        // If both failed, we must throw to trigger the 500 response in controller
-        throw new Error(`Unified Mailing Failure: [Resend Check Audit] + [SMTP: ${smtpError.message}]`);
+        try {
+            const info = await Promise.race([
+                fallbackTransporter.sendMail({
+                    from: fromEmail,
+                    to: Array.isArray(to) ? to.join(',') : to,
+                    subject,
+                    html,
+                    replyTo: reply_to
+                }),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_PORT_587_TIMEOUT')), 10000))
+            ]);
+            console.log(`[Email Engine] SMTP P3 SUCCESS: ${info.messageId}`);
+            return { ...info, provider: 'smtp-587' };
+        } catch (smtp587Error) {
+            console.error(`[Email Engine] ALL EMAIL STRATEGIES FAILED.`);
+            throw new Error(`Unified Mailing Failure: [Resend Check Audit] + [SMTP465: ${smtp465Error.message}] + [SMTP587: ${smtp587Error.message}]`);
+        }
     }
 };
 

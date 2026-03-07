@@ -44,6 +44,9 @@ export default function Users() {
             } else if (actionType === "terminate") {
                 await axios.delete(`/auth/users/${id}`);
                 toast.success(`User ${email} has been removed.`);
+            } else if (actionType === "approve") {
+                await axios.put(`/auth/users/${id}/approve`);
+                toast.success(`Account for ${email} has been white-listed and approved.`);
             }
             fetchUsers();
         } catch (err) {
@@ -128,6 +131,8 @@ export default function Users() {
                                                     <Badge variant="danger" className="animate-pulse">ACCOUNT LOCKED</Badge>
                                                 ) : u.failedLoginAttempts > 0 ? (
                                                     <div className="text-amber-500 text-[10px] font-black uppercase tracking-widest">{u.failedLoginAttempts} Failed Attempts</div>
+                                                ) : !u.isApproved ? (
+                                                    <Badge variant="warning" className="animate-pulse">PENDING APPROVAL</Badge>
                                                 ) : (
                                                     <div className="text-green-500 text-[10px] font-black uppercase tracking-widest">Nominal / Secure</div>
                                                 )}
@@ -144,6 +149,11 @@ export default function Users() {
                                                     {!["Super Admin", "Admin"].includes(u.role) && (
                                                         <Button variant="ghost" size="sm" onClick={() => setActionUser({ ...u, actionType: 'promote' })}>
                                                             Promote to Admin
+                                                        </Button>
+                                                    )}
+                                                    {!u.isApproved && (
+                                                        <Button variant="success" size="sm" onClick={() => setActionUser({ ...u, actionType: 'approve' })}>
+                                                            Approve Account
                                                         </Button>
                                                     )}
                                                     {u.email !== currentUser.email && (
@@ -165,13 +175,15 @@ export default function Users() {
             {/* IAM Action Confirmation */}
             <ConfirmModal
                 isOpen={!!actionUser}
-                title={actionUser?.actionType === 'promote' ? "Promote to Admin?" : "Remove User?"}
+                title={actionUser?.actionType === 'promote' ? "Promote to Admin?" : actionUser?.actionType === 'approve' ? "Approve User?" : "Remove User?"}
                 message={actionUser?.actionType === 'promote'
                     ? `Are you sure you want to promote ${actionUser?.name} to Administrator? They will gain access to the Audit Logs and Identity Management pages.`
+                    : actionUser?.actionType === 'approve'
+                    ? `Are you sure you want to approve the account for ${actionUser?.email}? They will be able to log in to the system immediately.`
                     : `Are you sure you want to remove ${actionUser?.email}? Their account will be deleted and all active sessions will be terminated.`
                 }
-                confirmText={actionUser?.actionType === 'promote' ? "Confirm Promotion" : "Confirm Removal"}
-                type={actionUser?.actionType === 'promote' ? "primary" : "danger"}
+                confirmText={actionUser?.actionType === 'promote' ? "Confirm Promotion" : actionUser?.actionType === 'approve' ? "Approve Account" : "Confirm Removal"}
+                type={actionUser?.actionType === 'promote' ? "primary" : actionUser?.actionType === 'approve' ? "success" : "danger"}
                 onConfirm={handleConfirmAction}
                 onCancel={() => setActionUser(null)}
             />
