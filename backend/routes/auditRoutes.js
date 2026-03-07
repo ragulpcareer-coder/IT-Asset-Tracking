@@ -77,33 +77,39 @@ router.get("/export", protect, admin, requireAdmin2FA, async (req, res) => {
     const csv = toCSV(prepared, fields);
     res.header("Content-Type", "text/csv");
     res.attachment(`audit-logs-${Date.now()}.csv`);
-    // ── POST /api/audit — Create a new audit log (Available to all authenticated users) ──
-    router.post("/", protect, async (req, res) => {
-      try {
-        const { action, details, resourceId, resourceType, meta } = req.body;
+    return res.send(csv);
+  } catch (err) {
+    console.error("Audit export failed:", err);
+    return res.status(500).json({ message: "Export failed" });
+  }
+});
 
-        // SECURITY: Ensure users can't spoof the "performedBy" or "ip" fields
-        // These should always come from the authenticated session
+// ── POST /api/audit — Create a new audit log (Available to all authenticated users) ──
+router.post("/", protect, async (req, res) => {
+  try {
+    const { action, details, resourceId, resourceType, meta } = req.body;
 
-        const log = await AuditLog.create({
-          action: action || "CLIENT_ACTION",
-          performedBy: req.user.email,
-          details: details || "Unspecified client-side action",
-          ip: req.ip || req.connection?.remoteAddress,
-          resourceId,
-          resourceType,
-          meta: {
-            ...meta,
-            userAgent: req.get('User-Agent'),
-            clientSide: true
-          }
-        });
-
-        res.status(201).json({ success: true, logId: log._id });
-      } catch (err) {
-        console.error("Failed to create audit log:", err);
-        res.status(500).json({ message: "Failed to record audit event" });
+    // SECURITY: Ensure users can't spoof the "performedBy" or "ip" fields
+    // These should always come from the authenticated session
+    const log = await AuditLog.create({
+      action: action || "CLIENT_ACTION",
+      performedBy: req.user.email,
+      details: details || "Unspecified client-side action",
+      ip: req.ip || req.connection?.remoteAddress,
+      resourceId,
+      resourceType,
+      meta: {
+        ...meta,
+        userAgent: req.get('User-Agent'),
+        clientSide: true
       }
     });
 
-    module.exports = router;
+    res.status(201).json({ success: true, logId: log._id });
+  } catch (err) {
+    console.error("Failed to create audit log:", err);
+    res.status(500).json({ message: "Failed to record audit event" });
+  }
+});
+
+module.exports = router;
