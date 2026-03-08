@@ -310,6 +310,9 @@ export default function Cybersecurity() {
                           <div>IP: {point.ip || "Unknown"}</div>
                           <div>IP Type: {point.ipType || "UNKNOWN"}</div>
                           <div>Country: {point.country || "Unknown"}</div>
+                          <div>ASN: {point.asn || "Unknown"}</div>
+                          <div>ISP: {point.isp || point.org || "Unknown"}</div>
+                          <div>Abuse Score: {Number.isFinite(Number(point.abuseScore)) ? Number(point.abuseScore) : 0}/100</div>
                           <div>Severity: {point.severity || "MEDIUM"}</div>
                         </div>
                       </Popup>
@@ -352,6 +355,7 @@ export default function Cybersecurity() {
                 <th>Type</th>
                 <th>Source</th>
                 <th>IP Type</th>
+                <th>Abuse Score</th>
                 <th>Description</th>
                 <th>Actions</th>
               </tr>
@@ -359,7 +363,7 @@ export default function Cybersecurity() {
             <tbody>
               {alerts.length === 0 && (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-slate-500">No active alerts.</td>
+                  <td colSpan="7" className="py-8 text-center text-slate-500">No active alerts.</td>
                 </tr>
               )}
 
@@ -372,6 +376,7 @@ export default function Cybersecurity() {
                     <div className="text-[10px] text-slate-500">{alert.userId?.email || "System"}</div>
                   </td>
                   <td className="text-[10px] text-slate-400">{alert?.metadata?.ipType || "UNKNOWN"}</td>
+                  <td className="text-[10px] text-slate-300">{Number.isFinite(Number(alert?.metadata?.abuseScore)) ? Number(alert.metadata.abuseScore) : 0}/100</td>
                   <td className="text-xs text-slate-400 max-w-[360px] truncate">{alert.description || "No details"}</td>
                   <td>
                     <div className="flex gap-2">
@@ -448,6 +453,9 @@ export default function Cybersecurity() {
               <div className="text-slate-500 uppercase mb-1">Source IP</div>
               <div className="font-mono">{selectedAlert?.sourceIp || "Unknown"}</div>
               <div className="text-[10px] text-slate-500 mt-1">Type: {selectedAlert?.metadata?.ipType || "UNKNOWN"}</div>
+              <div className="text-[10px] text-slate-500 mt-1">ASN: {selectedAlert?.metadata?.asn || "Unknown"}</div>
+              <div className="text-[10px] text-slate-500 mt-1">ISP: {selectedAlert?.metadata?.isp || selectedAlert?.metadata?.org || "Unknown"}</div>
+              <div className="text-[10px] text-slate-500 mt-1">Abuse Score: {Number.isFinite(Number(selectedAlert?.metadata?.abuseScore)) ? Number(selectedAlert.metadata.abuseScore) : 0}/100</div>
             </div>
             <div>
               <div className="text-slate-500 uppercase mb-1">Severity</div>

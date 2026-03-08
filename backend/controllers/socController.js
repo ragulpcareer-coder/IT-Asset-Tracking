@@ -3,6 +3,7 @@ const SecurityAlert = require("../models/SecurityAlert");
 const User = require("../models/User");
 const BlockedIp = require("../models/BlockedIp");
 const attackSimulator = require("../services/attackSimulator");
+const { getGeoLocation } = require("../utils/geoIpService");
 
 const simulateBruteForce = async (req, res) => {
     try {
@@ -121,22 +122,34 @@ const getThreatMapPoints = async (req, res) => {
             "metadata.lon": { $exists: true, $ne: 0 },
             createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
         })
-            .select("type severity sourceIp metadata.lat metadata.lon metadata.country createdAt")
+            .select("type severity sourceIp metadata.lat metadata.lon metadata.country metadata.ipType metadata.geoConfidence metadata.asn metadata.isp metadata.org metadata.abuseScore metadata.intelConfidence createdAt")
             .sort({ createdAt: -1 })
             .limit(200)
             .lean();
 
-        const points = alerts.map((a) => ({
-            id: a._id,
-            type: a.type,
-            severity: a.severity,
-            ip: a.sourceIp,
-            lat: a.metadata?.lat,
-            lon: a.metadata?.lon,
-            country: a.metadata?.country || "Unknown",
-            ipType: a.metadata?.ipType || "UNKNOWN",
-            geoConfidence: a.metadata?.geoConfidence || "low",
-            time: a.createdAt
+        const points = await Promise.all(alerts.map(async (a) => {
+            const missingIntel = !a.metadata?.asn || !a.metadata?.isp;
+            const liveIntel = missingIntel ? await getGeoLocation(a.sourceIp) : null;
+
+            return {
+                id: a._id,
+                type: a.type,
+                severity: a.severity,
+                ip: a.sourceIp,
+                lat: a.metadata?.lat,
+                lon: a.metadata?.lon,
+                country: a.metadata?.country || liveIntel?.country || "Unknown",
+                ipType: a.metadata?.ipType || liveIntel?.ipType || "UNKNOWN",
+                geoConfidence: a.metadata?.geoConfidence || liveIntel?.geoConfidence || "low",
+                asn: a.metadata?.asn || liveIntel?.asn || "Unknown",
+                isp: a.metadata?.isp || liveIntel?.isp || "Unknown",
+                org: a.metadata?.org || liveIntel?.org || "Unknown",
+                abuseScore: Number.isFinite(Number(a.metadata?.abuseScore))
+                    ? Number(a.metadata?.abuseScore)
+                    : (Number.isFinite(Number(liveIntel?.abuseScore)) ? Number(liveIntel.abuseScore) : 0),
+                intelConfidence: a.metadata?.intelConfidence || liveIntel?.intelConfidence || "low",
+                time: a.createdAt
+            };
         }));
 
         return res.json({ success: true, points });

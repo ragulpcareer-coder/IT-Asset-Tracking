@@ -48,7 +48,12 @@ async function triggerAlert(type, data = {}) {
         lat: geo.lat,
         lon: geo.lon,
         ipType: geo.ipType || (isPrivateIp(sourceIp) ? "PRIVATE" : "PUBLIC"),
-        geoConfidence: geo.geoConfidence || "low"
+        geoConfidence: geo.geoConfidence || "low",
+        asn: geo.asn || "Unknown",
+        isp: geo.isp || "Unknown",
+        org: geo.org || "Unknown",
+        abuseScore: Number.isFinite(Number(geo.abuseScore)) ? Number(geo.abuseScore) : 0,
+        intelConfidence: geo.intelConfidence || "low"
       },
       status: "OPEN"
     };
