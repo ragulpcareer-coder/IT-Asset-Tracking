@@ -1,4 +1,4 @@
-import axios from "axios";
+﻿import axios from "axios";
 import NProgress from "nprogress";
 import "nprogress/nprogress.css";
 
@@ -6,7 +6,15 @@ NProgress.configure({ showSpinner: false, speed: 400, minimum: 0.1 });
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
 const fallbackBaseURL = isLocal ? "http://localhost:5000/api" : "https://it-asset-tracking.onrender.com/api";
-const baseURL = import.meta.env.VITE_API_URL || fallbackBaseURL;
+
+const normalizeApiBase = (rawUrl) => {
+  if (!rawUrl || typeof rawUrl !== "string") return fallbackBaseURL;
+  const trimmed = rawUrl.trim().replace(/\/+$/, "");
+  if (!trimmed) return fallbackBaseURL;
+  return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
+};
+
+const baseURL = normalizeApiBase(import.meta.env.VITE_API_URL || fallbackBaseURL);
 
 const instance = axios.create({
   baseURL,
@@ -47,7 +55,9 @@ instance.interceptors.response.use(
     if (activeRequests === 0) NProgress.done();
 
     if (error.response?.status === 401 && !error.response?.data?.requires2FA) {
-      if (["/login", "/verify-2fa"].includes(window.location.pathname) || error.response?.data?.code === "2FA_INVALID") return Promise.reject(error);
+      if (["/login", "/verify-2fa"].includes(window.location.pathname) || error.response?.data?.code === "2FA_INVALID") {
+        return Promise.reject(error);
+      }
 
       axios.post(`${baseURL}/auth/logout`, {}, { withCredentials: true }).catch(() => {});
       localStorage.removeItem("token");
@@ -59,5 +69,3 @@ instance.interceptors.response.use(
 );
 
 export default instance;
-
-
