@@ -1,0 +1,13 @@
+{
+  "name": "it-asset-tracking-quality-gates",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "test:backend": "npm --prefix backend test",
+    "test:frontend": "npm --prefix frontend run build",
+    "test:continuity": "node qa/run-continuity-check.mjs",
+    "test:penetration": "node qa/run-penetration-lite.mjs",
+    "test:all": "npm run test:backend && npm run test:frontend && npm run test:continuity"
+  }
+}
+

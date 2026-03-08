@@ -1,63 +1,59 @@
 import React, { createContext, useState, useEffect } from "react";
 import axios from "../utils/axiosConfig";
 
-// Create Context
 export const AuthContext = createContext();
 
-// Provider Component
+const resolveUserPayload = (responseData) => {
+  if (!responseData) return null;
+  return responseData.user || responseData;
+};
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Load user from endpoint on first load via Header/Cookie
   useEffect(() => {
     const loadUser = async () => {
-      const token = localStorage.getItem("token");
-      if (!token) {
-        setLoading(false);
-        return;
-      }
       try {
-        const config = { headers: { Authorization: `Bearer ${token}` } };
+        const token = localStorage.getItem("token");
+        const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
         const res = await axios.get("/auth/me", config);
-        setUser(res.data);
+        setUser(resolveUserPayload(res.data));
       } catch (error) {
-        console.error("Failed to load user auth", error);
-        localStorage.removeItem("token");
+        if (error?.response?.status === 401) {
+          localStorage.removeItem("token");
+        }
+        setUser(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     loadUser();
   }, []);
 
-  // Login Function (Step 1)
   const login = async (email, password, token2FA = "", fingerprint = {}) => {
     const res = await axios.post("/auth/login", { email, password, token2FA, fingerprint });
     if (res.data.requires2FA) {
-      // Don't set user yet if 2FA is required, but we can store partial data if needed
       return res.data;
     }
+
     if (res.data.token || res.data.accessToken) {
       localStorage.setItem("token", res.data.accessToken || res.data.token);
-      const { accessToken, refreshToken, token, ...userData } = res.data;
-      setUser(userData.user || userData);
     }
+    setUser(resolveUserPayload(res.data));
     return res.data;
   };
 
-  // 2FA Verification Function (Step 2)
   const verify2FA = async (userId, token) => {
     const res = await axios.post("/auth/verify-2fa", { userId, token });
     if (res.data.token || res.data.accessToken) {
       localStorage.setItem("token", res.data.accessToken || res.data.token);
-      const { accessToken, refreshToken, token, ...userData } = res.data;
-      setUser(userData.user || userData);
     }
+    setUser(resolveUserPayload(res.data));
     return res.data;
   };
 
-  // Register Function
   const register = async (name, email, password, role) => {
     const res = await axios.post("/auth/register", {
       name,
@@ -68,14 +64,12 @@ export const AuthProvider = ({ children }) => {
 
     if (res.data.accessToken || res.data.token) {
       localStorage.setItem("token", res.data.accessToken || res.data.token);
-      const { accessToken, refreshToken, token, ...userData } = res.data;
-      setUser(userData);
+      setUser(resolveUserPayload(res.data));
     }
 
     return res.data;
   };
 
-  // Logout Function
   const logout = async () => {
     try {
       await axios.post("/auth/logout");
@@ -87,15 +81,17 @@ export const AuthProvider = ({ children }) => {
     window.location.href = "/login";
   };
 
-  // Refresh User Function
   const refreshUser = async () => {
-    const token = localStorage.getItem("token");
-    if (!token) return;
     try {
-      const res = await axios.get("/auth/me");
-      setUser(res.data);
+      const token = localStorage.getItem("token");
+      const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+      const res = await axios.get("/auth/me", config);
+      setUser(resolveUserPayload(res.data));
     } catch (error) {
-      console.error("Refresh user failed", error);
+      if (error?.response?.status === 401) {
+        localStorage.removeItem("token");
+        setUser(null);
+      }
     }
   };
 
@@ -111,8 +107,8 @@ export const AuthProvider = ({ children }) => {
         loading,
       }}
     >
-
       {!loading && children}
     </AuthContext.Provider>
   );
 };
+

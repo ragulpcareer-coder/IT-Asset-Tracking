@@ -4,7 +4,11 @@
   "main": "server.js",
   "scripts": {
     "dev": "nodemon server.js",
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test tests/*.test.js",
+    "test:security": "node --test tests/security.utils.test.js",
+    "test:controlflow": "node --test tests/controlflow.routes.test.js",
+    "test:tokens": "node --test tests/token-manager.test.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.995.0",
@@ -47,3 +51,4 @@
     "nodemon": "^3.1.4"
   }
 }
+

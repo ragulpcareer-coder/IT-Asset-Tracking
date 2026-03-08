@@ -1,7 +1,7 @@
-// Security & Utility Helpers for Backend
+// Security and utility helpers for backend
 const crypto = require("crypto");
 
-// Rate Limiting with exponential backoff
+// Rate limiting with in-memory rolling window
 class RateLimiter {
   constructor(maxAttempts = 5, windowMs = 15 * 60 * 1000) {
     this.attempts = new Map();
@@ -13,9 +13,7 @@ class RateLimiter {
     const now = Date.now();
     const userAttempts = this.attempts.get(identifier) || [];
 
-    // Remove expired attempts
     const validAttempts = userAttempts.filter((time) => now - time < this.windowMs);
-
     this.attempts.set(identifier, validAttempts);
 
     if (validAttempts.length >= this.maxAttempts) {
@@ -37,7 +35,6 @@ class RateLimiter {
   }
 }
 
-// Password strength validator (Enterprise Grade: 8 chars, Upper, Lower, Number, Symbol)
 const validatePasswordStrength = (password) => {
   const strength = {
     score: 0,
@@ -45,53 +42,37 @@ const validatePasswordStrength = (password) => {
     isStrong: false,
   };
 
-  // Length 12+ (Policy §2.2)
   if (password.length >= 12) strength.score += 1;
   else strength.feedback.push("Minimum 12 characters required");
 
-  // Uppercase
   if (/[A-Z]/.test(password)) strength.score += 1;
   else strength.feedback.push("Must contain at least one uppercase letter");
 
-  // Lowercase
   if (/[a-z]/.test(password)) strength.score += 1;
   else strength.feedback.push("Must contain at least one lowercase letter");
 
-  // Number
   if (/[0-9]/.test(password)) strength.score += 1;
   else strength.feedback.push("Must contain at least one number");
 
-  // Special Char
   if (/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) strength.score += 1;
   else strength.feedback.push("Must contain at least one symbol (!@#$%^&* etc.)");
 
-  // Enterprise requirement: All 5 checks must pass
   strength.isStrong = strength.score === 5;
-
   return strength;
 };
 
-// Email validation
 const isValidEmail = (email) => {
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   return emailRegex.test(email);
 };
 
-// Generate secure tokens
-const generateSecureToken = (length = 32) => {
-  return crypto.randomBytes(length).toString("hex");
-};
+const generateSecureToken = (length = 32) => crypto.randomBytes(length).toString("hex");
 
-// Sanitize user input
 const sanitizeInput = (input) => {
   if (typeof input !== "string") return input;
-  return input
-    .replace(/[<>]/g, "")
-    .replace(/javascript:/gi, "")
-    .trim();
+  return input.replace(/[<>]/g, "").replace(/javascript:/gi, "").trim();
 };
 
-// Log user activity
 const createActivityLog = async (userId, action, details, model) => {
   try {
     const AuditLog = model;
@@ -108,7 +89,6 @@ const createActivityLog = async (userId, action, details, model) => {
   }
 };
 
-// Format response
 const sendResponse = (res, status, message, data = null) => {
   res.status(status).json({
     success: status >= 200 && status < 300,
@@ -118,47 +98,87 @@ const sendResponse = (res, status, message, data = null) => {
   });
 };
 
-// Encryption utilities for sensitive data
+const deriveAesKey = (key) => {
+  if (!key || typeof key !== "string") {
+    throw new Error("Encryption key is required");
+  }
+  return crypto.createHash("sha256").update(key).digest();
+};
+
+// Format: v2:<ivHex>:<authTagHex>:<cipherHex>
 const encryptSensitiveData = (data, key) => {
-  const cipher = crypto.createCipher("aes-256-cbc", key);
-  let encrypted = cipher.update(data, "utf8", "hex");
-  encrypted += cipher.final("hex");
-  return encrypted;
+  const input = typeof data === "string" ? data : JSON.stringify(data);
+  const aesKey = deriveAesKey(key);
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv("aes-256-gcm", aesKey, iv);
+  const encrypted = Buffer.concat([cipher.update(input, "utf8"), cipher.final()]);
+  const authTag = cipher.getAuthTag();
+  return `v2:${iv.toString("hex")}:${authTag.toString("hex")}:${encrypted.toString("hex")}`;
 };
 
 const decryptSensitiveData = (encrypted, key) => {
-  const decipher = crypto.createDecipher("aes-256-cbc", key);
-  let decrypted = decipher.update(encrypted, "hex", "utf8");
-  decrypted += decipher.final("utf8");
-  return decrypted;
+  if (typeof encrypted !== "string") {
+    throw new Error("Encrypted payload must be a string");
+  }
+
+  if (!encrypted.startsWith("v2:")) {
+    throw new Error("Unsupported encrypted payload format. Recreate the backup using current encryption.");
+  }
+
+  const parts = encrypted.split(":");
+  if (parts.length !== 4) {
+    throw new Error("Invalid encrypted payload structure");
+  }
+
+  const [, ivHex, authTagHex, cipherHex] = parts;
+  const aesKey = deriveAesKey(key);
+
+  const decipher = crypto.createDecipheriv("aes-256-gcm", aesKey, Buffer.from(ivHex, "hex"));
+  decipher.setAuthTag(Buffer.from(authTagHex, "hex"));
+
+  const decrypted = Buffer.concat([
+    decipher.update(Buffer.from(cipherHex, "hex")),
+    decipher.final(),
+  ]);
+
+  return decrypted.toString("utf8");
 };
 
 const verifyRequestSignature = (req, secret) => {
-  const signature = req.headers['x-request-signature'];
-  const timestamp = req.headers['x-request-timestamp'];
+  const signature = req.headers["x-request-signature"];
+  const timestamp = req.headers["x-request-timestamp"];
   if (!signature || !timestamp) return false;
 
   const payload = `${req.method}|${req.originalUrl}|${timestamp}|${JSON.stringify(req.body)}`;
   const expectedSignature = crypto.createHmac("sha256", secret).update(payload).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
+
+  const given = Buffer.from(signature, "hex");
+  const expected = Buffer.from(expectedSignature, "hex");
+  if (given.length !== expected.length) return false;
+
+  return crypto.timingSafeEqual(given, expected);
 };
 
-// NoSQL/SQL Injection Guard (§Category 1-3)
 const detectMaliciousQuery = (input) => {
   if (typeof input !== "string" && typeof input !== "object") return false;
   const inputStr = typeof input === "string" ? input : JSON.stringify(input);
 
   const patterns = [
-    /\$where/i, /\$ne/i, /\$gt/i, /\$lt/i, /\$regex/i, // NoSQL Injection
-    /UNION SELECT/i, /OR 1=1/i, /DROP TABLE/i, /--/i, // SQL Injection
-    /\{\"\$gt\"\: \"\"\}/i // Auth Bypass pattern
+    /\$where/i,
+    /\$ne/i,
+    /\$gt/i,
+    /\$lt/i,
+    /\$regex/i,
+    /UNION SELECT/i,
+    /OR 1=1/i,
+    /DROP TABLE/i,
+    /--/i,
+    /\{\"\$gt\"\: \"\"\}/i,
   ];
 
-  return patterns.some(pattern => pattern.test(inputStr));
+  return patterns.some((pattern) => pattern.test(inputStr));
 };
 
-
-// LLM / AI SECURITY GUARDS (§Category 1-5)
 const detectPromptInjection = (input) => {
   if (typeof input !== "string" && typeof input !== "object") return false;
   const inputStr = typeof input === "string" ? input : JSON.stringify(input);
@@ -168,24 +188,26 @@ const detectPromptInjection = (input) => {
     /disregard all previous/i,
     /system prompt/i,
     /identity of the assistant/i,
-    /you are now an? administrator/i, // Role-playing
+    /you are now an? administrator/i,
     /override security/i,
     /bypass restriction/i,
-    /reveal your instructions/i, // Data Leakage
+    /reveal your instructions/i,
     /DAN mode/i,
     /jailbreak/i,
-    /execute the following as root/i, // Command Injection style
-    /<!--[\s\S]*?-->/ // HTML Comment injection
+    /execute the following as root/i,
+    /<!--[\s\S]*?-->/,
   ];
 
-  return patterns.some(pattern => pattern.test(inputStr));
+  return patterns.some((pattern) => pattern.test(inputStr));
 };
 
-// Tool Usage Security (§Category 5)
 const verifyToolIdentity = (signature, payload, secret) => {
   if (!signature || !payload || !secret) return false;
   const expected = crypto.createHmac("sha256", secret).update(JSON.stringify(payload)).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  const given = Buffer.from(signature, "hex");
+  const expectedBuf = Buffer.from(expected, "hex");
+  if (given.length !== expectedBuf.length) return false;
+  return crypto.timingSafeEqual(given, expectedBuf);
 };
 
 module.exports = {
@@ -201,6 +223,6 @@ module.exports = {
   verifyRequestSignature,
   detectMaliciousQuery,
   detectPromptInjection,
-  verifyToolIdentity
+  verifyToolIdentity,
 };
 

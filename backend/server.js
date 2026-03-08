@@ -205,17 +205,36 @@ app.use("/api/admin/config/v1/root", (req, res) => {
   setTimeout(() => res.status(404).json({ error: "System kernel failure." }), 5000);
 });
 
-// / — Root route (prevents 404 on browser visits and platform health checks)
-app.get("/", (req, res) => res.status(200).json({
-  name: "AssetTrack SOC API",
-  description: "Enterprise IT Asset Tracking & Security Monitoring Platform",
-  version: "2.5.0",
-  status: "running",
-  timestamp: new Date().toISOString(),
-}));
+const getDbStatus = () => {
+  const mongoose = require("mongoose");
+  const dbStates = ["disconnected", "connected", "connecting", "disconnecting"];
+  return {
+    state: dbStates[mongoose.connection.readyState] || "unknown",
+    host: mongoose.connection.host || "not connected",
+  };
+};
 
-// /health — simple liveness check
-app.get("/health", (req, res) => res.status(200).json({ status: "OK", timestamp: new Date() }));
+const buildHealthPayload = () => ({
+  status: "OK",
+  timestamp: new Date().toISOString(),
+  db: getDbStatus(),
+});
+
+// Root route (prevents 404 on browser visits and platform health checks)
+app.get("/", (req, res) =>
+  res.status(200).json({
+    name: "AssetTrack SOC API",
+    description: "Enterprise IT Asset Tracking & Security Monitoring Platform",
+    version: "2.5.0",
+    status: "running",
+    timestamp: new Date().toISOString(),
+  })
+);
+
+// Health aliases used by local checks, uptime monitors, and API tests
+app.get("/health", (req, res) => res.status(200).json(buildHealthPayload()));
+app.get("/api/health", (req, res) => res.status(200).json(buildHealthPayload()));
+app.get("/api/health/db", (req, res) => res.status(200).json(getDbStatus()));
 
 // /diag — shows env var presence and DB state WITHOUT exposing values.
 // Intentionally at root (not /api/) so app.use('/api', apiV1) never intercepts it.
