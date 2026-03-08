@@ -1,9 +1,11 @@
 ﻿const Incident = require("../models/Incident");
 const SecurityAlert = require("../models/SecurityAlert");
+const SecurityEvent = require("../models/SecurityEvent");
 const User = require("../models/User");
 const BlockedIp = require("../models/BlockedIp");
 const attackSimulator = require("../services/attackSimulator");
 const { getGeoLocation } = require("../utils/geoIpService");
+const securityEventService = require("../services/securityEventService");
 
 const simulateBruteForce = async (req, res) => {
     try {
@@ -79,7 +81,7 @@ const getSocStats = async (req, res) => {
             highRiskUsers,
             geoTelemetry
         ] = await Promise.all([
-            SecurityAlert.countDocuments(),
+            SecurityEvent.countDocuments(),
             Incident.countDocuments({ status: { $in: ["OPEN", "INVESTIGATING"] } }),
             User.countDocuments({ lockUntil: { $gt: new Date() } }),
             BlockedIp.countDocuments({ $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }),
@@ -88,13 +90,13 @@ const getSocStats = async (req, res) => {
                 .sort({ "behavioralMetadata.riskScore": -1 })
                 .limit(10)
                 .lean(),
-            SecurityAlert.aggregate([
+            SecurityEvent.aggregate([
                 {
                     $match: {
-                        "metadata.country": { $exists: true, $nin: ["Unknown", "Internal/Local", "Localhost"] }
+                        country: { $exists: true, $nin: ["Unknown", "Internal/Local", "Localhost"] }
                     }
                 },
-                { $group: { _id: "$metadata.country", count: { $sum: 1 } } },
+                { $group: { _id: "$country", count: { $sum: 1 } } },
                 { $sort: { count: -1 } },
                 { $limit: 8 }
             ])
@@ -117,38 +119,29 @@ const getSocStats = async (req, res) => {
 
 const getThreatMapPoints = async (req, res) => {
     try {
-        const alerts = await SecurityAlert.find({
-            "metadata.lat": { $exists: true, $ne: 0 },
-            "metadata.lon": { $exists: true, $ne: 0 },
-            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-        })
-            .select("type severity sourceIp metadata.lat metadata.lon metadata.country metadata.ipType metadata.geoConfidence metadata.asn metadata.isp metadata.org metadata.abuseScore metadata.intelConfidence createdAt")
-            .sort({ createdAt: -1 })
-            .limit(200)
-            .lean();
-
-        const points = await Promise.all(alerts.map(async (a) => {
-            const missingIntel = !a.metadata?.asn || !a.metadata?.isp;
-            const liveIntel = missingIntel ? await getGeoLocation(a.sourceIp) : null;
+        const events = await securityEventService.getMapEvents(24, 300);
+        const points = await Promise.all(events.map(async (e) => {
+            const missingIntel = !e.asn || !e.isp;
+            const liveIntel = missingIntel ? await getGeoLocation(e.sourceIp) : null;
 
             return {
-                id: a._id,
-                type: a.type,
-                severity: a.severity,
-                ip: a.sourceIp,
-                lat: a.metadata?.lat,
-                lon: a.metadata?.lon,
-                country: a.metadata?.country || liveIntel?.country || "Unknown",
-                ipType: a.metadata?.ipType || liveIntel?.ipType || "UNKNOWN",
-                geoConfidence: a.metadata?.geoConfidence || liveIntel?.geoConfidence || "low",
-                asn: a.metadata?.asn || liveIntel?.asn || "Unknown",
-                isp: a.metadata?.isp || liveIntel?.isp || "Unknown",
-                org: a.metadata?.org || liveIntel?.org || "Unknown",
-                abuseScore: Number.isFinite(Number(a.metadata?.abuseScore))
-                    ? Number(a.metadata?.abuseScore)
+                id: e._id,
+                type: e.eventType,
+                severity: e.severity,
+                ip: e.sourceIp,
+                lat: e.lat,
+                lon: e.lon,
+                country: e.country || liveIntel?.country || "Unknown",
+                ipType: e.ipType || liveIntel?.ipType || "UNKNOWN",
+                geoConfidence: e.geoConfidence || liveIntel?.geoConfidence || "low",
+                asn: e.asn || liveIntel?.asn || "Unknown",
+                isp: e.isp || liveIntel?.isp || "Unknown",
+                org: e.org || liveIntel?.org || "Unknown",
+                abuseScore: Number.isFinite(Number(e.abuseScore))
+                    ? Number(e.abuseScore)
                     : (Number.isFinite(Number(liveIntel?.abuseScore)) ? Number(liveIntel.abuseScore) : 0),
-                intelConfidence: a.metadata?.intelConfidence || liveIntel?.intelConfidence || "low",
-                time: a.createdAt
+                intelConfidence: e.intelConfidence || liveIntel?.intelConfidence || "low",
+                time: e.occurredAt || e.createdAt
             };
         }));
 

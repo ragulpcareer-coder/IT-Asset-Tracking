@@ -1,6 +1,8 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const SecurityAlert = require("../models/SecurityAlert");
+const SecurityEvent = require("../models/SecurityEvent");
 const AuditLog = require("../models/AuditLog");
+const securityEventService = require("../services/securityEventService");
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 
@@ -11,7 +13,13 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const analyzeAlert = async (req, res) => {
     try {
         const { alertId } = req.params;
-        const alert = await SecurityAlert.findById(alertId).populate("userId", "email role");
+        let alert = await SecurityAlert.findById(alertId).populate("userId", "email role");
+        let sourceModel = "SecurityAlert";
+
+        if (!alert) {
+            alert = await SecurityEvent.findById(alertId).populate("userId", "email role");
+            sourceModel = "SecurityEvent";
+        }
 
         if (!alert) {
             return res.status(404).json({ message: "Security alert not found." });
@@ -32,6 +40,9 @@ const analyzeAlert = async (req, res) => {
             };
             alert.aiAnalysis = mockAnalysis;
             await alert.save();
+            if (sourceModel === "SecurityAlert") {
+                await securityEventService.ingestFromAlert(alert);
+            }
             return res.json({ success: true, analysis: mockAnalysis });
         }
 
@@ -69,6 +80,9 @@ const analyzeAlert = async (req, res) => {
 
         alert.aiAnalysis = analysis;
         await alert.save();
+        if (sourceModel === "SecurityAlert") {
+            await securityEventService.ingestFromAlert(alert);
+        }
 
         res.json({ success: true, analysis });
     } catch (error) {
@@ -82,11 +96,46 @@ const analyzeAlert = async (req, res) => {
  */
 const getSecurityAlerts = async (req, res) => {
     try {
-        const alerts = await SecurityAlert.find()
-            .populate("userId", "name email role")
-            .sort({ createdAt: -1 })
-            .limit(50)
-            .lean();
+        let events = await securityEventService.listRecentEvents(120);
+
+        // Migration-safe fallback: backfill from legacy alerts if events store is still empty.
+        if (events.length === 0) {
+            const legacyAlerts = await SecurityAlert.find()
+                .populate("userId", "name email role")
+                .sort({ createdAt: -1 })
+                .limit(80);
+            for (const legacy of legacyAlerts) {
+                await securityEventService.ingestFromAlert(legacy);
+            }
+            events = await securityEventService.listRecentEvents(120);
+        }
+
+        const alerts = events.map((event) => ({
+            _id: event._id,
+            type: event.eventType,
+            severity: event.severity,
+            status: event.status,
+            sourceIp: event.sourceIp,
+            description: event.description,
+            userId: event.userId || null,
+            assetId: event.targetAssetId || null,
+            metadata: {
+                ...(event.metadata || {}),
+                ipType: event.ipType,
+                geoConfidence: event.geoConfidence,
+                country: event.country,
+                city: event.city,
+                lat: event.lat,
+                lon: event.lon,
+                asn: event.asn,
+                isp: event.isp,
+                org: event.org,
+                abuseScore: event.abuseScore,
+                intelConfidence: event.intelConfidence
+            },
+            aiAnalysis: event.aiAnalysis,
+            createdAt: event.occurredAt || event.createdAt
+        }));
 
         return res.status(200).json({ success: true, alerts: alerts || [] });
     } catch (error) {

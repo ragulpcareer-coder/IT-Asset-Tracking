@@ -6,6 +6,7 @@ const Asset = require("../models/Asset");
 const { getGeoLocation } = require("../utils/geoIpService");
 const { isPrivateIp } = require("../utils/clientIp");
 const { sendSecurityAlert } = require("../utils/emailService");
+const securityEventService = require("./securityEventService");
 
 const failedLoginsByIp = new Map();
 const offHoursCooldowns = new Map();
@@ -78,6 +79,7 @@ async function triggerAlert(type, data = {}) {
     }
 
     const alert = await SecurityAlert.create(payload);
+    await securityEventService.ingestFromAlert(alert);
     await correlateToIncident(alert);
 
     if (global.io) {
