@@ -289,7 +289,10 @@ const login = async (req, res) => {
       }
 
       riskScoringService.evaluateUserRisk(user._id, newFailCount >= 5 ? "BRUTE_FORCE_ATTEMPT" : "FAILED_LOGIN");
-      correlationEngine.checkBruteForce(getClientIp(req), email);
+      correlationEngine.checkBruteForce(getClientIp(req), email, {
+        userAgent: req.headers["user-agent"] || "unknown",
+        device: req.body?.fingerprint || "unknown"
+      });
 
       return res.status(401).json({ success: false, message: "Invalid email or password", code: "AUTH_401" });
     }
@@ -501,7 +504,10 @@ const verify2FALogin = async (req, res) => {
     }
 
     if (!isVerified) {
-      correlationEngine.checkBruteForce(ip, user.email);
+      correlationEngine.checkBruteForce(ip, user.email, {
+        userAgent: req.headers["user-agent"] || "unknown",
+        device: req.body?.fingerprint || "unknown"
+      });
       riskScoringService.evaluateUserRisk(user._id, "FAILED_LOGIN");
       return res.status(401).json({
         success: false,

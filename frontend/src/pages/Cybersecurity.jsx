@@ -6,6 +6,8 @@ import LoadingSpinner from "../components/common/LoadingSpinner";
 import { Badge, Button, Card, ConfirmModal } from "../components/UI";
 import { ToastContainer, toast } from "react-toastify";
 import AssetNetworkMap from "../components/AssetNetworkMap";
+import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import "leaflet/dist/leaflet.css";
 
 const emptyStats = {
   totalAlerts: 0,
@@ -44,15 +46,6 @@ const severityToBadge = (severity = "MEDIUM") => {
   if (s === "CRITICAL" || s === "HIGH") return "danger";
   if (s === "MEDIUM") return "warning";
   return "success";
-};
-
-const mapPointStyle = (lat, lon) => {
-  const x = ((Number(lon) + 180) / 360) * 100;
-  const y = ((90 - Number(lat)) / 180) * 100;
-  return {
-    left: `${Math.max(2, Math.min(98, x))}%`,
-    top: `${Math.max(2, Math.min(98, y))}%`,
-  };
 };
 
 export default function Cybersecurity() {
@@ -280,25 +273,50 @@ export default function Cybersecurity() {
             <div className="text-sm text-white font-bold uppercase">Live Threat Map (24h)</div>
             <div className="text-xs text-slate-500">Geographic attack vectors</div>
           </div>
-          <div className="relative h-[360px] bg-[#0b1220] overflow-hidden">
-            <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(to right, rgba(148,163,184,0.15) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.15) 1px, transparent 1px)", backgroundSize: "36px 36px" }} />
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_30%,rgba(6,182,212,0.18),transparent_40%),radial-gradient(circle_at_80%_70%,rgba(239,68,68,0.16),transparent_40%)]" />
-            {threatPoints.map((point) => (
-              <div
-                key={point.id}
-                className="absolute -translate-x-1/2 -translate-y-1/2"
-                style={mapPointStyle(point.lat, point.lon)}
-                title={`${point.type} (${point.ip || "unknown"}) • ${point.ipType || "UNKNOWN"}`}
-              >
-                <span className={`block w-3 h-3 rounded-full shadow-lg ${String(point.severity).toUpperCase() === "CRITICAL" ? "bg-red-500 shadow-red-500/40" : "bg-amber-400 shadow-amber-400/40"}`} />
-                <span className={`absolute inset-0 rounded-full animate-ping ${String(point.severity).toUpperCase() === "CRITICAL" ? "bg-red-500/30" : "bg-amber-400/30"}`} />
-              </div>
-            ))}
-
-            {threatPoints.length === 0 && (
-              <div className="absolute inset-0 flex items-center justify-center text-slate-400 text-sm">
+          <div className="h-[380px]">
+            {threatPoints.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-[#0b1220]">
                 No geolocated threats in the last 24 hours.
               </div>
+            ) : (
+              <MapContainer
+                center={[20, 0]}
+                zoom={2}
+                minZoom={2}
+                maxZoom={10}
+                style={{ height: "100%", width: "100%", background: "#0b1220" }}
+                scrollWheelZoom
+              >
+                <TileLayer
+                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  attribution="&copy; OpenStreetMap contributors"
+                />
+                {threatPoints.map((point) => {
+                  const critical = String(point.severity).toUpperCase() === "CRITICAL";
+                  return (
+                    <CircleMarker
+                      key={point.id}
+                      center={[Number(point.lat), Number(point.lon)]}
+                      radius={critical ? 8 : 6}
+                      pathOptions={{
+                        color: critical ? "#ef4444" : "#f59e0b",
+                        fillColor: critical ? "#ef4444" : "#f59e0b",
+                        fillOpacity: 0.7
+                      }}
+                    >
+                      <Popup>
+                        <div style={{ minWidth: 220 }}>
+                          <div><strong>{point.type}</strong></div>
+                          <div>IP: {point.ip || "Unknown"}</div>
+                          <div>IP Type: {point.ipType || "UNKNOWN"}</div>
+                          <div>Country: {point.country || "Unknown"}</div>
+                          <div>Severity: {point.severity || "MEDIUM"}</div>
+                        </div>
+                      </Popup>
+                    </CircleMarker>
+                  );
+                })}
+              </MapContainer>
             )}
           </div>
         </Card>

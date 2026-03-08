@@ -171,7 +171,7 @@ async function correlateToIncident(alert) {
   }
 }
 
-function checkBruteForce(ip, email) {
+function checkBruteForce(ip, email, context = {}) {
   if (!ip || ip === "unknown") return;
 
   const now = Date.now();
@@ -184,7 +184,12 @@ function checkBruteForce(ip, email) {
       message: `IP ${ip} entered block phase after ${attempts.length} failed attempts.`,
       ip,
       severity: "CRITICAL",
-      metadata: { attempts: attempts.length, email }
+      metadata: {
+        attempts: attempts.length,
+        email,
+        userAgent: context.userAgent || "unknown",
+        device: context.device || "unknown"
+      }
     });
 
     try {
@@ -201,7 +206,12 @@ function checkBruteForce(ip, email) {
       message: `Brute-force pattern detected: ${attempts.length} failed attempts from ${ip} in 2 minutes.`,
       ip,
       severity: "HIGH",
-      metadata: { attempts: attempts.length, email }
+      metadata: {
+        attempts: attempts.length,
+        email,
+        userAgent: context.userAgent || "unknown",
+        device: context.device || "unknown"
+      }
     });
   }
 }
