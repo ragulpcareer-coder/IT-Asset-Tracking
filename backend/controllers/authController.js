@@ -1355,10 +1355,10 @@ const diagEmailTest = async (req, res) => {
     const adminEmail = to;
     const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
 
-    const dispatch = await sendApprovalRequest(testUser);
+    const dispatch = await sendPasswordResetEmail(testUser, "diagnostic-token");
     res.json({
       success: true,
-      message: "Approval request email triggered!",
+      message: "Diagnostic reset email triggered!",
       sentTo: adminEmail,
       provider: dispatch?.provider || "unknown",
       diag: {
