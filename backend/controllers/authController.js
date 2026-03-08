@@ -1400,11 +1400,12 @@ const forgotPassword = async (req, res) => {
       message: "If an account exists for this email address, a password reset link has been sent."
     };
 
-    const user = await User.findOne({ email: sanitizedEmail, isActive: true })
+    const user = await User.findOne({ email: sanitizedEmail })
       .select("_id email name")
       .lean();
 
     if (!user) {
+      logger.warn(`[Auth] Forgot password requested for non-existing email: ${sanitizedEmail}`);
       return res.status(200).json(genericResponse);
     }
 
@@ -1430,7 +1431,9 @@ const forgotPassword = async (req, res) => {
     let dispatchMeta = null;
     try {
       dispatchMeta = await sendPasswordResetEmail(user, resetToken);
+      logger.info(`[Auth] Reset email dispatched to ${user.email} via ${dispatchMeta?.provider || "unknown-provider"}`);
     } catch (emailErr) {
+      logger.error(`[Auth] Reset email dispatch failed for ${user.email}: ${emailErr.message}`);
       await PasswordResetToken.deleteOne({ _id: resetRecord._id });
       return res.status(503).json({
         success: false,
