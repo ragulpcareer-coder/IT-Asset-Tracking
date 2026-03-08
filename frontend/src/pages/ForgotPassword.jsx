@@ -97,9 +97,9 @@ export default function ForgotPassword() {
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                       </svg>
                     </div>
-                    <h3 className="text-2xl font-bold text-white mb-3">Email Sent!</h3>
+                    <h3 className="text-2xl font-bold text-white mb-3">Request Received</h3>
                     <p className="text-blue-200 text-sm mb-8 leading-relaxed">
-                      A password reset link has been sent to your email address. Please check your inbox and spam folder.
+                      If an account exists for this email address, a password reset link has been sent. Please check your inbox and spam folder.
                     </p>
                     <Link to="/login" className="block">
                       <Button variant="primary" className="w-full h-12">

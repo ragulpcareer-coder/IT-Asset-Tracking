@@ -1427,8 +1427,9 @@ const forgotPassword = async (req, res) => {
       });
     }
 
+    let dispatchMeta = null;
     try {
-      await sendPasswordResetEmail(user, resetToken);
+      dispatchMeta = await sendPasswordResetEmail(user, resetToken);
     } catch (emailErr) {
       await PasswordResetToken.deleteOne({ _id: resetRecord._id });
       return res.status(503).json({
@@ -1443,7 +1444,7 @@ const forgotPassword = async (req, res) => {
         await AuditLog.create({
           action: "RECOVERY_LINK_DISPATCHED",
           performedBy: user.email,
-          details: `Password reset link sent to ${user.email}`,
+          details: `Password reset link sent to ${user.email}${dispatchMeta?.provider ? ` via ${dispatchMeta.provider}` : ""}`,
           ip: getClientIp(req),
         });
       } catch (logErr) {

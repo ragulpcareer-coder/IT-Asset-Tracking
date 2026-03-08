@@ -55,6 +55,30 @@ try {
 }
 
 const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
+const resendFrom = (process.env.RESEND_FROM_EMAIL || "").trim();
+const resendSandboxSender = "onboarding@resend.dev";
+
+const parseRecipientList = (value = "") =>
+    String(value)
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean);
+
+const normalizeRecipientEmails = (to) =>
+    (Array.isArray(to) ? to : [to])
+        .map((item) => String(item || "").trim().toLowerCase())
+        .filter(Boolean);
+
+const defaultSandboxRecipients = parseRecipientList([
+    process.env.ADMIN_EMAIL,
+    process.env.EMAIL_USER
+].filter(Boolean).join(","));
+
+const configuredSandboxRecipients = parseRecipientList(process.env.RESEND_SANDBOX_RECIPIENTS || "");
+const allowedSandboxRecipients = new Set([
+    ...defaultSandboxRecipients,
+    ...configuredSandboxRecipients
+]);
 const normalizeBaseUrl = (value) => {
     if (!value || typeof value !== "string") return "";
     return value.trim().replace(/\/+$/, "");
@@ -86,33 +110,39 @@ const resolveFrontendUrl = () => {
 const sendEmail = async ({ to, subject, html, reply_to }) => {
     const isProd = process.env.NODE_ENV === 'production';
     console.log(`[Email Engine] Forensic Dispatch Start: to=${to} (Env: ${process.env.NODE_ENV})`);
+    const recipients = normalizeRecipientEmails(to);
 
     // Strategy 1: Resend (HTTPS API) - The Production Gold Standard
     if (resend) {
         try {
             console.log(`[Email Engine] P1: Attempting Resend API...`);
 
-            // SECURITY REQUIREMENT: Resend sandbox ONLY allows 'onboarding@resend.dev'
-            // Unless the user has a custom domain verified, we must use this.
-            // We'll try to use the configured fromEmail, but fallback to sandbox if it feels like a default.
-            const sender = (fromEmail.includes('gmail.com') || !isProd) ? 'onboarding@resend.dev' : fromEmail;
+            // Prefer explicitly configured verified sender for Resend in production.
+            // Fallback to sandbox sender only when configured sender is unavailable.
+            const sender = resendFrom || (!fromEmail.includes("gmail.com") ? fromEmail : resendSandboxSender);
+            const usingSandbox = sender === resendSandboxSender;
+            const sandboxRecipientAllowed = !usingSandbox || recipients.every((email) => allowedSandboxRecipients.has(email));
 
             console.log(`[Email Engine] Identity: Sending as ${sender}`);
 
-            const { data, error } = await resend.emails.send({
-                from: sender,
-                to: Array.isArray(to) ? to : [to],
-                subject: (sender === 'onboarding@resend.dev') ? `[IT-ASSET-SYSTEM] ${subject}` : subject,
-                html,
-                reply_to
-            });
-
-            if (error) {
-                console.error(`[Email Engine] RESEND REJECTED (Code: ${error.name}): ${error.message}`);
-                // Don't throw yet, try SMTP if we are allowed
+            if (!sandboxRecipientAllowed) {
+                console.warn("[Email Engine] Resend sandbox sender blocked for this recipient set. Falling back to SMTP.");
             } else {
-                console.log(`[Email Engine] RESEND SUCCESS: ID: ${data.id}`);
-                return { ...data, provider: 'resend' };
+                const { data, error } = await resend.emails.send({
+                    from: sender,
+                    to: Array.isArray(to) ? to : [to],
+                    subject: usingSandbox ? `[IT-ASSET-SYSTEM] ${subject}` : subject,
+                    html,
+                    reply_to
+                });
+
+                if (error) {
+                    console.error(`[Email Engine] RESEND REJECTED (Code: ${error.name}): ${error.message}`);
+                    // Don't throw yet, try SMTP if we are allowed
+                } else {
+                    console.log(`[Email Engine] RESEND SUCCESS: ID: ${data.id}`);
+                    return { ...data, provider: "resend" };
+                }
             }
         } catch (resendErr) {
             console.error(`[Email Engine] RESEND CRITICAL EXCEPTION:`, resendErr.message);
