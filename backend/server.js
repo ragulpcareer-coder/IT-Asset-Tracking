@@ -111,6 +111,13 @@ const io = new Server(server, {
 app.set("io", io);
 global.io = io; // Set global.io for utils/services to access easily
 
+io.on("connection", (socket) => {
+  const userId = socket.handshake?.auth?.userId || socket.handshake?.query?.userId;
+  if (userId) {
+    socket.join(`user:${userId}`);
+  }
+});
+
 // 6. Security & Optimization Middlewares
 app.use(helmet({
   contentSecurityPolicy: {

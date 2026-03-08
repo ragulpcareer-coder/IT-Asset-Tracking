@@ -134,6 +134,8 @@ const getThreatMapPoints = async (req, res) => {
             lat: a.metadata?.lat,
             lon: a.metadata?.lon,
             country: a.metadata?.country || "Unknown",
+            ipType: a.metadata?.ipType || "UNKNOWN",
+            geoConfidence: a.metadata?.geoConfidence || "low",
             time: a.createdAt
         }));
 

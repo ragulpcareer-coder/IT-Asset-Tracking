@@ -157,8 +157,8 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
     }
 };
 
-const sendSecurityAlert = async (subject, message) => {
-    const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
+const sendSecurityAlert = async (subject, message, recipientEmail = null) => {
+    const adminEmail = recipientEmail || process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
     await sendEmail({
         to: adminEmail,
         subject: `ðŸš¨ SECURITY ALERT: ${subject}`,

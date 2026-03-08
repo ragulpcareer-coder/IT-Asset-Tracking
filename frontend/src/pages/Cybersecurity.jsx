@@ -69,11 +69,15 @@ export default function Cybersecurity() {
 
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [lastUpdated, setLastUpdated] = useState(null);
 
   const canAccess = !!user && ["Super Admin", "Admin", "Security Auditor"].includes(user.role);
+  const allowSecurityPush =
+    user?.preferences?.pushNotifications !== false &&
+    user?.preferences?.securityAlerts !== false;
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchData = async (silent = false) => {
+    if (!silent) setLoading(true);
 
     const [assetsRes, alertsRes, statsRes, mapRes] = await Promise.allSettled([
       axios.get("/assets?limit=100&sort=riskScore:desc"),
@@ -109,7 +113,8 @@ export default function Cybersecurity() {
       setThreatPoints([]);
     }
 
-    setLoading(false);
+    setLastUpdated(new Date());
+    if (!silent) setLoading(false);
   };
 
   useEffect(() => {
@@ -133,18 +138,22 @@ export default function Cybersecurity() {
         return [incoming, ...current].slice(0, 100);
       });
 
-      toast.warn(`${incoming.type || "Security Alert"}: ${incoming.description || "Investigate."}`, {
-        toastId: incoming._id || `${incoming.type}-${incoming.sourceIp}-${incoming.createdAt}`,
-      });
+      if (allowSecurityPush) {
+        toast.warn(`${incoming.type || "Security Alert"}: ${incoming.description || "Investigate."}`, {
+          toastId: incoming._id || `${incoming.type}-${incoming.sourceIp}-${incoming.createdAt}`,
+        });
+      }
     };
 
     socket.on("security_alert", onSecurityAlert);
+    const intervalId = setInterval(() => fetchData(true), 30000);
 
     return () => {
+      clearInterval(intervalId);
       socket.off("security_alert", onSecurityAlert);
       if (socket.connected) socket.disconnect();
     };
-  }, [canAccess]);
+  }, [canAccess, allowSecurityPush]);
 
   const topRiskAssets = useMemo(
     () => (Array.isArray(assets) ? assets.slice(0, 10) : []),
@@ -232,7 +241,10 @@ export default function Cybersecurity() {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
         <div>
           <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Security Threat Monitoring</h1>
-          <p className="text-slate-500 text-xs uppercase tracking-widest">Real-time SOC telemetry and incident intelligence</p>
+          <p className="text-slate-500 text-xs uppercase tracking-widest">
+            Real-time SOC telemetry and incident intelligence
+            {lastUpdated ? ` • Updated ${lastUpdated.toLocaleTimeString()}` : ""}
+          </p>
         </div>
 
         <div className="flex gap-2">
@@ -268,15 +280,18 @@ export default function Cybersecurity() {
             <div className="text-sm text-white font-bold uppercase">Live Threat Map (24h)</div>
             <div className="text-xs text-slate-500">Geographic attack vectors</div>
           </div>
-          <div className="relative h-[320px] bg-[radial-gradient(circle_at_20%_30%,rgba(14,165,233,0.15),transparent_45%),radial-gradient(circle_at_80%_70%,rgba(239,68,68,0.12),transparent_45%),linear-gradient(135deg,#0b1220,#0f172a)]">
+          <div className="relative h-[360px] bg-[#0b1220] overflow-hidden">
+            <div className="absolute inset-0 opacity-30" style={{ backgroundImage: "linear-gradient(to right, rgba(148,163,184,0.15) 1px, transparent 1px), linear-gradient(to bottom, rgba(148,163,184,0.15) 1px, transparent 1px)", backgroundSize: "36px 36px" }} />
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_25%_30%,rgba(6,182,212,0.18),transparent_40%),radial-gradient(circle_at_80%_70%,rgba(239,68,68,0.16),transparent_40%)]" />
             {threatPoints.map((point) => (
               <div
                 key={point.id}
                 className="absolute -translate-x-1/2 -translate-y-1/2"
                 style={mapPointStyle(point.lat, point.lon)}
-                title={`${point.type} (${point.ip || "unknown"})`}
+                title={`${point.type} (${point.ip || "unknown"}) • ${point.ipType || "UNKNOWN"}`}
               >
-                <span className={`block w-3 h-3 rounded-full ${String(point.severity).toUpperCase() === "CRITICAL" ? "bg-red-500" : "bg-amber-400"}`} />
+                <span className={`block w-3 h-3 rounded-full shadow-lg ${String(point.severity).toUpperCase() === "CRITICAL" ? "bg-red-500 shadow-red-500/40" : "bg-amber-400 shadow-amber-400/40"}`} />
+                <span className={`absolute inset-0 rounded-full animate-ping ${String(point.severity).toUpperCase() === "CRITICAL" ? "bg-red-500/30" : "bg-amber-400/30"}`} />
               </div>
             ))}
 
@@ -318,6 +333,7 @@ export default function Cybersecurity() {
                 <th>Severity</th>
                 <th>Type</th>
                 <th>Source</th>
+                <th>IP Type</th>
                 <th>Description</th>
                 <th>Actions</th>
               </tr>
@@ -325,7 +341,7 @@ export default function Cybersecurity() {
             <tbody>
               {alerts.length === 0 && (
                 <tr>
-                  <td colSpan="5" className="py-8 text-center text-slate-500">No active alerts.</td>
+                  <td colSpan="6" className="py-8 text-center text-slate-500">No active alerts.</td>
                 </tr>
               )}
 
@@ -337,6 +353,7 @@ export default function Cybersecurity() {
                     <div className="text-[11px] text-slate-300 font-mono">{alert.sourceIp || "Unknown"}</div>
                     <div className="text-[10px] text-slate-500">{alert.userId?.email || "System"}</div>
                   </td>
+                  <td className="text-[10px] text-slate-400">{alert?.metadata?.ipType || "UNKNOWN"}</td>
                   <td className="text-xs text-slate-400 max-w-[360px] truncate">{alert.description || "No details"}</td>
                   <td>
                     <div className="flex gap-2">
@@ -412,6 +429,7 @@ export default function Cybersecurity() {
             <div>
               <div className="text-slate-500 uppercase mb-1">Source IP</div>
               <div className="font-mono">{selectedAlert?.sourceIp || "Unknown"}</div>
+              <div className="text-[10px] text-slate-500 mt-1">Type: {selectedAlert?.metadata?.ipType || "UNKNOWN"}</div>
             </div>
             <div>
               <div className="text-slate-500 uppercase mb-1">Severity</div>

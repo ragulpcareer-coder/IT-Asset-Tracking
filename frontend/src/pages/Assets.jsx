@@ -48,9 +48,13 @@ export default function Assets() {
     }
 
     // REAL-TIME CLUSTER SYNC (ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§Category 4 & 9)
+    const canNotifyActivity =
+      user?.preferences?.pushNotifications !== false &&
+      user?.preferences?.activityNotifications !== false;
+
     socket.on("assetCreated", (newAsset) => {
       setAssets(prev => [newAsset, ...prev]);
-      toast.info(`New asset registered: ${newAsset.name}`);
+      if (canNotifyActivity) toast.info(`New asset registered: ${newAsset.name}`);
     });
 
     socket.on("assetUpdated", (updated) => {
@@ -59,7 +63,7 @@ export default function Assets() {
 
     socket.on("assetDeleted", (id) => {
       setAssets(prev => prev.filter(a => a._id !== id));
-      toast.warn("An asset was removed by an administrator.");
+      if (canNotifyActivity) toast.warn("An asset was removed by an administrator.");
     });
 
     return () => {
@@ -67,7 +71,7 @@ export default function Assets() {
       socket.off("assetUpdated");
       socket.off("assetDeleted");
     };
-  }, [search, statusFilter, typeFilter, sortBy]);
+  }, [search, statusFilter, typeFilter, sortBy, user?.preferences?.pushNotifications, user?.preferences?.activityNotifications]);
 
 
   const fetchAssets = async () => {

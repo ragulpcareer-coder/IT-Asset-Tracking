@@ -5,6 +5,7 @@ const User = require("../models/User");
 const Asset = require("../models/Asset");
 const { getGeoLocation } = require("../utils/geoIpService");
 const { isPrivateIp } = require("../utils/clientIp");
+const { sendSecurityAlert } = require("../utils/emailService");
 
 const failedLoginsByIp = new Map();
 const offHoursCooldowns = new Map();
@@ -45,7 +46,9 @@ async function triggerAlert(type, data = {}) {
         country: geo.country,
         city: geo.city,
         lat: geo.lat,
-        lon: geo.lon
+        lon: geo.lon,
+        ipType: geo.ipType || (isPrivateIp(sourceIp) ? "PRIVATE" : "PUBLIC"),
+        geoConfidence: geo.geoConfidence || "low"
       },
       status: "OPEN"
     };
@@ -74,6 +77,43 @@ async function triggerAlert(type, data = {}) {
 
     if (global.io) {
       global.io.emit("security_alert", alert);
+    }
+
+    // Respect user notification preferences for in-app notifications
+    const interestedUsers = await User.find({
+      role: { $in: ["Super Admin", "Admin", "Security Auditor"] },
+      isActive: true,
+      "preferences.pushNotifications": { $ne: false },
+      "preferences.securityAlerts": { $ne: false }
+    }).select("_id").lean();
+
+    if (global.io && interestedUsers.length > 0) {
+      const liveNotification = {
+        id: alert._id,
+        type: "SECURITY_ALERT",
+        severity: alert.severity,
+        title: alert.type,
+        message: alert.description,
+        sourceIp: alert.sourceIp,
+        createdAt: alert.createdAt
+      };
+      for (const user of interestedUsers) {
+        global.io.to(`user:${user._id}`).emit("user_notification", liveNotification);
+      }
+    }
+
+    // Respect email notification preferences for high-severity alerts
+    if (["HIGH", "CRITICAL"].includes(payload.severity)) {
+      const emailTargets = await User.find({
+        role: { $in: ["Super Admin", "Admin", "Security Auditor"] },
+        isActive: true,
+        "preferences.emailNotifications": { $ne: false },
+        "preferences.securityAlerts": { $ne: false }
+      }).select("email").lean();
+
+      for (const target of emailTargets) {
+        sendSecurityAlert(payload.type, payload.description, target.email).catch(() => {});
+      }
     }
 
     setImmediate(async () => {

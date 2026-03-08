@@ -1,14 +1,19 @@
 const logger = require('./logger');
+const { isPrivateIp, normalizeIp } = require("./clientIp");
 
 const getGeoLocation = async (ip) => {
-    const isPrivate = /^(127\.|10\.|192\.168\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/.test(ip);
-    if (isPrivate || !ip) {
-        return { country: "Internal/Local", city: "Localhost", lat: 0, lon: 0 };
+    const normalizedIp = normalizeIp(ip);
+    if (!normalizedIp || normalizedIp === "unknown") {
+        return { country: "Unknown", city: "Unknown", lat: 0, lon: 0, ipType: "UNKNOWN", geoConfidence: "low" };
+    }
+
+    if (isPrivateIp(normalizedIp)) {
+        return { country: "Internal/Local", city: "Localhost", lat: 0, lon: 0, ipType: "PRIVATE", geoConfidence: "none" };
     }
 
     // PRIMARY PROVIDER: ipapi.co
     try {
-        const response = await fetch(`https://ipapi.co/${ip}/json/`);
+        const response = await fetch(`https://ipapi.co/${normalizedIp}/json/`);
         if (response.ok) {
             const data = await response.json();
             if (!data.error) {
@@ -17,7 +22,9 @@ const getGeoLocation = async (ip) => {
                     city: data.city || "Unknown",
                     lat: data.latitude || 0,
                     lon: data.longitude || 0,
-                    provider: "ipapi"
+                    provider: "ipapi",
+                    ipType: "PUBLIC",
+                    geoConfidence: "high"
                 };
             }
         }
@@ -27,7 +34,7 @@ const getGeoLocation = async (ip) => {
 
     // FALLBACK PROVIDER: ip-api.com (Rate limited but reliable for low volume)
     try {
-        const response = await fetch(`http://ip-api.com/json/${ip}`);
+        const response = await fetch(`http://ip-api.com/json/${normalizedIp}`);
         if (response.ok) {
             const data = await response.json();
             if (data.status === "success") {
@@ -36,7 +43,9 @@ const getGeoLocation = async (ip) => {
                     city: data.city || "Unknown",
                     lat: data.lat || 0,
                     lon: data.lon || 0,
-                    provider: "ip-api"
+                    provider: "ip-api",
+                    ipType: "PUBLIC",
+                    geoConfidence: "medium"
                 };
             }
         }
@@ -44,7 +53,7 @@ const getGeoLocation = async (ip) => {
         console.error(`[GeoIP] Fallback provider failed: ${e.message}`);
     }
 
-    return { country: "Unknown", city: "Unknown", lat: 0, lon: 0 };
+    return { country: "Unknown", city: "Unknown", lat: 0, lon: 0, ipType: "PUBLIC", geoConfidence: "low" };
 };
 
 module.exports = { getGeoLocation };

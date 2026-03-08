@@ -1,5 +1,6 @@
 import React, { createContext, useState, useEffect } from "react";
 import axios from "../utils/axiosConfig";
+import { setSocketUserIdentity } from "../services/socket";
 
 export const AuthContext = createContext();
 
@@ -35,6 +36,10 @@ export const AuthProvider = ({ children }) => {
 
     loadUser();
   }, []);
+
+  useEffect(() => {
+    setSocketUserIdentity(user?._id || user?.id || null);
+  }, [user]);
 
   const login = async (email, password, token2FA = "", fingerprint = {}) => {
     const res = await axios.post("/auth/login", { email, password, token2FA, fingerprint });
@@ -76,6 +81,7 @@ export const AuthProvider = ({ children }) => {
       console.error(err);
     }
     localStorage.removeItem("token");
+    setSocketUserIdentity(null);
     setUser(null);
     window.location.href = "/login";
   };

@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useContext } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { socket } from "../services/socket";
+import { AuthContext } from "../context/AuthContext";
 
 /**
  * SecurityAlertBanner — Real-Time Live Security Alert Panel
@@ -39,6 +40,7 @@ const CARD_COLORS = {
 };
 
 export default function SecurityAlertBanner() {
+    const { user } = useContext(AuthContext);
     // Critical full-banner alerts
     const [criticalAlerts, setCriticalAlerts] = useState([]);
     // Regular card-style alerts
@@ -46,6 +48,10 @@ export default function SecurityAlertBanner() {
     const [isExpanded, setIsExpanded] = useState(false);
 
     const addAlert = useCallback((alert) => {
+        const allowPush = user?.preferences?.pushNotifications !== false;
+        const allowSecurity = user?.preferences?.securityAlerts !== false;
+        if (!allowPush || !allowSecurity) return;
+
         const id = alert._id || (Date.now() + Math.random());
         const enriched = {
             ...alert,
@@ -62,7 +68,7 @@ export default function SecurityAlertBanner() {
                 setCardAlerts((prev) => prev.filter((a) => a.id !== id));
             }, 10000);
         }
-    }, []);
+    }, [user]);
 
     useEffect(() => {
         socket.on("security_alert", addAlert);

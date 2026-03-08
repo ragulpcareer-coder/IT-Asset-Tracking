@@ -2,18 +2,15 @@ import React, { useContext, useState, useEffect } from "react";
 import { AuthContext } from "../../context/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { Button, Badge } from "../UI";
-
-/**
- * Enterprise Navigation Bar
- * Features: Security compliance banners, Connectivity monitoring, Command quick-search.
- */
+import { socket } from "../../services/socket";
 
 export default function Topbar({ toggleSidebar, openMobile }) {
   const { user, logout } = useContext(AuthContext);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [notifications, setNotifications] = useState([]);
+  const [showNotifications, setShowNotifications] = useState(false);
   const navigate = useNavigate();
 
-  // Policy: Admin accounts MUST have 2FA enabled for privileged operations.
   const adminNeeds2FA = ["Super Admin", "Admin"].includes(user?.role) && !user?.twoFactorEnabled;
 
   useEffect(() => {
@@ -27,13 +24,27 @@ export default function Topbar({ toggleSidebar, openMobile }) {
     };
   }, []);
 
+  useEffect(() => {
+    const allowPush = user?.preferences?.pushNotifications !== false;
+    if (!allowPush) return;
+
+    const onUserNotification = (payload) => {
+      if (!payload) return;
+      setNotifications((prev) => [payload, ...prev].slice(0, 25));
+    };
+
+    socket.on("user_notification", onUserNotification);
+    return () => {
+      socket.off("user_notification", onUserNotification);
+    };
+  }, [user?.preferences?.pushNotifications]);
+
   return (
     <>
-      {/* --- Mandatory Security Banner: 2FA Enforcement (§21) --- */}
       {adminNeeds2FA && (
         <div className="bg-red-500/10 border-b border-red-500/20 py-2.5 px-6 flex justify-between items-center z-[60] relative backdrop-blur-sm">
           <div className="flex items-center gap-3">
-            <span className="text-red-500 animate-pulse text-lg">⚠️</span>
+            <span className="text-red-500 text-lg">!</span>
             <span className="text-red-400 text-[11px] font-bold uppercase tracking-[0.15em]">
               Security Policy Alert: Administrator accounts must have Two-Factor Authentication (2FA) enabled.
             </span>
@@ -49,7 +60,6 @@ export default function Topbar({ toggleSidebar, openMobile }) {
 
       <header className="flex items-center justify-between px-8 py-4 border-b border-white/5 bg-slate-950/50 backdrop-blur-md sticky top-0 z-40">
         <div className="flex items-center gap-6">
-          {/* Universal Navigation Trigger */}
           <button
             onClick={() => {
               if (window.innerWidth >= 1024) {
@@ -61,11 +71,11 @@ export default function Topbar({ toggleSidebar, openMobile }) {
             className="btn btn-ghost p-2 text-xl hover:bg-white/10 rounded-lg transition-colors"
             aria-label="Toggle menu"
           >
-            ☰
+            Menu
           </button>
 
           <div className="flex items-center gap-3 lg:hidden">
-            <div className="flex-center" style={{ width: 28, height: 28, background: '#fff', borderRadius: 6 }}>
+            <div className="flex-center" style={{ width: 28, height: 28, background: "#fff", borderRadius: 6 }}>
               <img src="/logo.svg" alt="AssetTrack" style={{ width: 16, height: 16 }} />
             </div>
             <div className="font-extrabold text-white tracking-tighter uppercase text-sm">
@@ -74,30 +84,32 @@ export default function Topbar({ toggleSidebar, openMobile }) {
             </div>
           </div>
 
-          {/* Quick Registry Search -> Triggers Command Palette */}
           <div
             className="hidden md:flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 rounded-xl focus-within:border-blue-500/50 transition-all w-80 cursor-text"
-            onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}
+            onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
           >
-            <span className="text-slate-500 text-sm">🔍</span>
+            <span className="text-slate-500 text-sm">Search</span>
             <span className="text-slate-400 text-xs w-full select-none">Registry Lookup (Cmd+K)...</span>
           </div>
         </div>
 
         <div className="flex items-center gap-4">
-          {/* Action Hub */}
           <div className="hidden sm:flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new CustomEvent('open-command-palette'))}>
-              ⌘K
+            <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}>
+              Cmd+K
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => navigate("/audit-logs")}>
-              🔔
+            <Button variant="ghost" size="sm" onClick={() => setShowNotifications((p) => !p)}>
+              Alerts
+              {notifications.length > 0 && (
+                <span className="ml-2 text-[10px] bg-red-500 text-white rounded-full px-1 min-w-[16px] text-center">
+                  {notifications.length > 9 ? "9+" : notifications.length}
+                </span>
+              )}
             </Button>
           </div>
 
           <div className="h-6 w-px bg-white/10 mx-2 hidden sm:block" />
 
-          {/* User Profile Summary */}
           <div className="flex items-center gap-3 pl-2">
             <div className="text-right hidden sm:block">
               <div className="text-xs font-bold text-white uppercase tracking-tight">{user?.name}</div>
@@ -106,17 +118,40 @@ export default function Topbar({ toggleSidebar, openMobile }) {
                   {user?.role}
                 </Badge>
                 {["Super Admin", "Admin"].includes(user?.role) && (
-                  <div className={`w-1.5 h-1.5 rounded-full ${user?.twoFactorEnabled ? 'bg-green-500' : 'bg-amber-500'}`} />
+                  <div className={`w-1.5 h-1.5 rounded-full ${user?.twoFactorEnabled ? "bg-green-500" : "bg-amber-500"}`} />
                 )}
               </div>
             </div>
             <Link to="/settings" title="User Settings" className="flex-center w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-all">
-              <span className="text-sm font-black text-white">{user?.name ? user.name.charAt(0).toUpperCase() : 'U'}</span>
+              <span className="text-sm font-black text-white">{user?.name ? user.name.charAt(0).toUpperCase() : "U"}</span>
             </Link>
             <Button variant="secondary" size="sm" onClick={logout} className="ml-2">Logout</Button>
           </div>
         </div>
       </header>
+
+      {showNotifications && (
+        <div className="absolute right-8 top-20 z-50 w-[360px] max-h-[420px] overflow-y-auto bg-slate-950 border border-white/10 rounded-xl shadow-2xl">
+          <div className="p-3 border-b border-white/10 flex items-center justify-between">
+            <div className="text-xs uppercase tracking-widest text-slate-400 font-bold">Notifications</div>
+            <button onClick={() => setNotifications([])} className="text-[11px] text-cyan-400 hover:text-cyan-300">Clear</button>
+          </div>
+          {notifications.length === 0 ? (
+            <div className="p-4 text-xs text-slate-500">No notifications yet.</div>
+          ) : (
+            notifications.map((n, idx) => (
+              <div key={`${n.id || n.createdAt}-${idx}`} className="p-3 border-b border-white/5 last:border-b-0">
+                <div className="text-[11px] text-slate-300 font-bold">{n.title || n.type || "Notification"}</div>
+                <div className="text-xs text-slate-400 mt-1">{n.message}</div>
+                <div className="text-[10px] text-slate-500 mt-1">{new Date(n.createdAt || Date.now()).toLocaleString()}</div>
+              </div>
+            ))
+          )}
+          <div className="p-2 border-t border-white/10">
+            <button onClick={() => { setShowNotifications(false); navigate("/security"); }} className="w-full text-xs text-cyan-400 hover:text-cyan-300">Open Security Monitoring</button>
+          </div>
+        </div>
+      )}
     </>
   );
 }

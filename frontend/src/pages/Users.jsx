@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
 import { Button, Card, Badge, ConfirmModal } from "../components/UI";
 import LoadingSpinner from "../components/common/LoadingSpinner";
+import { socket } from "../services/socket";
 
 export default function Users() {
     const { user: currentUser } = useContext(AuthContext);
@@ -28,6 +29,17 @@ export default function Users() {
 
     useEffect(() => {
         fetchUsers();
+        socket.connect();
+        const onUserDeleted = (payload) => {
+            const removedId = payload?.userId;
+            if (!removedId) return;
+            setUsers((prev) => prev.filter((u) => String(getUserId(u)) !== String(removedId)));
+        };
+        socket.on("userDeleted", onUserDeleted);
+
+        return () => {
+            socket.off("userDeleted", onUserDeleted);
+        };
     }, []);
 
     const getUserId = (u) => u?._id || u?.id;
@@ -63,6 +75,7 @@ export default function Users() {
                 if (response.status === 202 || response.data?.pendingActionId) {
                     toast.info(response.data?.message || "Deletion request submitted for secondary approval.");
                 } else {
+                    setUsers((prev) => prev.filter((u) => String(getUserId(u)) !== String(targetId)));
                     toast.success(`User ${actionUser.email} has been removed.`);
                 }
             } else if (actionUser.actionType === "approve") {
@@ -70,7 +83,9 @@ export default function Users() {
                 toast.success(response.data?.message || `Account for ${actionUser.email} has been approved.`);
             }
 
-            await fetchUsers();
+            if (!(response?.status === 202 || response?.data?.pendingActionId)) {
+                await fetchUsers();
+            }
         } catch (err) {
             toast.error(err.response?.data?.message || "Action failed. Please try again.");
         } finally {

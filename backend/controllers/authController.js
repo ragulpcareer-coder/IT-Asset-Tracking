@@ -1184,7 +1184,27 @@ const deleteUser = async (req, res) => {
       }
     }
 
+    const isPrivilegedTarget = ["Super Admin", "Admin"].includes(userToDelete.role);
     const { approvalId } = req.query; // Check for Dual-Auth approval (Â§3.1)
+
+    // Immediate delete for standard users to keep IAM table/state consistent.
+    if (!isPrivilegedTarget) {
+      await RefreshToken.deleteMany({ user: userToDelete._id });
+      await userToDelete.deleteOne();
+
+      await AuditLog.create({
+        action: "User Deleted",
+        performedBy: req.user.email,
+        details: `Deleted user account ${userToDelete.email}`,
+        ip: req.ip || req.connection?.remoteAddress
+      });
+
+      if (req.app.get("io")) {
+        req.app.get("io").emit("userDeleted", { userId: String(req.params.id), email: userToDelete.email });
+      }
+
+      return res.json({ success: true, message: "User account deleted successfully.", userId: String(req.params.id) });
+    }
 
     if (approvalId) {
       const approvedAction = await PendingAction.findById(approvalId);
@@ -1208,6 +1228,10 @@ const deleteUser = async (req, res) => {
           details: `User account ${userToDelete.email} permanently removed after Dual Authorization. Action requested by UserID: ${approvedAction.createdBy}`,
           ip: req.ip || req.connection?.remoteAddress
         });
+
+        if (req.app.get("io")) {
+          req.app.get("io").emit("userDeleted", { userId: String(req.params.id), email: userToDelete.email });
+        }
 
         return res.json({ message: "User account successfully removed through Dual Authorization process." });
       }
