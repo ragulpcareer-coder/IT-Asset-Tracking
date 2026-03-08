@@ -97,7 +97,7 @@ const getAssets = async (req, res) => {
     const query = {};
 
     // 5. ZONAL ACCESS CONTROL (§Category 5/10)
-    if (!["Super Admin", "Admin", "Auditor"].includes(req.user.role)) {
+    if (!["Super Admin", "Admin", "Auditor", "Security Auditor"].includes(req.user.role)) {
       if (req.user.role === "Manager" || req.user.role === "Asset Manager") {
         // Zonal View: Can only see assets in their department
         query.department = req.user.department;
@@ -110,9 +110,31 @@ const getAssets = async (req, res) => {
       }
     }
 
+    if (search && typeof search === "string") {
+      const escaped = search.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      if (escaped) {
+        const searchRegex = new RegExp(escaped, "i");
+        const searchConditions = [
+          { name: searchRegex },
+          { serialNumber: searchRegex },
+          { assignedTo: searchRegex },
+          { ipAddress: searchRegex },
+          { macAddress: searchRegex },
+          { type: searchRegex },
+          { classification: searchRegex },
+          { uuid: searchRegex }
+        ];
 
-    if (search) {
-      query.name = { $regex: search, $options: "i" };
+        if (query.$or) {
+          query.$and = [
+            { $or: query.$or },
+            { $or: searchConditions }
+          ];
+          delete query.$or;
+        } else {
+          query.$or = searchConditions;
+        }
+      }
     }
 
     if (status && status !== "All") {
@@ -123,7 +145,32 @@ const getAssets = async (req, res) => {
       query.type = type;
     }
 
-    const sortOption = sort ? { [sort]: -1 } : { createdAt: -1 };
+    const parseSort = (value) => {
+      if (!value || typeof value !== "string") return { createdAt: -1 };
+
+      const [fieldRaw, directionRaw] = value.split(":");
+      const field = (fieldRaw || "createdAt").trim();
+      const direction = (directionRaw || "").trim().toLowerCase();
+
+      if (direction === "asc") return { [field]: 1 };
+      if (direction === "desc") return { [field]: -1 };
+
+      if (["name", "type", "status", "classification", "assignedTo"].includes(field)) {
+        return { [field]: 1 };
+      }
+
+      if (["createdAt", "updatedAt", "riskScore"].includes(field)) {
+        return { [field]: -1 };
+      }
+
+      if (["usefulLifeYears", "purchasePrice"].includes(field)) {
+        return { [field]: 1 };
+      }
+
+      return { createdAt: -1 };
+    };
+
+    const sortOption = parseSort(sort);
 
     const assets = await Asset.find(query)
       .sort(sortOption)
@@ -143,7 +190,6 @@ const getAssets = async (req, res) => {
     res.status(500).json({ success: false, message: "Failed to fetch assets" });
   }
 };
-
 const getAssetById = async (req, res) => {
   try {
     const asset = await Asset.findById(req.params.id);

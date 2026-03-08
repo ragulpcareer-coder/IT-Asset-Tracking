@@ -1,4 +1,4 @@
-﻿import React, { createContext, useState, useEffect } from "react";
+import React, { createContext, useState, useEffect } from "react";
 import axios from "../utils/axiosConfig";
 
 export const AuthContext = createContext();
@@ -16,6 +16,10 @@ export const AuthProvider = ({ children }) => {
     const loadUser = async () => {
       try {
         const token = localStorage.getItem("token");
+        if (!token) {
+          setUser(null);
+          return;
+        }
         const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
         const res = await axios.get("/auth/me", config);
         setUser(resolveUserPayload(res.data));

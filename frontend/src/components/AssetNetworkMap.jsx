@@ -1,219 +1,265 @@
-import React, { useEffect, useRef, useState, useContext } from "react";
+﻿import React, { useEffect, useRef, useState, useMemo } from "react";
 import * as d3 from "d3";
 import axios from "../utils/axiosConfig";
-import { AuthContext } from "../context/AuthContext";
 import LoadingSpinner from "./common/LoadingSpinner";
-
-/**
- * AssetNetworkMap — D3 Force-Directed Graph
- * Renders all registered assets as nodes connected to a central server node.
- * Node color = risk level. Click a node to see asset details.
- */
+import { Button, Card, Badge } from "./UI";
 
 const RISK_COLORS = {
-    Low: "#22c55e",
-    Medium: "#eab308",
-    High: "#ef4444",
-    Critical: "#dc2626",
+  Low: "#22c55e",
+  Medium: "#f59e0b",
+  High: "#ef4444",
+  Critical: "#b91c1c",
 };
 
-const STATUS_LABEL = {
-    available: "Available",
-    assigned: "Assigned",
-    maintenance: "Maintenance",
-    lost: "Lost",
-    retired: "Retired",
-};
+const RISK_LEVELS = ["All", "Low", "Medium", "High", "Critical"];
+
+const getRiskLevel = (asset) => asset?.securityStatus?.riskLevel || "Low";
 
 export default function AssetNetworkMap({ onClose }) {
-    const svgRef = useRef(null);
-    const { user } = useContext(AuthContext);
-    const [assets, setAssets] = useState([]);
-    const [loading, setLoading] = useState(true);
-    const [tooltip, setTooltip] = useState(null);
-    const [selectedAsset, setSelectedAsset] = useState(null);
+  const svgRef = useRef(null);
+  const wrapperRef = useRef(null);
 
-    useEffect(() => {
-        axios.get("/assets")
-            .then(res => {
-                const list = Array.isArray(res.data) ? res.data : (res.data.assets || []);
-                setAssets(list);
-            })
-            .catch(() => setAssets([]))
-            .finally(() => setLoading(false));
-    }, []);
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [search, setSearch] = useState("");
+  const [riskFilter, setRiskFilter] = useState("All");
 
-    useEffect(() => {
-        if (loading || !svgRef.current || assets.length === 0) return;
+  useEffect(() => {
+    const fetchAssets = async () => {
+      try {
+        const res = await axios.get("/assets?limit=300&sort=riskScore:desc");
+        const list = Array.isArray(res.data?.assets) ? res.data.assets : Array.isArray(res.data) ? res.data : [];
+        setAssets(list);
+      } catch {
+        setAssets([]);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-        const container = svgRef.current.parentElement;
-        const W = container.clientWidth || 800;
-        const H = container.clientHeight || 500;
+    fetchAssets();
+  }, []);
 
-        // Clear previous render
-        d3.select(svgRef.current).selectAll("*").remove();
+  const filteredAssets = useMemo(() => {
+    const term = search.trim().toLowerCase();
 
-        const svg = d3.select(svgRef.current)
-            .attr("width", W)
-            .attr("height", H);
+    return assets.filter((asset) => {
+      const matchesRisk = riskFilter === "All" || getRiskLevel(asset) === riskFilter;
+      if (!matchesRisk) return false;
+      if (!term) return true;
 
-        // Zoom + pan
-        const g = svg.append("g");
-        svg.call(d3.zoom().scaleExtent([0.3, 3]).on("zoom", (e) => {
-            g.attr("transform", e.transform);
-        }));
+      return [asset.name, asset.ipAddress, asset.assignedTo, asset.type]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(term));
+    });
+  }, [assets, search, riskFilter]);
 
-        // Build nodes: central server + all assets
-        const centerNode = { id: "__server__", label: "Server", type: "server", isCenter: true };
-        const assetNodes = (Array.isArray(assets) ? assets : []).map(a => ({
-            id: a._id,
-            label: a.name,
-            type: a.type || "Device",
-            status: a.status,
-            riskScore: a.riskScore ?? 0,
-            riskLevel: a.securityStatus?.riskLevel || "Low",
-            assignedTo: a.assignedTo,
-            classification: a.classification,
-            _raw: a,
-        }));
+  useEffect(() => {
+    if (loading || !svgRef.current || !wrapperRef.current) return;
 
-        const nodes = [centerNode, ...assetNodes];
-        const links = (Array.isArray(assetNodes) ? assetNodes : []).map(n => ({ source: "__server__", target: n.id }));
+    const width = wrapperRef.current.clientWidth || 1200;
+    const height = wrapperRef.current.clientHeight || 620;
 
-        // Force simulation
-        const simulation = d3.forceSimulation(nodes)
-            .force("link", d3.forceLink(links).id(d => d.id).distance(120).strength(0.8))
-            .force("charge", d3.forceManyBody().strength(-300))
-            .force("center", d3.forceCenter(W / 2, H / 2))
-            .force("collision", d3.forceCollide(45));
+    const svg = d3.select(svgRef.current);
+    svg.selectAll("*").remove();
+    svg.attr("width", width).attr("height", height);
 
-        // Draw links
-        const link = g.append("g")
-            .selectAll("line")
-            .data(links)
-            .join("line")
-            .attr("stroke", "#ffffff15")
-            .attr("stroke-width", 1.5);
-
-        // Draw node groups
-        const node = g.append("g")
-            .selectAll("g")
-            .data(nodes)
-            .join("g")
-            .attr("cursor", d => d.isCenter ? "default" : "pointer")
-            .call(
-                d3.drag()
-                    .on("start", (e, d) => { if (!e.active) simulation.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
-                    .on("drag", (e, d) => { d.fx = e.x; d.fy = e.y; })
-                    .on("end", (e, d) => { if (!e.active) simulation.alphaTarget(0); d.fx = null; d.fy = null; })
-            )
-            .on("click", (e, d) => { if (!d.isCenter) setSelectedAsset(d._raw); });
-
-        // Node circles
-        node.append("circle")
-            .attr("r", d => d.isCenter ? 28 : 20)
-            .attr("fill", d => d.isCenter ? "#3b82f6" : (RISK_COLORS[d.riskLevel] || "#6b7280"))
-            .attr("fill-opacity", 0.85)
-            .attr("stroke", d => d.isCenter ? "#60a5fa" : "#ffffff20")
-            .attr("stroke-width", 2);
-
-        // Server icon text in center
-        node.filter(d => d.isCenter).append("text")
-            .attr("text-anchor", "middle").attr("dy", "0.35em")
-            .attr("font-size", "18px").attr("fill", "white").text("🖥");
-
-        // Asset icon text
-        node.filter(d => !d.isCenter).append("text")
-            .attr("text-anchor", "middle").attr("dy", "0.35em")
-            .attr("font-size", "12px").attr("fill", "white")
-            .text(d => {
-                const t = (d.type || "").toLowerCase();
-                if (t.includes("laptop")) return "💻";
-                if (t.includes("server")) return "🖥";
-                if (t.includes("phone") || t.includes("mobile")) return "📱";
-                if (t.includes("router") || t.includes("network")) return "🌐";
-                return "🔲";
-            });
-
-        // Labels below each node
-        node.append("text")
-            .attr("text-anchor", "middle")
-            .attr("dy", "38px")
-            .attr("font-size", "10px")
-            .attr("font-weight", "600")
-            .attr("fill", "#e2e8f0")
-            .text(d => d.label?.length > 14 ? d.label.slice(0, 13) + "…" : d.label);
-
-        simulation.on("tick", () => {
-            link
-                .attr("x1", d => d.source.x).attr("y1", d => d.source.y)
-                .attr("x2", d => d.target.x).attr("y2", d => d.target.y);
-            node.attr("transform", d => `translate(${d.x},${d.y})`);
-        });
-
-        return () => simulation.stop();
-    }, [loading, assets]);
-
-    if (loading) return <LoadingSpinner message="Loading network map..." />;
-
-    return (
-        <div className="fixed inset-0 z-[300] bg-black/90 backdrop-blur-md flex flex-col">
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-white/10 bg-[#050505]">
-                <div>
-                    <h2 className="text-white font-bold text-lg">📡 Asset Network Map</h2>
-                    <p className="text-gray-500 text-xs mt-0.5">
-                        {assets.length} assets connected — click a node to view details
-                    </p>
-                </div>
-                <div className="flex items-center gap-4">
-                    {/* Legend */}
-                    <div className="hidden md:flex items-center gap-3 text-xs">
-                        {Object.entries(RISK_COLORS).map(([level, color]) => (
-                            <span key={level} className="flex items-center gap-1.5">
-                                <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: color }} />
-                                <span className="text-gray-400">{level}</span>
-                            </span>
-                        ))}
-                    </div>
-                    <button
-                        onClick={onClose}
-                        className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-medium transition"
-                    >
-                        ✕ Close
-                    </button>
-                </div>
-            </div>
-
-            {/* Graph */}
-            <div className="flex-1 relative overflow-hidden">
-                <svg ref={svgRef} className="w-full h-full" />
-            </div>
-
-            {/* Asset Detail Panel */}
-            {selectedAsset && (
-                <div className="absolute bottom-6 left-6 bg-[#0a0a0a] border border-white/10 rounded-xl p-5 w-72 shadow-2xl">
-                    <div className="flex items-start justify-between mb-3">
-                        <h3 className="text-white font-bold text-sm">{selectedAsset.name}</h3>
-                        <button onClick={() => setSelectedAsset(null)} className="text-gray-500 hover:text-white text-lg leading-none">×</button>
-                    </div>
-                    <div className="space-y-2 text-xs">
-                        {[
-                            ["Type", selectedAsset.type],
-                            ["Status", STATUS_LABEL[selectedAsset.status] || selectedAsset.status],
-                            ["Assigned To", selectedAsset.assignedTo || "Unassigned"],
-                            ["Classification", selectedAsset.classification],
-                            ["Risk Score", `${selectedAsset.riskScore ?? 0} / 100`],
-                            ["Risk Level", selectedAsset.securityStatus?.riskLevel || "Low"],
-                        ].map(([label, value]) => (
-                            <div key={label} className="flex justify-between">
-                                <span className="text-gray-500">{label}</span>
-                                <span className="text-gray-200 font-medium">{value || "—"}</span>
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </div>
+    const graphRoot = svg.append("g");
+    svg.call(
+      d3.zoom().scaleExtent([0.35, 2.5]).on("zoom", (event) => {
+        graphRoot.attr("transform", event.transform);
+      })
     );
+
+    const hub = {
+      id: "hub",
+      name: "Core Network",
+      type: "hub",
+      riskLevel: "Low",
+      riskScore: 0,
+      ipAddress: "internal",
+    };
+
+    const nodes = [
+      hub,
+      ...filteredAssets.map((asset) => ({
+        id: asset._id,
+        name: asset.name || "Unnamed Asset",
+        type: asset.type || "Device",
+        ipAddress: asset.ipAddress || "N/A",
+        assignedTo: asset.assignedTo || "Unassigned",
+        riskScore: Number(asset.riskScore || 0),
+        riskLevel: getRiskLevel(asset),
+        status: asset.status || "available",
+        raw: asset,
+      })),
+    ];
+
+    const links = nodes
+      .filter((node) => node.id !== "hub")
+      .map((node) => ({ source: "hub", target: node.id }));
+
+    const simulation = d3
+      .forceSimulation(nodes)
+      .force("link", d3.forceLink(links).id((d) => d.id).distance(120).strength(0.45))
+      .force("charge", d3.forceManyBody().strength(-280))
+      .force("center", d3.forceCenter(width / 2, height / 2))
+      .force("collision", d3.forceCollide().radius((d) => (d.id === "hub" ? 34 : 24)));
+
+    const linkLayer = graphRoot.append("g").attr("stroke", "#334155").attr("stroke-opacity", 0.45);
+    const linksSel = linkLayer
+      .selectAll("line")
+      .data(links)
+      .join("line")
+      .attr("stroke-width", 1.2);
+
+    const nodeLayer = graphRoot.append("g");
+    const node = nodeLayer
+      .selectAll("g")
+      .data(nodes)
+      .join("g")
+      .attr("class", "asset-node")
+      .style("cursor", (d) => (d.id === "hub" ? "default" : "pointer"))
+      .on("click", (_, d) => {
+        if (d.raw) setSelectedAsset(d.raw);
+      })
+      .call(
+        d3
+          .drag()
+          .on("start", (event, d) => {
+            if (!event.active) simulation.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+          })
+          .on("drag", (event, d) => {
+            d.fx = event.x;
+            d.fy = event.y;
+          })
+          .on("end", (event, d) => {
+            if (!event.active) simulation.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+          })
+      );
+
+    node
+      .append("circle")
+      .attr("r", (d) => (d.id === "hub" ? 26 : 18))
+      .attr("fill", (d) => (d.id === "hub" ? "#0ea5e9" : RISK_COLORS[d.riskLevel] || "#64748b"))
+      .attr("stroke", "#e2e8f0")
+      .attr("stroke-opacity", 0.25)
+      .attr("stroke-width", 1.2);
+
+    node
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", (d) => (d.id === "hub" ? 40 : 32))
+      .attr("font-size", "10px")
+      .attr("font-weight", "700")
+      .attr("fill", "#cbd5e1")
+      .text((d) => (d.name.length > 16 ? `${d.name.slice(0, 16)}...` : d.name));
+
+    node
+      .append("text")
+      .attr("text-anchor", "middle")
+      .attr("dy", "0.35em")
+      .attr("font-size", (d) => (d.id === "hub" ? "11px" : "9px"))
+      .attr("font-weight", "700")
+      .attr("fill", "#0f172a")
+      .text((d) => (d.id === "hub" ? "HUB" : Math.round(d.riskScore || 0)));
+
+    simulation.on("tick", () => {
+      linksSel
+        .attr("x1", (d) => d.source.x)
+        .attr("y1", (d) => d.source.y)
+        .attr("x2", (d) => d.target.x)
+        .attr("y2", (d) => d.target.y);
+
+      node.attr("transform", (d) => `translate(${d.x},${d.y})`);
+    });
+
+    return () => simulation.stop();
+  }, [loading, filteredAssets]);
+
+  if (loading) return <LoadingSpinner message="Loading network topology..." />;
+
+  const stats = {
+    total: filteredAssets.length,
+    highRisk: filteredAssets.filter((a) => ["High", "Critical"].includes(getRiskLevel(a))).length,
+    unassigned: filteredAssets.filter((a) => !a.assignedTo).length,
+  };
+
+  return (
+    <div className="fixed inset-0 z-[300] bg-slate-950/95 backdrop-blur-md flex flex-col">
+      <div className="px-6 py-4 border-b border-white/10 flex flex-wrap items-center gap-3 justify-between">
+        <div>
+          <h2 className="text-white text-lg font-black tracking-tight uppercase">Network Topology</h2>
+          <p className="text-slate-400 text-xs">Interactive asset graph with risk visualization</p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search asset, IP, owner"
+            className="input h-9 w-56 bg-slate-900 border-white/10 text-xs"
+          />
+          <select
+            className="input h-9 w-36 bg-slate-900 border-white/10 text-xs"
+            value={riskFilter}
+            onChange={(e) => setRiskFilter(e.target.value)}
+          >
+            {RISK_LEVELS.map((level) => (
+              <option key={level} value={level}>{level === "All" ? "All Risk Levels" : level}</option>
+            ))}
+          </select>
+          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-12 gap-4 p-4 flex-1 min-h-0">
+        <div ref={wrapperRef} className="col-span-12 md:col-span-9 min-h-[520px]">
+          <Card className="h-full p-0 overflow-hidden border-white/10 bg-slate-900/30">
+            <svg ref={svgRef} className="w-full h-full" />
+          </Card>
+        </div>
+
+        <div className="col-span-12 md:col-span-3 space-y-4 overflow-y-auto pr-1">
+          <Card className="p-4 border-white/10 bg-slate-900/40">
+            <div className="text-xs uppercase tracking-wider text-slate-400 mb-2">Live Summary</div>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between"><span className="text-slate-400">Visible Assets</span><span className="text-white font-bold">{stats.total}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">High Risk</span><span className="text-red-400 font-bold">{stats.highRisk}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Unassigned</span><span className="text-amber-400 font-bold">{stats.unassigned}</span></div>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2">
+              {Object.entries(RISK_COLORS).map(([label, color]) => (
+                <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">
+                  <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                  {label}
+                </span>
+              ))}
+            </div>
+          </Card>
+
+          <Card className="p-4 border-white/10 bg-slate-900/40">
+            <div className="text-xs uppercase tracking-wider text-slate-400 mb-2">Selected Asset</div>
+            {selectedAsset ? (
+              <div className="space-y-2 text-xs">
+                <div className="text-white font-bold text-sm">{selectedAsset.name}</div>
+                <div className="flex justify-between"><span className="text-slate-500">IP</span><span className="text-slate-200 font-mono">{selectedAsset.ipAddress || "N/A"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Type</span><span className="text-slate-200">{selectedAsset.type || "Unknown"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Status</span><span className="text-slate-200">{selectedAsset.status || "available"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Assigned</span><span className="text-slate-200">{selectedAsset.assignedTo || "Unassigned"}</span></div>
+                <div className="flex justify-between"><span className="text-slate-500">Risk</span><Badge variant={["High", "Critical"].includes(getRiskLevel(selectedAsset)) ? "danger" : "warning"}>{getRiskLevel(selectedAsset)}</Badge></div>
+              </div>
+            ) : (
+              <p className="text-slate-500 text-xs">Select a node from the graph to inspect asset details.</p>
+            )}
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
 }

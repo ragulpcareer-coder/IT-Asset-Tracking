@@ -4,7 +4,7 @@
  *
  * SECURITY POLICY:
  *  - Validates JWT access token on every protected request
- *  - Re-fetches user from DB every request (Zero Trust – never trust the token alone)
+ *  - Re-fetches user from DB every request (Zero Trust â€“ never trust the token alone)
  *  - Checks account active status, lock status, and approval on every request
  *  - `admin` guard blocks non-Admin roles with audit logging
  */
@@ -21,9 +21,9 @@ const tokenManager = new TokenManager(
   process.env.REFRESH_SECRET
 );
 
-// ─────────────────────────────────────────────────────────────
-//  protect – verify JWT and attach fresh user to req.user
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  protect â€“ verify JWT and attach fresh user to req.user
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const protect = async (req, res, next) => {
   let token = req.cookies?.jwt;
   let tokenSource = "cookie";
@@ -54,7 +54,7 @@ const protect = async (req, res, next) => {
     const decoded = verified.decoded;
     const ip = req.ip || req.connection?.remoteAddress;
 
-    // API Request Expiration (§6.3)
+    // API Request Expiration (Â§6.3)
     const requestTimestamp = req.headers['x-request-timestamp'];
     if (requestTimestamp) {
       const now = Date.now();
@@ -65,7 +65,7 @@ const protect = async (req, res, next) => {
       }
     }
 
-    // Query & Payload Behavior Monitoring (§7.2, §14, AI Security Category 1/2)
+    // Query & Payload Behavior Monitoring (Â§7.2, Â§14, AI Security Category 1/2)
     const { detectMaliciousQuery, detectPromptInjection } = require("../utils/security");
     const hasInjection = detectMaliciousQuery(req.query) || detectMaliciousQuery(req.body);
     const hasPromptInjection = detectPromptInjection(req.query) || detectPromptInjection(req.body);
@@ -94,7 +94,7 @@ const protect = async (req, res, next) => {
       return res.status(401).json({ message: "Not authorized, user not found" });
     }
 
-    // Zero Trust: Device Fingerprint Binding (§3.1)
+    // Zero Trust: Device Fingerprint Binding (Â§3.1)
     const clientFingerprint = req.headers['x-device-fingerprint'];
     const trustedDevices = user.behavioralMetadata?.trustedDevices || [];
 
@@ -118,7 +118,7 @@ const protect = async (req, res, next) => {
     // during Authentication flows via the robust UserSession telematic engine.
 
 
-    // Time-Based Access Control (§12.1) — Relaxed for Development and Remote Flexibility
+    // Time-Based Access Control (Â§12.1) â€” Relaxed for Development and Remote Flexibility
     // if (user.role === "Employee") {
     //   const hour = new Date().getHours();
     //   if (hour < 8 || hour > 19) { // Authorized 8 AM - 7 PM
@@ -161,9 +161,9 @@ const protect = async (req, res, next) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-//  admin – allow only Admin role (must run AFTER protect)
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  admin â€“ allow only Admin role (must run AFTER protect)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const admin = async (req, res, next) => {
   if (req.user && ["Super Admin", "Admin"].includes(req.user.role)) {
     return next();
@@ -184,10 +184,10 @@ const admin = async (req, res, next) => {
 
 const bcrypt = require("bcryptjs");
 
-// ─────────────────────────────────────────────────────────────
-//  requireReAuth – step-up authentication for high-risk actions (§3.4)
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//  requireReAuth â€“ step-up authentication for high-risk actions (Â§3.4)
 //  Requires `password` in request body.
-// ─────────────────────────────────────────────────────────────
+// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const requireReAuth = async (req, res, next) => {
   try {
     // Continuous Verification: Check if user has an active privilege window (§2.3)
@@ -197,9 +197,10 @@ const requireReAuth = async (req, res, next) => {
 
     const { confirmPassword } = req.body;
     if (!confirmPassword) {
-      return res.status(401).json({
+      return res.status(403).json({
         reauthRequired: true,
-        message: "Step-up Authentication: Please re-enter your password to elevate your privileges (Privilege window: 10 mins)."
+        code: "STEP_UP_REQUIRED",
+        message: "Step-up authentication required. Please confirm your password to continue."
       });
     }
 
@@ -217,7 +218,11 @@ const requireReAuth = async (req, res, next) => {
         ip: req.ip || req.socket?.remoteAddress,
       });
 
-      return res.status(401).json({ message: "Invalid password – re-authentication failed." });
+      return res.status(403).json({
+        reauthRequired: true,
+        code: "STEP_UP_REQUIRED",
+        message: "Invalid password for step-up authentication."
+      });
     }
 
     // Success - Grant 10-minute Privilege Window (§2.3)
@@ -239,5 +244,6 @@ const requireReAuth = async (req, res, next) => {
     res.status(500).json({ message: "Re-authentication system error" });
   }
 };
-
 module.exports = { protect, admin, requireReAuth };
+
+

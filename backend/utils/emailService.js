@@ -14,7 +14,7 @@ const transporter = nodemailer.createTransport({
     host: "smtp.gmail.com",
     port: 465,
     secure: true,          // true for 465
-    family: 4,             // 🔥 FORCE IPv4
+    family: 4,             // ðŸ”¥ FORCE IPv4
     auth: {
         user: process.env.EMAIL_USER,
         pass: (process.env.EMAIL_PASS || '').replace(/\s/g, ''),
@@ -55,6 +55,30 @@ try {
 }
 
 const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
+const normalizeBaseUrl = (value) => {
+    if (!value || typeof value !== "string") return "";
+    return value.trim().replace(/\/+$/, "");
+};
+
+const resolveFrontendUrl = () => {
+    const configured = [
+        process.env.FRONTEND_URL,
+        process.env.PUBLIC_FRONTEND_URL,
+        process.env.CLIENT_URL,
+        process.env.APP_URL,
+        process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null,
+    ].map(normalizeBaseUrl).filter(Boolean);
+
+    const canonical = "https://it-asset-tracking.vercel.app";
+    const preferred = configured[0] || canonical;
+
+    // Never send password reset links to preview/stale Vercel deployments.
+    // Allow canonical production, localhost (dev), or explicit non-vercel custom domain.
+    const isPreviewVercel = /\.vercel\.app$/i.test(preferred) && !/https:\/\/it-asset-tracking\.vercel\.app$/i.test(preferred);
+    if (isPreviewVercel) return canonical;
+
+    return preferred;
+};
 
 /**
  * Common dispatch engine with forensic logging
@@ -137,10 +161,10 @@ const sendSecurityAlert = async (subject, message) => {
     const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
     await sendEmail({
         to: adminEmail,
-        subject: `🚨 SECURITY ALERT: ${subject}`,
+        subject: `ðŸš¨ SECURITY ALERT: ${subject}`,
         html: `
             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #ff0000; border-radius: 5px;">
-                <h2 style="color: #ff0000;">⚠️ Security Incident Detected</h2>
+                <h2 style="color: #ff0000;">âš ï¸ Security Incident Detected</h2>
                 <p><strong>Event:</strong> ${subject}</p>
                 <p>${message}</p>
                 <hr/>
@@ -158,7 +182,7 @@ const sendApprovalRequest = async (userInfo) => {
     return await sendEmail({
         to: adminEmail,
         reply_to: userInfo.email,
-        subject: `📝 NEW USER REGISTRATION: ${userInfo.name}`,
+        subject: `ðŸ“ NEW USER REGISTRATION: ${userInfo.name}`,
         html: `
             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #007bff; border-radius: 5px;">
                 <h2>New Account Request</h2>
@@ -177,12 +201,12 @@ const sendApprovalRequest = async (userInfo) => {
 };
 
 const sendPasswordResetEmail = async (userInfo, resetToken) => {
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+    const frontendUrl = resolveFrontendUrl();
     const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
 
     return await sendEmail({
         to: userInfo.email,
-        subject: `🔐 PASSWORD RESET: Action Required`,
+        subject: `ðŸ” PASSWORD RESET: Action Required`,
         html: `
             <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #00d4ff; border-radius: 8px; max-width: 600px; margin: auto; background-color: #0d1117; color: #ffffff;">
                 <div style="text-align: center; margin-bottom: 20px;">
@@ -207,4 +231,8 @@ module.exports = {
     sendApprovalRequest,
     sendPasswordResetEmail
 };
+
+
+
+
 

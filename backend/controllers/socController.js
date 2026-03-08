@@ -1,23 +1,17 @@
-const Incident = require("../models/Incident");
+﻿const Incident = require("../models/Incident");
 const SecurityAlert = require("../models/SecurityAlert");
 const User = require("../models/User");
+const BlockedIp = require("../models/BlockedIp");
 const attackSimulator = require("../services/attackSimulator");
-
-/**
- * SOC Controller
- * Handles attack simulations, incident management, and security metrics.
- */
-
-// --- Attack Simulations ---
 
 const simulateBruteForce = async (req, res) => {
     try {
         const { email, ip } = req.body;
         if (!email) return res.status(400).json({ success: false, message: "Target email required for simulation." });
         const result = await attackSimulator.simulateBruteForce(email, ip);
-        res.json({ success: true, ...result });
+        return res.json({ success: true, ...result });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
     }
 };
 
@@ -25,9 +19,9 @@ const simulateInsiderThreat = async (req, res) => {
     try {
         const { userId, ip } = req.body;
         const result = await attackSimulator.simulateInsiderThreat(userId || req.user._id, ip);
-        res.json({ success: true, ...result });
+        return res.json({ success: true, ...result });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
     }
 };
 
@@ -35,9 +29,9 @@ const simulateZeroTrustViolation = async (req, res) => {
     try {
         const { userId, ip } = req.body;
         const result = await attackSimulator.simulateZeroTrustViolation(userId || req.user._id, ip);
-        res.json({ success: true, ...result });
+        return res.json({ success: true, ...result });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
     }
 };
 
@@ -45,20 +39,18 @@ const simulateExploitPattern = async (req, res) => {
     try {
         const { userId, ip } = req.body;
         const result = await attackSimulator.simulateExploitPattern(userId || req.user._id, ip);
-        res.json({ success: true, ...result });
+        return res.json({ success: true, ...result });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
     }
 };
-
-// --- Incident Management ---
 
 const getIncidents = async (req, res) => {
     try {
         const incidents = await Incident.find().sort({ createdAt: -1 }).populate("userId", "email role");
-        res.json({ success: true, incidents });
+        return res.json({ success: true, incidents });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch incidents.", error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to fetch incidents.", error: error.message });
     }
 };
 
@@ -68,74 +60,86 @@ const getIncidentById = async (req, res) => {
             .populate("userId", "email role")
             .populate("alerts")
             .populate("assetId");
+
         if (!incident) return res.status(404).json({ success: false, message: "Incident not found." });
-        res.json({ success: true, incident });
+        return res.json({ success: true, incident });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch incident.", error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to fetch incident.", error: error.message });
     }
 };
 
 const getSocStats = async (req, res) => {
     try {
-        const [totalAlerts, activeIncidents, lockedAccounts, blockedIpsCount, highRiskUsers, geoTelemetry] = await Promise.all([
+        const [
+            totalAlerts,
+            activeIncidents,
+            lockedAccounts,
+            blockedIps,
+            highRiskUsers,
+            geoTelemetry
+        ] = await Promise.all([
             SecurityAlert.countDocuments(),
             Incident.countDocuments({ status: { $in: ["OPEN", "INVESTIGATING"] } }),
-            User.countDocuments({ isActive: false, lockUntil: { $exists: true } }),
-            SecurityAlert.distinct("sourceIp"),
+            User.countDocuments({ lockUntil: { $gt: new Date() } }),
+            BlockedIp.countDocuments({ $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }),
             User.find({ "behavioralMetadata.threatLevel": { $in: ["HIGH", "CRITICAL"] } })
                 .select("email behavioralMetadata.riskScore behavioralMetadata.threatLevel")
                 .sort({ "behavioralMetadata.riskScore": -1 })
-                .limit(10),
+                .limit(10)
+                .lean(),
             SecurityAlert.aggregate([
-                { $match: { "metadata.country": { $exists: true, $ne: "Unknown" } } },
+                {
+                    $match: {
+                        "metadata.country": { $exists: true, $nin: ["Unknown", "Internal/Local", "Localhost"] }
+                    }
+                },
                 { $group: { _id: "$metadata.country", count: { $sum: 1 } } },
                 { $sort: { count: -1 } },
                 { $limit: 8 }
             ])
         ]);
 
-        res.json({
+        return res.json({
             success: true,
             totalAlerts,
             activeIncidents,
             lockedAccounts,
-            blockedIps: blockedIpsCount.length,
+            blockedIps,
             highRiskUsers,
             geoTelemetry,
-            lastUpdated: new Date()
+            lastUpdated: new Date().toISOString()
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch SOC stats.", error: error.message });
+        return res.status(500).json({ success: false, message: "Failed to fetch SOC stats.", error: error.message });
     }
 };
 
-/**
- * @desc    Get GPS coordinates for the World Threat Map
- * @route   GET /api/security/threat-map
- * @access  Private/Admin
- */
 const getThreatMapPoints = async (req, res) => {
     try {
         const alerts = await SecurityAlert.find({
             "metadata.lat": { $exists: true, $ne: 0 },
-            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) } // Last 24 hours
+            "metadata.lon": { $exists: true, $ne: 0 },
+            createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
         })
-            .select("type severity sourceIp metadata.lat metadata.lon createdAt")
-            .limit(100);
+            .select("type severity sourceIp metadata.lat metadata.lon metadata.country createdAt")
+            .sort({ createdAt: -1 })
+            .limit(200)
+            .lean();
 
-        const points = alerts.map(a => ({
+        const points = alerts.map((a) => ({
             id: a._id,
             type: a.type,
             severity: a.severity,
             ip: a.sourceIp,
-            lat: a.metadata.lat,
-            lon: a.metadata.lon,
+            lat: a.metadata?.lat,
+            lon: a.metadata?.lon,
+            country: a.metadata?.country || "Unknown",
             time: a.createdAt
         }));
 
-        res.json({ success: true, points });
+        return res.json({ success: true, points });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch threat map points." });
+        return res.status(500).json({ success: false, message: "Failed to fetch threat map points." });
     }
 };
 

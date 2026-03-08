@@ -1,324 +1,325 @@
-"use strict";
-
-/**
- * Security Event Correlation Engine (Elite Edition)
- *
- * Responsibilities:
- *  1. BRUTE_FORCE detection (5+ failures / 2min → alert, 10+ → IP ban)
- *  2. Anomaly detection: off-hours login, new device + new IP for admins
- *  3. Deduplication: no duplicate OPEN alert for same (type, userId, ip) within 15min
- *  4. Cooldowns: UNUSUAL_LOGIN_TIME fires at most once per user per 8h
- *  5. Single WebSocket broadcast path (global.io) — no double-emit
- *  6. Legacy shim so callers using emitAlert(io, type, data) still work
- */
+﻿"use strict";
 
 const SecurityAlert = require("../models/SecurityAlert");
 const User = require("../models/User");
 const Asset = require("../models/Asset");
 const { getGeoLocation } = require("../utils/geoIpService");
+const { isPrivateIp } = require("../utils/clientIp");
 
-// ── In-memory state ───────────────────────────────────────────────────────────
-const failedLoginsByIp = new Map(); // ip  → [timestamp, ...]
-const offHoursCooldowns = new Map(); // userId → last alert timestamp
-const BRUTE_FORCE_WINDOW_MS = 2 * 60 * 1000;  // 2 minutes
+const failedLoginsByIp = new Map();
+const offHoursCooldowns = new Map();
+const deviceIpCooldowns = new Map();
+const recentPromotions = new Map();
+
+const BRUTE_FORCE_WINDOW_MS = 2 * 60 * 1000;
 const BRUTE_FORCE_THRESHOLD = 5;
-const OFF_HOURS_COOLDOWN_MS = 8 * 60 * 60 * 1000; // 8 hours per user
-const OFF_HOURS_START = 23; // 11 pm
-const OFF_HOURS_END = 5;  // 5 am
+const BRUTE_FORCE_BLOCK_THRESHOLD = 10;
+const OFF_HOURS_COOLDOWN_MS = 8 * 60 * 60 * 1000;
+const DEVICE_IP_ALERT_COOLDOWN_MS = 30 * 60 * 1000;
 
-// ── Core alert pipeline ───────────────────────────────────────────────────────
-/**
- * triggerAlert — single source of truth for creating + broadcasting alerts.
- * Deduplicates: no OPEN alert of the same (type, userId, sourceIp) within 15min.
- */
-async function triggerAlert(type, data) {
-    try {
-        const geo = await getGeoLocation(data.ip || "Unknown");
+const normalizeFingerprint = (value) => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return value.trim();
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
 
-        const payload = {
-            type,
-            severity: (data.severity || "LOW").toUpperCase(),
-            description: data.message || `Security Alert: ${type}`,
-            sourceIp: data.ip || "Unknown",
-            userId: data.userId || null,
-            metadata: {
-                ...(data.metadata || {}),
-                country: geo.country,
-                city: geo.city,
-                lat: geo.lat,
-                lon: geo.lon
-            },
-            status: "OPEN"
-        };
+const isPublicIp = (ip) => !!ip && ip !== "unknown" && !isPrivateIp(ip);
 
-        // ── Deduplication: skip if identical OPEN alert exists in last 15min ──
-        const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
-        const existing = await SecurityAlert.findOne({
-            type: payload.type,
-            userId: payload.userId,
-            sourceIp: payload.sourceIp,
-            status: "OPEN",
-            createdAt: { $gte: fifteenMinsAgo }
-        });
-        if (existing) {
-            console.log(`[CorrelationEngine] Dedup suppressed: ${type} from ${payload.sourceIp}`);
-            return;
-        }
+async function triggerAlert(type, data = {}) {
+  try {
+    const sourceIp = data.ip || "unknown";
+    const geo = await getGeoLocation(sourceIp);
 
-        // ── Correlate asset risk ──────────────────────────────────────────────
-        const asset = await Asset.findOne({ ipAddress: payload.sourceIp });
-        if (asset) {
-            payload.assetId = asset._id;
-            payload.riskScoreImpact = payload.severity === "CRITICAL" ? 25
-                : payload.severity === "HIGH" ? 15 : 5;
-            asset.activeAlertsScore = (asset.activeAlertsScore || 0) + payload.riskScoreImpact;
-            await asset.save();
-        }
+    const payload = {
+      type,
+      severity: String(data.severity || "LOW").toUpperCase(),
+      description: data.message || `Security Alert: ${type}`,
+      sourceIp,
+      userId: data.userId || null,
+      metadata: {
+        ...(data.metadata || {}),
+        country: geo.country,
+        city: geo.city,
+        lat: geo.lat,
+        lon: geo.lon
+      },
+      status: "OPEN"
+    };
 
-        // ── Persist ───────────────────────────────────────────────────────────
-        const alert = await SecurityAlert.create(payload);
+    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const existing = await SecurityAlert.findOne({
+      type: payload.type,
+      userId: payload.userId,
+      sourceIp: payload.sourceIp,
+      status: "OPEN",
+      createdAt: { $gte: fifteenMinsAgo }
+    }).lean();
 
-        // ── Correlate to incident ─────────────────────────────────────────────
-        await correlateToIncident(alert);
+    if (existing) return;
 
-        // ── Single WebSocket broadcast ────────────────────────────────────────
-        if (global.io) {
-            global.io.emit("security_alert", alert);
-        }
-
-        console.log(`[CorrelationEngine] 🚨 ${alert.type} (${alert.severity}) — ID ${alert._id}`);
-
-        // ── SOAR & AI Automation (§18, §19, Phase 5) ──────────────────────────
-        setImmediate(async () => {
-            try {
-                // 1. SOAR Mitigation
-                const soarService = require("./soarService");
-                const recentAlertCount = await SecurityAlert.countDocuments({
-                    sourceIp: payload.sourceIp,
-                    createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
-                });
-                await soarService.processAlert(alert, { recentAlertCount });
-
-                // 2. Automated AI Forensic Analysis (Critical Only)
-                if (alert.severity === "CRITICAL" && process.env.GEMINI_API_KEY) {
-                    console.log(`[CorrelationEngine] Triggering automated AI forensics for CRITICAL alert ${alert._id}`);
-                    const aiController = require("../controllers/aiController");
-                    // We mock a request/response object or refactor aiController to handle internal calls
-                    // For now, we'll just log that it's queued. In a production system, we'd call a dedicated service.
-                    // Instead of calling the controller, let's just log the 'Automation Queued' state.
-                }
-            } catch (soarErr) {
-                console.error("[CorrelationEngine] Automation dispatch error:", soarErr.message);
-            }
-        });
-
-    } catch (err) {
-        console.error("[CorrelationEngine] Alert pipeline failure:", err.message);
+    const asset = await Asset.findOne({ ipAddress: payload.sourceIp });
+    if (asset) {
+      payload.assetId = asset._id;
+      payload.riskScoreImpact = payload.severity === "CRITICAL" ? 25 : payload.severity === "HIGH" ? 15 : 5;
+      asset.activeAlertsScore = (asset.activeAlertsScore || 0) + payload.riskScoreImpact;
+      await asset.save();
     }
+
+    const alert = await SecurityAlert.create(payload);
+    await correlateToIncident(alert);
+
+    if (global.io) {
+      global.io.emit("security_alert", alert);
+    }
+
+    setImmediate(async () => {
+      try {
+        const soarService = require("./soarService");
+        const recentAlertCount = await SecurityAlert.countDocuments({
+          sourceIp: payload.sourceIp,
+          createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+        });
+        await soarService.processAlert(alert, { recentAlertCount });
+      } catch (soarErr) {
+        console.error("[CorrelationEngine] Automation dispatch error:", soarErr.message);
+      }
+    });
+  } catch (err) {
+    console.error("[CorrelationEngine] Alert pipeline failure:", err.message);
+  }
 }
 
-// ── Incident grouping ─────────────────────────────────────────────────────────
 async function correlateToIncident(alert) {
-    try {
-        const Incident = require("../models/Incident");
-        const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
-        let incident = await Incident.findOne({
-            sourceIp: alert.sourceIp,
-            status: { $in: ["OPEN", "INVESTIGATING"] },
-            createdAt: { $gte: fiveMinsAgo }
-        });
+  try {
+    const Incident = require("../models/Incident");
+    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
 
-        if (!incident) {
-            incident = new Incident({
-                title: `Threat from ${alert.sourceIp || "Unknown"}`,
-                severity: alert.severity,
-                sourceIp: alert.sourceIp,
-                userId: alert.userId,
-                assetId: alert.assetId,
-                alerts: [alert._id],
-                timeline: [{ event: "Incident Detected", details: `${alert.type}: ${alert.description}` }]
-            });
-        } else {
-            incident.alerts.push(alert._id);
-            const order = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
-            if (order.indexOf(alert.severity) > order.indexOf(incident.severity)) {
-                incident.severity = alert.severity;
-            }
-            incident.timeline.push({
-                event: "Additional Alert Correlated",
-                details: `Alert: ${alert.type} added.`
-            });
-        }
+    let incident = await Incident.findOne({
+      sourceIp: alert.sourceIp,
+      status: { $in: ["OPEN", "INVESTIGATING"] },
+      createdAt: { $gte: fiveMinsAgo }
+    });
 
-        await incident.save();
-        alert.incidentId = incident._id;
-        await alert.save();
-    } catch (err) {
-        console.error("[CorrelationEngine] Incident correlation error:", err.message);
+    if (!incident) {
+      incident = new Incident({
+        title: `Threat from ${alert.sourceIp || "Unknown"}`,
+        severity: alert.severity,
+        sourceIp: alert.sourceIp,
+        userId: alert.userId,
+        assetId: alert.assetId,
+        alerts: [alert._id],
+        timeline: [{ event: "Incident Detected", details: `${alert.type}: ${alert.description}` }]
+      });
+    } else {
+      incident.alerts.push(alert._id);
+      const order = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+      if (order.indexOf(alert.severity) > order.indexOf(incident.severity)) {
+        incident.severity = alert.severity;
+      }
+      incident.timeline.push({ event: "Additional Alert Correlated", details: `Alert: ${alert.type} added.` });
     }
+
+    await incident.save();
+    alert.incidentId = incident._id;
+    await alert.save();
+  } catch (err) {
+    console.error("[CorrelationEngine] Incident correlation error:", err.message);
+  }
 }
 
-// ── Rule 1: Brute Force ───────────────────────────────────────────────────────
 function checkBruteForce(ip, email) {
-    if (!ip) return;
-    const now = Date.now();
-    let attempts = (failedLoginsByIp.get(ip) || []).filter(t => now - t < BRUTE_FORCE_WINDOW_MS);
-    attempts.push(now);
-    failedLoginsByIp.set(ip, attempts);
+  if (!ip || ip === "unknown") return;
 
-    if (attempts.length >= 10) {
-        triggerAlert("SUSPICIOUS_IP", {
-            message: `IP ${ip} entering blacklist phase after ${attempts.length} failures.`,
-            ip, severity: "CRITICAL",
-            metadata: { attempts: attempts.length, email }
-        });
-        // Auto-ban
-        try {
-            const BlockedIp = require("../models/BlockedIp");
-            BlockedIp.create({ ipAddress: ip, reason: `Brute Force Assault (${attempts.length} failures)` })
-                .catch(err => console.error("[IP Ban Error]", err.message));
-        } catch (_) { }
-        failedLoginsByIp.set(ip, []); // reset after escalation
-    } else if (attempts.length >= BRUTE_FORCE_THRESHOLD) {
-        triggerAlert("BRUTE_FORCE", {
-            message: `Brute force: ${attempts.length} failures from ${ip} in 2 min.`,
-            ip, severity: "HIGH",
-            metadata: { attempts: attempts.length, email }
-        });
-    }
+  const now = Date.now();
+  const attempts = (failedLoginsByIp.get(ip) || []).filter((t) => now - t < BRUTE_FORCE_WINDOW_MS);
+  attempts.push(now);
+  failedLoginsByIp.set(ip, attempts);
+
+  if (attempts.length >= BRUTE_FORCE_BLOCK_THRESHOLD) {
+    triggerAlert("SUSPICIOUS_IP", {
+      message: `IP ${ip} entered block phase after ${attempts.length} failed attempts.`,
+      ip,
+      severity: "CRITICAL",
+      metadata: { attempts: attempts.length, email }
+    });
+
+    try {
+      const BlockedIp = require("../models/BlockedIp");
+      BlockedIp.create({ ipAddress: ip, reason: `Brute-force threshold exceeded (${attempts.length})` }).catch(() => {});
+    } catch {}
+
+    failedLoginsByIp.set(ip, []);
+    return;
+  }
+
+  if (attempts.length >= BRUTE_FORCE_THRESHOLD) {
+    triggerAlert("BRUTE_FORCE", {
+      message: `Brute-force pattern detected: ${attempts.length} failed attempts from ${ip} in 2 minutes.`,
+      ip,
+      severity: "HIGH",
+      metadata: { attempts: attempts.length, email }
+    });
+  }
 }
 
-// ── Rule 2: Behavioral Anomalies ──────────────────────────────────────────────
-async function checkAnomalies(userId, ip, metadata) {
-    try {
-        const user = await User.findById(userId);
-        if (!user) return;
+async function checkAnomalies(userId, ip, metadata = {}) {
+  try {
+    const user = await User.findById(userId);
+    if (!user) return;
 
-        const hour = new Date().getHours();
-        const isOffHours = hour >= OFF_HOURS_START || hour < OFF_HOURS_END;
-        const commonIps = user.behavioralMetadata?.commonIps || [];
-        const trustedDevs = user.behavioralMetadata?.trustedDevices || [];
-        const isNewIp = commonIps.length > 0 && !commonIps.includes(ip);
-        const isNewDevice = metadata?.fingerprint && !trustedDevs.includes(metadata.fingerprint);
+    const fingerprint = normalizeFingerprint(metadata.fingerprint);
+    const commonIps = user.behavioralMetadata?.commonIps || [];
+    const trustedDevices = user.behavioralMetadata?.trustedDevices || [];
+    const loginHours = user.behavioralMetadata?.typicalLoginHours || [];
 
-        // Off-hours alert — COOLDOWN: once per 8 hours per user
-        if (isOffHours) {
-            const lastFired = offHoursCooldowns.get(String(userId)) || 0;
-            if (Date.now() - lastFired > OFF_HOURS_COOLDOWN_MS) {
-                offHoursCooldowns.set(String(userId), Date.now());
-                triggerAlert("UNUSUAL_LOGIN_TIME", {
-                    message: `${user.email} logged in during off-hours (${hour}:00).`,
-                    ip, userId, severity: "MEDIUM",
-                    metadata: { hour }
-                });
-            }
-        }
+    const hour = new Date().getHours();
+    const hasHourBaseline = loginHours.length >= 6;
+    const unusualHour = hasHourBaseline && !loginHours.includes(hour);
 
-        // HIGH-RISK: Admin + new device + new IP simultaneously
-        if (["Super Admin", "Admin"].includes(user.role) && isNewDevice && isNewIp) {
-            triggerAlert("NEW_DEVICE_ADMIN", {
-                message: `CRITICAL: Admin ${user.email} logged in from unrecognized device + IP.`,
-                ip, userId, severity: "CRITICAL",
-                metadata: { isNewDevice, isNewIp }
-            });
-        }
-
-        // Update behavioural baseline
-        await updateUserBaseline(user, ip, hour, metadata?.fingerprint);
-    } catch (err) {
-        console.error("[CorrelationEngine] Anomaly check error:", err.message);
+    if (unusualHour) {
+      const lastFired = offHoursCooldowns.get(String(userId)) || 0;
+      if (Date.now() - lastFired > OFF_HOURS_COOLDOWN_MS) {
+        offHoursCooldowns.set(String(userId), Date.now());
+        await triggerAlert("UNUSUAL_LOGIN_TIME", {
+          message: `${user.email} logged in at an unusual time (${hour}:00).`,
+          ip,
+          userId,
+          severity: "MEDIUM",
+          metadata: { hour }
+        });
+      }
     }
+
+    const publicIp = isPublicIp(ip);
+    const hasIpBaseline = publicIp && commonIps.length >= 3;
+    const isNewIp = hasIpBaseline && !commonIps.includes(ip);
+    const isNewDevice = !!fingerprint && trustedDevices.length > 0 && !trustedDevices.includes(fingerprint);
+
+    if (["Super Admin", "Admin"].includes(user.role) && isNewDevice && isNewIp) {
+      const cooldownKey = `${userId}:${ip}:${fingerprint}`;
+      const lastDeviceIpAlert = deviceIpCooldowns.get(cooldownKey) || 0;
+      if (Date.now() - lastDeviceIpAlert > DEVICE_IP_ALERT_COOLDOWN_MS) {
+        deviceIpCooldowns.set(cooldownKey, Date.now());
+        await triggerAlert("NEW_DEVICE_ADMIN", {
+          message: `Admin login from new device and new public IP detected for ${user.email}.`,
+          ip,
+          userId,
+          severity: "HIGH",
+          metadata: {
+            fingerprint: fingerprint.slice(0, 32),
+            baselineIps: commonIps.slice(-3)
+          }
+        });
+      }
+    }
+
+    await updateUserBaseline(user, ip, hour, fingerprint);
+  } catch (err) {
+    console.error("[CorrelationEngine] Anomaly check error:", err.message);
+  }
 }
 
 async function updateUserBaseline(user, ip, hour, fingerprint) {
-    if (!user.behavioralMetadata) user.behavioralMetadata = {};
-    let changed = false;
+  if (!user.behavioralMetadata) user.behavioralMetadata = {};
 
+  let changed = false;
+
+  const hours = user.behavioralMetadata.typicalLoginHours || [];
+  if (!hours.includes(hour)) {
+    hours.push(hour);
+    if (hours.length > 24) hours.shift();
+    user.behavioralMetadata.typicalLoginHours = hours;
+    changed = true;
+  }
+
+  if (isPublicIp(ip)) {
     const commonIps = user.behavioralMetadata.commonIps || [];
     if (!commonIps.includes(ip)) {
-        commonIps.push(ip);
-        if (commonIps.length > 5) commonIps.shift();
-        user.behavioralMetadata.commonIps = commonIps;
-        changed = true;
+      commonIps.push(ip);
+      if (commonIps.length > 10) commonIps.shift();
+      user.behavioralMetadata.commonIps = commonIps;
+      changed = true;
     }
+  }
 
-    const hours = user.behavioralMetadata.typicalLoginHours || [];
-    if (!hours.includes(hour)) {
-        hours.push(hour);
-        user.behavioralMetadata.typicalLoginHours = hours;
-        changed = true;
+  if (fingerprint) {
+    const trustedDevices = user.behavioralMetadata.trustedDevices || [];
+    if (!trustedDevices.includes(fingerprint)) {
+      trustedDevices.push(fingerprint);
+      if (trustedDevices.length > 20) trustedDevices.shift();
+      user.behavioralMetadata.trustedDevices = trustedDevices;
+      changed = true;
     }
+  }
 
-    if (fingerprint) {
-        const devs = user.behavioralMetadata.trustedDevices || [];
-        if (!devs.includes(fingerprint)) {
-            devs.push(fingerprint);
-            user.behavioralMetadata.trustedDevices = devs;
-            changed = true;
-        }
-    }
-
-    if (changed) {
-        user.markModified("behavioralMetadata");
-        await user.save();
-    }
+  if (changed) {
+    user.markModified("behavioralMetadata");
+    await user.save();
+  }
 }
 
-// ── Rule 3: Zero Trust Violation ──────────────────────────────────────────────
 function recordZeroTrustViolation(userId, reason, ip) {
-    triggerAlert("ZERO_TRUST_VIOLATION", {
-        message: `Zero Trust Policy Blocked: ${reason}`,
-        userId, ip, severity: "HIGH",
-        metadata: { reason }
-    });
+  triggerAlert("ZERO_TRUST_VIOLATION", {
+    message: `Zero Trust policy blocked request: ${reason}`,
+    userId,
+    ip,
+    severity: "HIGH",
+    metadata: { reason }
+  });
 }
 
-// ── Rule 4: Privilege Escalation ──────────────────────────────────────────────
-const recentPromotions = new Map();
 function recordPromotion(promotedUserId, promotedEmail) {
-    recentPromotions.set(String(promotedUserId), { ts: Date.now(), email: promotedEmail });
-    setTimeout(() => recentPromotions.delete(String(promotedUserId)), 10 * 60 * 1000);
+  recentPromotions.set(String(promotedUserId), { ts: Date.now(), email: promotedEmail });
+  setTimeout(() => recentPromotions.delete(String(promotedUserId)), 10 * 60 * 1000);
 }
 
 function checkPrivilegeEscalation(userId, ip, isNewDevice) {
-    if (!isNewDevice) return;
-    const record = recentPromotions.get(String(userId));
-    if (record && (Date.now() - record.ts < 10 * 60 * 1000)) {
-        triggerAlert("NEW_DEVICE_ADMIN", {
-            message: `Newly promoted admin ${record.email} logged in from unknown device within 10m of promotion.`,
-            ip, userId, severity: "HIGH",
-            metadata: { email: record.email }
-        });
-        recentPromotions.delete(String(userId));
-    }
+  if (!isNewDevice) return;
+  const record = recentPromotions.get(String(userId));
+  if (record && Date.now() - record.ts < 10 * 60 * 1000) {
+    triggerAlert("NEW_DEVICE_ADMIN", {
+      message: `Newly promoted admin ${record.email} logged in from an unknown device within 10 minutes.`,
+      ip,
+      userId,
+      severity: "HIGH",
+      metadata: { email: record.email }
+    });
+    recentPromotions.delete(String(userId));
+  }
 }
 
-// ── Legacy shim: some older callers use emitAlert(io, type, data) ─────────────
-// We now ignore the `io` arg and route through triggerAlert for consistency.
 function emitAlert(_io, type, data) {
-    triggerAlert(type, data);
+  triggerAlert(type, data);
 }
 
-// ── In-memory cleanup (prevent memory leak) ───────────────────────────────────
 setInterval(() => {
-    const cutoff = Date.now() - BRUTE_FORCE_WINDOW_MS;
-    for (const [ip, times] of failedLoginsByIp.entries()) {
-        const fresh = times.filter(t => t > cutoff);
-        if (fresh.length === 0) failedLoginsByIp.delete(ip);
-        else failedLoginsByIp.set(ip, fresh);
-    }
-    // Clean up expired off-hours cooldowns
-    for (const [uid, ts] of offHoursCooldowns.entries()) {
-        if (Date.now() - ts > OFF_HOURS_COOLDOWN_MS) offHoursCooldowns.delete(uid);
-    }
+  const cutoff = Date.now() - BRUTE_FORCE_WINDOW_MS;
+  for (const [ip, timestamps] of failedLoginsByIp.entries()) {
+    const fresh = timestamps.filter((t) => t > cutoff);
+    if (fresh.length === 0) failedLoginsByIp.delete(ip);
+    else failedLoginsByIp.set(ip, fresh);
+  }
+
+  for (const [uid, ts] of offHoursCooldowns.entries()) {
+    if (Date.now() - ts > OFF_HOURS_COOLDOWN_MS) offHoursCooldowns.delete(uid);
+  }
+
+  for (const [key, ts] of deviceIpCooldowns.entries()) {
+    if (Date.now() - ts > DEVICE_IP_ALERT_COOLDOWN_MS) deviceIpCooldowns.delete(key);
+  }
 }, 5 * 60 * 1000);
 
 module.exports = {
-    triggerAlert,
-    checkBruteForce,
-    checkAnomalies,
-    recordZeroTrustViolation,
-    recordPromotion,
-    checkPrivilegeEscalation,
-    emitAlert, // legacy shim
+  triggerAlert,
+  checkBruteForce,
+  checkAnomalies,
+  recordZeroTrustViolation,
+  recordPromotion,
+  checkPrivilegeEscalation,
+  emitAlert
 };
+

@@ -1,17 +1,15 @@
-const BlockedIp = require("../models/BlockedIp");
+﻿const BlockedIp = require("../models/BlockedIp");
+const { extractClientIp } = require("../utils/clientIp");
 
 const ipBlockerMiddleware = async (req, res, next) => {
     try {
-        const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || req.ip;
+        const ip = extractClientIp(req);
 
-        // Quick cache bypass could be implemented here for extreme performance, 
-        // but a DB lookup is acceptable for this level.
         const blocked = await BlockedIp.findOne({ ipAddress: ip });
 
         if (blocked) {
-            // Check expiration
             if (blocked.expiresAt && blocked.expiresAt < new Date()) {
-                await BlockedIp.deleteOne({ _id: blocked._id }); // Unblock
+                await BlockedIp.deleteOne({ _id: blocked._id });
                 return next();
             }
 

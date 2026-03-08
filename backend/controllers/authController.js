@@ -24,6 +24,7 @@ const logger = require("../utils/logger");
 const PasswordResetToken = require("../models/PasswordResetToken");
 const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = require("../utils/emailService");
 const correlationEngine = require("../services/correlationEngine");
+const { extractClientIp } = require("../utils/clientIp");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -44,16 +45,7 @@ const getCookieOptions = () => {
 };
 const BCRYPT_ROUNDS = 12;
 
-const getClientIp = (req) => {
-  const forwarded = req.headers["x-forwarded-for"];
-  if (forwarded && typeof forwarded === "string") {
-    const candidates = forwarded.split(",").map((v) => v.trim()).filter(Boolean);
-    if (candidates.length > 0) {
-      return candidates[0].replace(/^::ffff:/, "");
-    }
-  }
-  return (req.socket?.remoteAddress || req.ip || "unknown").replace(/^::ffff:/, "");
-};
+const getClientIp = (req) => extractClientIp(req);
 
 const isValidBase32Secret = (secret) => {
   if (!secret || typeof secret !== "string") return false;
@@ -1592,6 +1584,8 @@ module.exports = {
   getUserActivity,
   verify2FALogin
 };
+
+
 
 
 

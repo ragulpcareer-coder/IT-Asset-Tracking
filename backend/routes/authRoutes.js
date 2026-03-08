@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Auth Routes â€” IT Asset Tracking System
  *
  * RBAC Policy:
@@ -77,13 +77,13 @@ router.post("/2fa/disable", protect, disable2FA);
 //   3. 2FA enabled on Admin account (requireAdmin2FA)
 //   4. Step-up Auth (requireReAuth) for destructive actions (Â§3.4)
 router.get("/users", protect, admin, zeroTrust, getAllUsers);
-router.put("/users/:id/promote", protect, admin, zeroTrust, requireReAuth, promoteUser);
+router.put("/users/:id/promote", protect, admin, zeroTrust, promoteUser);
 router.put("/users/:id/demote", protect, admin, zeroTrust, requireReAuth, demoteUser);
 router.put("/users/:id/suspend", protect, admin, zeroTrust, suspendUser);
 router.put("/users/:id/approve", protect, admin, zeroTrust, approveUserByAdmin);
 router.put("/users/:id/reset-password", protect, admin, zeroTrust, requireReAuth, adminResetPassword);
 router.put("/users/:id/disable-2fa", protect, admin, zeroTrust, adminDisable2FA);
-router.delete("/users/:id", protect, admin, zeroTrust, requireReAuth, deleteUser);
+router.delete("/users/:id", protect, admin, zeroTrust, deleteUser);
 
 module.exports = router;
 

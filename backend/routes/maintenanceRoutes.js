@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const { rotateSystemSecrets, getSecurityStatus, triggerManualBackup, downloadBackup } = require("../controllers/maintenanceController");
+const { scanNetwork } = require("../controllers/assetController");
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
 const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
 
@@ -14,5 +15,8 @@ router.get("/status", protect, admin, requireAdmin2FA, getSecurityStatus);
 // Manual Backup Management (§19)
 router.post("/backup", protect, admin, requireAdmin2FA, triggerManualBackup);
 router.get("/backup/download/:filename", protect, admin, requireAdmin2FA, requireReAuth, downloadBackup);
+
+// Backward-compatible alias used by SOC page.
+router.post("/scan-network", protect, admin, requireAdmin2FA, scanNetwork);
 
 module.exports = router;

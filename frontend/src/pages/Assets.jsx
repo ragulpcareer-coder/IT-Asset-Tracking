@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+﻿import React, { useState, useEffect, useContext } from "react";
 import axios from "../utils/axiosConfig";
 import { ToastContainer, toast } from "react-toastify";
 import { AuthContext } from "../context/AuthContext";
@@ -30,7 +30,7 @@ export default function Assets() {
   const [search, setSearch] = useState(new URLSearchParams(window.location.search).get("search") || "");
   const [statusFilter, setStatusFilter] = useState("All");
   const [typeFilter, setTypeFilter] = useState("All");
-  const [sortBy, setSortBy] = useState("name");
+  const [sortBy, setSortBy] = useState("name:asc");
   const [loading, setLoading] = useState(false);
   const [showNetworkMap, setShowNetworkMap] = useState(false);
 
@@ -47,7 +47,7 @@ export default function Assets() {
       window.history.replaceState({}, document.title, window.location.pathname);
     }
 
-    // REAL-TIME CLUSTER SYNC (§Category 4 & 9)
+    // REAL-TIME CLUSTER SYNC (ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â§Category 4 & 9)
     socket.on("assetCreated", (newAsset) => {
       setAssets(prev => [newAsset, ...prev]);
       toast.info(`New asset registered: ${newAsset.name}`);
@@ -217,7 +217,8 @@ export default function Assets() {
     retired: assets.filter(a => a.status === "retired").length,
   };
 
-  const assetTypes = [...new Set((Array.isArray(assets) ? assets : []).map(a => a.type))].filter(Boolean);
+  const defaultAssetTypes = ["Laptop", "Desktop", "Server", "Network Device", "Mobile", "Peripheral", "Internal", "Unknown"];
+  const assetTypes = [...new Set([...(Array.isArray(assets) ? assets : []).map(a => a.type), ...defaultAssetTypes])].filter(Boolean);
 
   return (
     <div className="fade-in pb-12">
@@ -241,7 +242,7 @@ export default function Assets() {
             </Button>
           </PermissionGuard>
           <Button variant="secondary" onClick={() => setShowNetworkMap(true)} disabled={assets.length === 0}>
-            📡 Network Map
+            Open Network Map
           </Button>
         </div>
       </div>
@@ -297,10 +298,13 @@ export default function Assets() {
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
           >
-            <option value="name">Sort by Asset Name (A-Z)</option>
-            <option value="createdAt">Sort: Deployment Date</option>
-            <option value="status">Sort: Operational Status</option>
-            <option value="usefulLifeYears">Sort: Lifecycle Phase</option>
+            <option value="name:asc">Sort by Asset Name (A-Z)</option>
+            <option value="name:desc">Sort by Asset Name (Z-A)</option>
+            <option value="createdAt:desc">Sort: Newest First</option>
+            <option value="createdAt:asc">Sort: Oldest First</option>
+            <option value="status:asc">Sort: Operational Status</option>
+            <option value="riskScore:desc">Sort: Risk Score (High-Low)</option>
+            <option value="usefulLifeYears:asc">Sort: Lifecycle Phase</option>
           </select>
         </div>
       </Card>
@@ -308,7 +312,7 @@ export default function Assets() {
       {/* Data Visualization Grid (Item D: Responsive Scroll) */}
       <div className="w-full">
         {loading ? (
-          <div className="py-24"><LoadingSpinner message="Scanning Registry Cluster..." /></div>
+          <div className="py-24"><LoadingSpinner message="Loading assets..." /></div>
         ) : (
           <AssetTable
             assets={assets}
@@ -329,3 +333,4 @@ export default function Assets() {
     </div>
   );
 }
+

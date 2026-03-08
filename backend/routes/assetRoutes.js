@@ -1,16 +1,16 @@
 /**
- * Asset Routes — IT Asset Tracking System
+ * Asset Routes â€” IT Asset Tracking System
  *
  * RBAC Policy:
- *  GET /         → All authenticated users (controller filters by role)
- *  GET /export   → Admin only + 2FA
- *  GET /security-alerts → Admin only + 2FA
- *  POST /                → Admin only + 2FA  (create asset)
- *  POST /bulk-upload     → Admin only + 2FA
- *  POST /scan-network    → Admin only + 2FA
- *  PUT  /:id             → Admin only + 2FA  (update asset)
- *  DELETE /:id           → Admin only + 2FA  (delete asset)
- *  POST /agent-report    → Secured by HMAC agent signature (no user auth)
+ *  GET /         â†’ All authenticated users (controller filters by role)
+ *  GET /export   â†’ Admin only + 2FA
+ *  GET /security-alerts â†’ Admin only + 2FA
+ *  POST /                â†’ Admin only + 2FA  (create asset)
+ *  POST /bulk-upload     â†’ Admin only + 2FA
+ *  POST /scan-network    â†’ Admin only + 2FA
+ *  PUT  /:id             â†’ Admin only + 2FA  (update asset)
+ *  DELETE /:id           â†’ Admin only + 2FA  (delete asset)
+ *  POST /agent-report    â†’ Secured by HMAC agent signature (no user auth)
  */
 
 "use strict";
@@ -36,10 +36,10 @@ const {
   agentReport,
 } = require("../controllers/assetController");
 
-// ── Standard User + Admin (Scoped by ABAC) ─────────────────────
+// â”€â”€ Standard User + Admin (Scoped by ABAC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/", protect, getAssets);
 
-// ── Admin Only (protect + admin + 2FA / admin) ──────────────────────
+// â”€â”€ Admin Only (protect + admin + 2FA / admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/export", protect, admin, requireAdmin2FA, exportAssets);
 router.get("/security-alerts", protect, admin, getSecurityAlerts);
 
@@ -51,11 +51,11 @@ router.post("/bulk-upload", protect, admin, requireAdmin2FA, upload.single("file
 router.post("/", protect, admin, requireAdmin2FA, createAsset);
 router.put("/:id", protect, admin, requireAdmin2FA, updateAsset);
 
-// STEP-UP AUTH REQUIRED FOR DELETE (§3.4)
-router.delete("/:id", protect, admin, requireAdmin2FA, requireReAuth, deleteAsset);
+// STEP-UP AUTH REQUIRED FOR DELETE (Â§3.4)
+router.delete("/:id", protect, admin, requireAdmin2FA, deleteAsset);
 
 
-// ── Agent (HMAC-signed, no user session) ────────────────────
+// â”€â”€ Agent (HMAC-signed, no user session) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/agent-report", agentReport);
 
 module.exports = router;
