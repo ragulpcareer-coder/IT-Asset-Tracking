@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect } from "react";
+﻿import React, { createContext, useState, useEffect } from "react";
 import axios from "../utils/axiosConfig";
 
 export const AuthContext = createContext();
@@ -62,11 +62,6 @@ export const AuthProvider = ({ children }) => {
       role,
     });
 
-    if (res.data.accessToken || res.data.token) {
-      localStorage.setItem("token", res.data.accessToken || res.data.token);
-      setUser(resolveUserPayload(res.data));
-    }
-
     return res.data;
   };
 
@@ -111,4 +106,5 @@ export const AuthProvider = ({ children }) => {
     </AuthContext.Provider>
   );
 };
+
 

@@ -6,6 +6,7 @@ import { Button, Input, PasswordStrengthMeter, Alert } from "../components/UI";
 import { ProfessionalIcon, BrandLogo } from "../components/ProfessionalIcons";
 import { Background3D, HolographicCard, FloatingElement, GlowingOrb, TechGrid } from "../components/3DBackground";
 import { validateEmail, getPasswordRequirements } from "../utils/validation";
+import axios from "../utils/axiosConfig";
 import { animationVariants } from "../utils/animations";
 import { theme } from "../config/theme";
 import { brandIdentity } from "../config/brandIdentity";
@@ -20,6 +21,7 @@ export default function Register() {
   });
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [checkingEmail, setCheckingEmail] = useState(false);
   const [errors, setErrors] = useState({
     name: "",
     email: "",
@@ -31,6 +33,8 @@ export default function Register() {
   const [activeStep, setActiveStep] = useState(1);
   const { register } = useContext(AuthContext);
   const navigate = useNavigate();
+
+  const isStrongPassword = (value) => /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{8,}$/.test(value);
 
   const validateForm = () => {
     const newErrors = { name: "", email: "", password: "", confirmPassword: "" };
@@ -46,8 +50,8 @@ export default function Register() {
       isValid = false;
     }
 
-    if (!formData.password || formData.password.length < 12) {
-      newErrors.password = "Password must be at least 12 characters (uppercase, lowercase, number, symbol required)";
+    if (!formData.password || !isStrongPassword(formData.password)) {
+      newErrors.password = "Password must include uppercase, lowercase, number, and special character (min 8 chars)";
       isValid = false;
     }
 
@@ -65,7 +69,7 @@ export default function Register() {
     return isValid;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     const newErrors = { ...errors };
     let isValid = true;
 
@@ -73,18 +77,39 @@ export default function Register() {
       if (!formData.name || formData.name.trim().length < 3) {
         newErrors.name = "Full name must be at least 3 characters";
         isValid = false;
-      } else newErrors.name = "";
+      } else {
+        newErrors.name = "";
+      }
 
       if (!formData.email || !validateEmail(formData.email)) {
         newErrors.email = "Please enter a valid email address";
         isValid = false;
-      } else newErrors.email = "";
+      } else {
+        newErrors.email = "";
+      }
 
       setErrors(newErrors);
-      if (isValid) setActiveStep(2);
+      if (!isValid) return;
+
+      try {
+        setCheckingEmail(true);
+        const { data } = await axios.post("/auth/check-email", { email: formData.email.trim() });
+        if (!data?.available) {
+          setErrors((prev) => ({ ...prev, email: "Email already exists. Please use another email." }));
+          return;
+        }
+        setActiveStep(2);
+      } catch (err) {
+        setErrors((prev) => ({
+          ...prev,
+          email: err.response?.data?.message || "Unable to validate email right now. Please try again."
+        }));
+      } finally {
+        setCheckingEmail(false);
+      }
     } else if (activeStep === 2) {
-      if (!formData.password || formData.password.length < 12) {
-        newErrors.password = "Password must be at least 12 characters";
+      if (!formData.password || !isStrongPassword(formData.password)) {
+        newErrors.password = "Password must include uppercase, lowercase, number, and special character (min 8 chars)";
         isValid = false;
       } else newErrors.password = "";
 
@@ -97,7 +122,6 @@ export default function Register() {
       if (isValid) setActiveStep(3);
     }
   };
-
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
@@ -121,12 +145,8 @@ export default function Register() {
         formData.password,
         formData.role
       );
-
-      if (data.accessToken) {
-        navigate("/");
-      } else {
-        setSuccess(data.message || "Registration request sent! Please wait for admin approval.");
-      }
+      setSuccess(data.message || "Registration completed successfully. Please sign in.");
+      setTimeout(() => navigate("/login"), 1800);
     } catch (err) {
       setError(err.response?.data?.message || "Registration failed. Please try again.");
       submitLock.current = false;
@@ -444,11 +464,11 @@ export default function Register() {
                           />
                           <span className="text-sm text-teal-100">
                             I agree to the{" "}
-                            <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
+                            <a href="/terms-of-service" className="font-bold text-teal-300 hover:text-teal-200">
                               Terms of Service
                             </a>{" "}
                             and{" "}
-                            <a href="#" className="font-bold text-teal-300 hover:text-teal-200">
+                            <a href="/privacy-policy" className="font-bold text-teal-300 hover:text-teal-200">
                               Privacy Policy
                             </a>
                           </span>
@@ -488,9 +508,9 @@ export default function Register() {
                           variant="primary"
                           size="lg"
                           onClick={handleNext}
-                          className="w-full bg-gradient-to-r from-blue-600 via-teal-500 to-blue-600"
+                          className="w-full bg-gradient-to-r from-blue-600 via-teal-500 to-blue-600" disabled={checkingEmail}
                         >
-                          Next
+                          {checkingEmail ? "Checking..." : "Next"}
                         </Button>
                       </motion.div>
                     ) : (
@@ -539,3 +559,14 @@ export default function Register() {
     </div >
   );
 }
+
+
+
+
+
+
+
+
+
+
+

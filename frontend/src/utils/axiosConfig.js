@@ -47,7 +47,7 @@ instance.interceptors.response.use(
     if (activeRequests === 0) NProgress.done();
 
     if (error.response?.status === 401 && !error.response?.data?.requires2FA) {
-      if (window.location.pathname === "/login") return Promise.reject(error);
+      if (["/login", "/verify-2fa"].includes(window.location.pathname) || error.response?.data?.code === "2FA_INVALID") return Promise.reject(error);
 
       axios.post(`${baseURL}/auth/logout`, {}, { withCredentials: true }).catch(() => {});
       localStorage.removeItem("token");
@@ -59,4 +59,5 @@ instance.interceptors.response.use(
 );
 
 export default instance;
+
 

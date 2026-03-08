@@ -1,4 +1,4 @@
-import React from "react";
+﻿import React from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -179,7 +179,7 @@ export const Alert = ({ type = "info", title, message, onClose, className = "" }
       </div>
       {onClose && (
         <button onClick={onClose} className="opacity-50 hover:opacity-100 transition">
-          ✕
+          âœ•
         </button>
       )}
     </motion.div>
@@ -196,7 +196,7 @@ export const PermissionGuard = ({ roles = [], userRole, children, fallback = nul
 export const PasswordStrengthMeter = ({ password, requirements }) => {
   const getStrength = (pass) => {
     let score = 0;
-    if (pass.length >= 12) score++;
+    if (pass.length >= 8) score++;
     if (/[A-Z]/.test(pass)) score++;
     if (/[a-z]/.test(pass) && /[0-9]/.test(pass)) score++;
     if (/[^A-Za-z0-9]/.test(pass)) score++;
@@ -236,3 +236,4 @@ export default {
   ConfirmModal,
   PermissionGuard,
 };
+

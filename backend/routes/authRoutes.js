@@ -1,5 +1,5 @@
-/**
- * Auth Routes — IT Asset Tracking System
+﻿/**
+ * Auth Routes â€” IT Asset Tracking System
  *
  * RBAC Policy:
  *  - Admin routes: require protect + admin + requireAdmin2FA
@@ -18,7 +18,7 @@ const {
     getAllUsers, promoteUser, demoteUser, suspendUser,
     adminResetPassword, adminDisable2FA, deleteUser,
     approveUser, rejectUser, approveUserByAdmin, diagEmailTest, getUserActivity,
-    forgotPassword, validateResetToken, resetPassword,
+    forgotPassword, validateResetToken, resetPassword, checkEmailAvailability,
 } = require("../controllers/authController");
 
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
@@ -38,17 +38,18 @@ const loginLimiter = rateLimit({
     legacyHeaders: false, // Disable the `X-RateLimit-*` headers
 });
 
-// ── Public Routes ────────────────────────────────────────────
+// â”€â”€ Public Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.post("/register", register);
+router.post("/check-email", checkEmailAvailability);
 router.post("/login", loginLimiter, login);
 router.post("/verify-2fa", verify2FALogin);
 router.post("/refresh", refresh);
 
-// Admin approves / rejects users via secure email link (no auth required – link IS the token)
+// Admin approves / rejects users via secure email link (no auth required â€“ link IS the token)
 router.get("/approve/:id", approveUser);
 router.get("/reject/:id", rejectUser);
 
-// Password Recovery Flow (§Enterprise Security Steps 1-3)
+// Password Recovery Flow (Â§Enterprise Security Steps 1-3)
 router.post("/forgot-password", forgotPassword);
 router.get("/reset-password/:token", validateResetToken);
 router.post("/reset-password/:token", resetPassword);
@@ -56,7 +57,7 @@ router.post("/reset-password/:token", resetPassword);
 // Diagnostic (internal only)
 router.get("/diag/email-test", diagEmailTest);
 
-// ── Authenticated User Routes ────────────────────────────────
+// â”€â”€ Authenticated User Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/me", protect, getMe);
 router.post("/logout", protect, logout);
 router.post("/logout-all", protect, logoutAll);
@@ -69,12 +70,12 @@ router.post("/2fa/generate", protect, generate2FA);
 router.post("/2fa/verify", protect, verify2FA);
 router.post("/2fa/disable", protect, disable2FA);
 
-// ── Admin-Only Routes (Zero Trust: protect + admin + 2FA) ────
+// â”€â”€ Admin-Only Routes (Zero Trust: protect + admin + 2FA) â”€â”€â”€â”€
 // Every destructive or privileged admin action requires:
 //   1. Valid JWT (protect)
 //   2. Admin role fresh from DB (admin)
 //   3. 2FA enabled on Admin account (requireAdmin2FA)
-//   4. Step-up Auth (requireReAuth) for destructive actions (§3.4)
+//   4. Step-up Auth (requireReAuth) for destructive actions (Â§3.4)
 router.get("/users", protect, admin, zeroTrust, getAllUsers);
 router.put("/users/:id/promote", protect, admin, zeroTrust, requireReAuth, promoteUser);
 router.put("/users/:id/demote", protect, admin, zeroTrust, requireReAuth, demoteUser);
@@ -85,3 +86,4 @@ router.put("/users/:id/disable-2fa", protect, admin, zeroTrust, adminDisable2FA)
 router.delete("/users/:id", protect, admin, zeroTrust, requireReAuth, deleteUser);
 
 module.exports = router;
+

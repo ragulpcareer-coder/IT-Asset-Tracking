@@ -1,4 +1,4 @@
-// Password Strength Checker
+﻿// Password Strength Checker
 export const checkPasswordStrength = (password) => {
   const result = {
     score: 0,
@@ -84,8 +84,8 @@ export const validateFormField = (field, value) => {
       error: "Passwords do not match",
     }),
     name: (val) => ({
-      valid: val.trim().length >= 2,
-      error: "Name must be at least 2 characters",
+      valid: val.trim().length >= 3,
+      error: "Name must be at least 3 characters",
     }),
     url: (val) => {
       try {
@@ -149,3 +149,4 @@ export const getPasswordRequirements = () => [
     check: (pwd) => /[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(pwd),
   },
 ];
+

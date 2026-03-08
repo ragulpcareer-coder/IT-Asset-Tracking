@@ -42,8 +42,8 @@ const validatePasswordStrength = (password) => {
     isStrong: false,
   };
 
-  if (password.length >= 12) strength.score += 1;
-  else strength.feedback.push("Minimum 12 characters required");
+  if (password.length >= 8) strength.score += 1;
+  else strength.feedback.push("Minimum 8 characters required");
 
   if (/[A-Z]/.test(password)) strength.score += 1;
   else strength.feedback.push("Must contain at least one uppercase letter");
@@ -225,4 +225,5 @@ module.exports = {
   detectPromptInjection,
   verifyToolIdentity,
 };
+
 

@@ -1,4 +1,4 @@
-const bcrypt = require("bcryptjs");
+﻿const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
@@ -30,7 +30,7 @@ const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRES
 
 // Startup Sentinel: Verify critical production secrets on boot
 if (!process.env.JWT_SECRET) console.error('[BOOT] FATAL: JWT_SECRET is missing!');
-if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set — encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
+if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set â€” encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
 
 const getCookieOptions = () => {
   // Default to secure production settings unless explicitly in local development
@@ -42,11 +42,29 @@ const getCookieOptions = () => {
     maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
   };
 };
+const BCRYPT_ROUNDS = 12;
 
-// Helper for professional activity logging (§Category 4)
+const getClientIp = (req) => {
+  const forwarded = req.headers["x-forwarded-for"];
+  if (forwarded && typeof forwarded === "string") {
+    const candidates = forwarded.split(",").map((v) => v.trim()).filter(Boolean);
+    if (candidates.length > 0) {
+      return candidates[0].replace(/^::ffff:/, "");
+    }
+  }
+  return (req.socket?.remoteAddress || req.ip || "unknown").replace(/^::ffff:/, "");
+};
+
+const isValidBase32Secret = (secret) => {
+  if (!secret || typeof secret !== "string") return false;
+  const normalized = secret.trim().replace(/=+$/, "");
+  return /^[A-Z2-7]+$/i.test(normalized) && normalized.length >= 16;
+};
+
+// Helper for professional activity logging (Â§Category 4)
 const logUserActivity = async (userId, actionType, description, req) => {
   try {
-    const ipAddress = req.ip || req.connection.remoteAddress;
+    const ipAddress = getClientIp(req);
     const deviceInfo = {
       userAgent: req.get('User-Agent'),
       fingerprint: req.body.fingerprint || (req.headers && req.headers['x-agent-signature']) || 'unknown'
@@ -74,33 +92,27 @@ const registerLimiter = new RateLimiter(3, 60 * 60 * 1000); // 3 attempts per ho
 // @access  Public
 const register = async (req, res) => {
   try {
-    const { name, email, password } = req.body; // role is NEVER accepted from client
-    console.log("Password received:", password);
-    const ip = req.ip || req.connection.remoteAddress;
+    const { name, email, password } = req.body;
+    const ip = getClientIp(req);
 
-    // Rate limiting
     if (registerLimiter.isLimited(ip)) {
       return res.status(429).json({
+        success: false,
         message: "Too many registration attempts. Please try again later.",
       });
     }
 
-    // Validate input
     if (!name || !email || !password) {
-      return res.status(400).json({ message: "Please provide all required fields" });
+      return res.status(400).json({ success: false, message: "Please provide all required fields" });
     }
 
-    // Sanitize inputs
     const sanitizedName = sanitizeInput(name);
     const sanitizedEmail = sanitizeInput(email).toLowerCase();
-    const sanitizedPassword = password; // Do not sanitize password content as it will be hashed, but we can't strip chars that might be valid in complex passwords.
 
-    // Validate email format
     if (!isValidEmail(sanitizedEmail)) {
-      return res.status(400).json({ message: "Invalid email format" });
+      return res.status(400).json({ success: false, message: "Invalid email format" });
     }
 
-    // Validate password strength
     const passwordStrength = validatePasswordStrength(password);
     if (!passwordStrength.isStrong) {
       return res.status(400).json({
@@ -111,32 +123,21 @@ const register = async (req, res) => {
       });
     }
 
-    // Check if user exists - Optimized Read
     const userExists = await User.findOne({ email: sanitizedEmail }).select("_id").lean();
     if (userExists) {
-      return res.status(409).json({ message: "Email already registered" });
+      return res.status(409).json({ success: false, message: "Email already registered" });
     }
 
-    // Validate name length
-    if (sanitizedName.length < 2 || sanitizedName.length > 100) {
-      return res.status(400).json({ message: "Name must be between 2 and 100 characters" });
+    if (sanitizedName.length < 3 || sanitizedName.length > 100) {
+      return res.status(400).json({ success: false, message: "Full name must be between 3 and 100 characters" });
     }
 
-    // PRIVILEGE ESCALATION PREVENTION
-    const hasUsers = await User.exists({}); // Lightweight check
-    let assignedRole = "Employee";
-    let isApproved = false;
+    const hasUsers = await User.exists({});
+    const assignedRole = hasUsers ? "Employee" : "Super Admin";
+    const isApproved = !hasUsers;
 
-    if (!hasUsers) {
-      assignedRole = "Super Admin";
-      isApproved = true;
-    }
+    const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
-    // Manually hash password since we removed the pre-save hook
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
-    // Create user
     const user = await User.create({
       name: sanitizedName,
       email: sanitizedEmail,
@@ -145,22 +146,19 @@ const register = async (req, res) => {
       createdAt: new Date(),
       lastLogin: null,
       isEmailVerified: false,
-      isApproved: isApproved
+      isApproved
     });
 
-    // Send approval request (NON-BLOCKING)
     if (!isApproved) {
       setImmediate(() => {
-        sendApprovalRequest(user).catch(emailErr => {
+        sendApprovalRequest(user).catch((emailErr) => {
           logger.error(`[Registration] Background email failed for ${sanitizedEmail}:`, emailErr.message);
         });
       });
     }
 
-    // Parallelize tasks
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
 
-    // NON-BLOCKING Security Logging for faster registration response
     setImmediate(async () => {
       try {
         await Promise.all([
@@ -186,39 +184,58 @@ const register = async (req, res) => {
 
     if (!isApproved) {
       return res.status(201).json({
+        success: true,
         message: "Registration successfully initialized. Compliance pending approval.",
       });
     }
 
     res.cookie('jwt', pair.accessToken, getCookieOptions());
 
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      preferences: user.preferences,
-      activityTimestamps: user.activityTimestamps,
+    return res.status(201).json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        preferences: user.preferences,
+        activityTimestamps: user.activityTimestamps,
+      },
       accessToken: pair.accessToken,
       refreshToken: pair.refreshToken,
       message: "Node Provisioned: Registration successful.",
     });
   } catch (error) {
     logger.error("Registration Core Error:", error);
-    res.status(500).json({ message: "Strategic registration failure. Forensic log captured." });
+    return res.status(500).json({ success: false, message: "Strategic registration failure. Forensic log captured." });
   }
 };
 
+const checkEmailAvailability = async (req, res) => {
+  try {
+    const email = sanitizeInput(req.body?.email || "").toLowerCase();
+    if (!email || !isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: "Invalid email format" });
+    }
+
+    const exists = await User.exists({ email });
+    return res.status(200).json({
+      success: true,
+      available: !exists,
+      message: exists ? "Email is already registered" : "Email is available"
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Unable to validate email right now" });
+  }
+};
 
 const login = async (req, res) => {
   try {
-    console.log("=== LOGIN ATTEMPT ===");
-    const { email } = req.body;
-    const pwd = req.body.password;
-    const { token2FA, fingerprint } = req.body;
+    const email = sanitizeInput(req.body?.email || "").toLowerCase();
+    const password = req.body?.password;
+    const fingerprint = req.body?.fingerprint;
 
-    // 1️⃣ Validate input
-    if (!email || !pwd) {
+    if (!email || !password) {
       return res.status(400).json({
         success: false,
         message: "Email and password are required",
@@ -226,11 +243,11 @@ const login = async (req, res) => {
       });
     }
 
-    if (!process.env.JWT_SECRET) console.error("JWT_SECRET missing");
+    if (!isValidEmail(email)) {
+      return res.status(400).json({ success: false, message: "Please provide a valid email address", code: "AUTH_400" });
+    }
 
-    // Strategy 1: Defensive check for Encryption Secret stability
     if (!process.env.DB_ENCRYPTION_SECRET) {
-      console.error("[Login] CRITICAL SECURITY ALERT: DB_ENCRYPTION_SECRET is missing. Decryption will fail.");
       return res.status(500).json({
         success: false,
         message: "Strategic platform failure: Encryption services unavailable. Contact SOC security.",
@@ -238,102 +255,96 @@ const login = async (req, res) => {
       });
     }
 
-    // Get Raw Document (for raw password)
-    const mongoose = require('mongoose');
+    const mongoose = require("mongoose");
     const rawDoc = await mongoose.connection.db
-      .collection('users')
-      .findOne(
-        { email: email.toLowerCase().trim() },
-        { projection: { password: 1, _id: 1 } }
-      );
+      .collection("users")
+      .findOne({ email }, { projection: { password: 1, _id: 1 } });
 
-    // 2️⃣ Find user by email
-    const user = rawDoc ? await User.findOne({ _id: rawDoc._id }).select('-password') : null;
+    const user = rawDoc ? await User.findOne({ _id: rawDoc._id }).select("-password") : null;
 
     if (!rawDoc || !user || !rawDoc.password) {
-      console.log("Login failed: User not found or missing password hash");
-      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
+      return res.status(401).json({ success: false, message: "Invalid email or password", code: "AUTH_401" });
     }
 
-    // 3️⃣ Check if account is locked or disabled
     if (user.lockUntil && user.lockUntil > Date.now()) {
       const waitMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
-      return res.status(403).json({ success: false, message: `Account temporarily locked due to failed attempts. Try again in ${waitMinutes} minutes.`, code: "AUTH_403" });
+      return res.status(423).json({
+        success: false,
+        message: `Account temporarily locked due to failed attempts. Try again in ${waitMinutes} minutes.`,
+        code: "AUTH_423"
+      });
     }
 
     if (user.isActive === false) {
-      return res.status(403).json({ success: false, message: "Identity Decommissioned: Access is permanently suspended.", code: "AUTH_403" });
+      return res.status(403).json({ success: false, message: "Account is suspended.", code: "AUTH_403" });
     }
 
     if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
       return res.status(403).json({
         success: false,
-        message: "Compliance Pending: Your account is awaiting administrator approval. Please contact a SOC manager.",
+        message: "Your account is awaiting administrator approval.",
         code: "ACCOUNT_PENDING_APPROVAL"
       });
     }
 
-    // 4️⃣ Validate password using bcrypt.compare
-    let isMatch = false;
-    try {
-      isMatch = await bcrypt.compare(pwd, rawDoc.password);
-    } catch (bcryptErr) {
-      console.error('[Login] bcrypt error:', bcryptErr.message);
-    }
-
+    const isMatch = await bcrypt.compare(password, rawDoc.password);
     if (!isMatch) {
-      console.log("Login failed: Incorrect password");
       const newFailCount = (user.failedLoginAttempts || 0) + 1;
-      const updateFields = { failedLoginAttempts: newFailCount };
       if (newFailCount >= 5) {
         await incidentResponseService.lockAccount(user._id, 15, "Multiple Failed Logins (Brute Force)");
       } else {
-        await User.updateOne({ _id: user._id }, { $set: updateFields });
+        await User.updateOne({ _id: user._id }, { $set: { failedLoginAttempts: newFailCount } });
       }
 
-      // Risk Scoring Integration
       riskScoringService.evaluateUserRisk(user._id, newFailCount >= 5 ? "BRUTE_FORCE_ATTEMPT" : "FAILED_LOGIN");
+      correlationEngine.checkBruteForce(getClientIp(req), email);
 
-      // Correlation Engine: Brute force detection
-      correlationEngine.checkBruteForce(req.ip || req.connection?.remoteAddress, email);
-
-      return res.status(401).json({ success: false, message: "Invalid credentials", code: "AUTH_401" });
+      return res.status(401).json({ success: false, message: "Invalid email or password", code: "AUTH_401" });
     }
 
-    // 5️⃣ If password correct: Reset failedAttempts (handled below before token issue)
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || req.ip || 'unknown';
-    const userAgent = req.headers['user-agent'] || 'unknown';
+    const ip = getClientIp(req);
+    const userAgent = req.headers["user-agent"] || "unknown";
     const geoData = await getGeoLocation(ip);
 
-    // Smart SOC Anomaly Detection
-    const lastSession = await UserSession.findOne({ userId: user._id }).sort({ loginTime: -1 });
+    const lastSession = await UserSession.findOne({ userId: user._id }).sort({ loginTime: -1 }).lean();
     if (lastSession) {
-      if (lastSession.country !== "Unknown" && geoData.country !== "Unknown" && lastSession.country !== geoData.country) {
-        await SecurityAlert.create({
-          type: "AI_FLAGGED_ANOMALY",
+      const prevCountry = lastSession.country || "Unknown";
+      const currCountry = geoData.country || "Unknown";
+      const countryChanged =
+        prevCountry !== currCountry &&
+        !["Unknown", "Internal/Local", "Localhost"].includes(prevCountry) &&
+        !["Unknown", "Internal/Local", "Localhost"].includes(currCountry);
+
+      if (countryChanged) {
+        await correlationEngine.triggerAlert("AI_FLAGGED_ANOMALY", {
           severity: "CRITICAL",
-          message: `Impossible Travel: Login from ${geoData.country} but last login was ${lastSession.country}`,
-          details: `User teleported across borders. Last IP: ${lastSession.ipAddress}, Current IP: ${ip}`,
+          message: `Impossible travel detected: ${prevCountry} -> ${currCountry}`,
+          ip,
           userId: user._id,
-          sourceIp: ip
+          metadata: {
+            previousCountry: prevCountry,
+            currentCountry: currCountry,
+            previousIp: lastSession.ipAddress,
+            currentUserAgent: userAgent
+          }
         });
         riskScoringService.evaluateUserRisk(user._id, "NEW_COUNTRY_LOGIN");
-        await incidentResponseService.terminateAllSessions(user._id, "Impossible Travel (Geo-velocity violation)");
       } else if (lastSession.ipAddress !== ip && lastSession.userAgent !== userAgent) {
-        await SecurityAlert.create({
-          type: "SUSPICIOUS_IP",
+        await correlationEngine.triggerAlert("SUSPICIOUS_IP", {
           severity: "HIGH",
-          message: `Suspicious Login: New Device and IP Address detected.`,
-          details: `Prev IP: ${lastSession.ipAddress}, New IP: ${ip}. Agent changed from [${lastSession.userAgent}] to [${userAgent}].`,
+          message: "Login from new device and network signature detected.",
+          ip,
           userId: user._id,
-          sourceIp: ip
+          metadata: {
+            previousIp: lastSession.ipAddress,
+            previousUserAgent: lastSession.userAgent,
+            currentUserAgent: userAgent
+          }
         });
         riskScoringService.evaluateUserRisk(user._id, "NEW_DEVICE_LOGIN");
-        await incidentResponseService.terminateAllSessions(user._id, "Suspicious Device and IP Signature Shift");
       }
     }
 
-    // Persist current session telematic data
     await UserSession.create({
       userId: user._id,
       ipAddress: ip,
@@ -342,18 +353,19 @@ const login = async (req, res) => {
       city: geoData.city
     });
 
-    // 6️⃣ If 2FA enabled:
-    console.log("User 2FA status:", user.twoFactorEnabled);
     if (user.twoFactorEnabled) {
-      // Split 2FA flow: If 2FA is enabled, we return 200 with a specific flag
-      // so the frontend knows to show the OTP screen.
-      // We use 200 instead of 401 to avoid unintended global catchers/interceptors.
-      console.log(`[2FA] User ${user._id} requires 2FA. Prompting frontend.`);
+      if (!isValidBase32Secret(user.twoFactorSecret)) {
+        return res.status(500).json({
+          success: false,
+          message: "Two-Factor Authentication is misconfigured. Please contact your administrator.",
+          code: "2FA_SECRET_CORRUPT"
+        });
+      }
+
       return res.status(200).json({
         success: true,
         requires2FA: true,
         userId: user._id,
-        twoFactorEnabled: true,
         user: {
           id: user._id,
           email: user.email,
@@ -365,16 +377,12 @@ const login = async (req, res) => {
       });
     }
 
-    // 7️⃣ Generate JWT & System Updates
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
-    const failedAttemptsBefore = user.failedLoginAttempts || 0;
 
-    // NON-BLOCKING: Parallelize system updates and security engine checks
     setImmediate(async () => {
       try {
-        const ioInst = req.app.get('io');
         const knownDevices = user.devices || [];
-        const isNewDevice = !knownDevices.some(d => d.ip === ip);
+        const isNewDevice = !knownDevices.some((d) => d.ip === ip);
 
         await Promise.all([
           User.updateOne(
@@ -385,7 +393,7 @@ const login = async (req, res) => {
                 lastLogin: new Date(),
                 lastLoginIp: ip,
               },
-              $unset: { lockUntil: '' }
+              $unset: { lockUntil: "" }
             }
           ),
           RefreshToken.deleteMany({ user: user._id }),
@@ -395,16 +403,13 @@ const login = async (req, res) => {
             user: user._id,
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           }),
-          logUserActivity(user._id, "LOGIN", "Successful authentication.", req)
+          logUserActivity(user._id, "LOGIN", "Successful authentication.", req),
+          correlationEngine.checkAnomalies(user._id, ip, {
+            fingerprint: fingerprint || "unknown",
+            isNewDevice
+          })
         ]);
 
-        // Feature 1 & 3: Autonomous Threat Detection & Behavior Monitoring
-        await correlationEngine.checkAnomalies(user._id, ip, {
-          fingerprint: req.body.fingerprint || 'unknown',
-          isNewDevice
-        });
-
-        // Feature 4: Zero Trust - Check if this should be a high-risk escalation
         if (isNewDevice && ["Super Admin", "Admin"].includes(user.role)) {
           correlationEngine.checkPrivilegeEscalation(user._id, ip, true);
         }
@@ -413,14 +418,15 @@ const login = async (req, res) => {
       }
     });
 
-    res.clearCookie('token');
-    res.clearCookie('jwt');
-    res.cookie('jwt', pair.accessToken, getCookieOptions());
+    res.clearCookie("token");
+    res.clearCookie("jwt");
+    res.cookie("jwt", pair.accessToken, getCookieOptions());
 
-    // 8️⃣ Return success response
     return res.json({
       success: true,
       token: pair.accessToken,
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
       user: {
         id: user._id,
         email: user.email,
@@ -430,21 +436,14 @@ const login = async (req, res) => {
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
       },
-      timestamp: new Date().toISOString(),
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      twoFactorEnabled: user.twoFactorEnabled,
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
+      message: "Sign in successful"
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
     return res.status(500).json({
       success: false,
-      message: err.message,
-      stack: process.env.NODE_ENV === "development" ? err.stack : undefined
+      message: "Internal server error during login",
+      code: "AUTH_500"
     });
   }
 };
@@ -455,9 +454,8 @@ const login = async (req, res) => {
 const verify2FALogin = async (req, res) => {
   try {
     const { userId, token } = req.body;
-    const ip = req.headers['x-forwarded-for']?.split(',')[0] || req.socket?.remoteAddress || req.ip || 'unknown';
+    const ip = getClientIp(req);
 
-    // 1️⃣ Rate Limiting
     if (loginLimiter.isLimited(ip)) {
       return res.status(429).json({
         success: false,
@@ -475,9 +473,12 @@ const verify2FALogin = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    // Guard: detect corrupt/unencrypted/missing secret
+    if (!user.twoFactorEnabled) {
+      return res.status(400).json({ success: false, message: "Two-factor authentication is not enabled for this account." });
+    }
+
     const rawSecret = user.twoFactorSecret;
-    if (!rawSecret || rawSecret.trim().length < 10) {
+    if (!isValidBase32Secret(rawSecret)) {
       console.error(`[2FA] CORRUPT SECRET for user ${userId}`);
       return res.status(500).json({
         success: false,
@@ -490,18 +491,17 @@ const verify2FALogin = async (req, res) => {
     try {
       isVerified = speakeasy.totp.verify({
         secret: rawSecret,
-        encoding: 'base32',
+        encoding: "base32",
         token: token.trim(),
-        window: 2 // Increased window for better drift tolerance
+        window: 2
       });
     } catch (totpErr) {
-      console.error('[2FA] speakeasy.totp.verify error:', totpErr.message);
+      console.error("[2FA] speakeasy.totp.verify error:", totpErr.message);
       return res.status(500).json({ success: false, message: "Verification error" });
     }
 
-    // Check backup codes
     if (!isVerified && user.twoFactorBackupCodes?.length > 0) {
-      const matchedCode = user.twoFactorBackupCodes.find(code => code === token.trim());
+      const matchedCode = user.twoFactorBackupCodes.find((code) => code === token.trim());
       if (matchedCode) {
         isVerified = true;
         await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: matchedCode } });
@@ -509,47 +509,57 @@ const verify2FALogin = async (req, res) => {
     }
 
     if (!isVerified) {
-      correlationEngine.checkBruteForce(ip, user.email); // Track 2FA brute force attempts
+      correlationEngine.checkBruteForce(ip, user.email);
       riskScoringService.evaluateUserRisk(user._id, "FAILED_LOGIN");
       return res.status(401).json({
         success: false,
+        requires2FA: true,
+        userId: user._id,
         message: "Invalid 2FA token. Please try again.",
         code: "2FA_INVALID"
       });
     }
 
-    const userAgent = req.headers['user-agent'] || 'unknown';
+    const userAgent = req.headers["user-agent"] || "unknown";
     const geoData = await getGeoLocation(ip);
 
-    // Smart SOC Anomaly Detection
-    const lastSession = await UserSession.findOne({ userId: user._id }).sort({ loginTime: -1 });
+    const lastSession = await UserSession.findOne({ userId: user._id }).sort({ loginTime: -1 }).lean();
     if (lastSession) {
-      if (lastSession.country !== "Unknown" && geoData.country !== "Unknown" && lastSession.country !== geoData.country) {
-        await SecurityAlert.create({
-          type: "AI_FLAGGED_ANOMALY",
+      const prevCountry = lastSession.country || "Unknown";
+      const currCountry = geoData.country || "Unknown";
+      const countryChanged =
+        prevCountry !== currCountry &&
+        !["Unknown", "Internal/Local", "Localhost"].includes(prevCountry) &&
+        !["Unknown", "Internal/Local", "Localhost"].includes(currCountry);
+
+      if (countryChanged) {
+        await correlationEngine.triggerAlert("AI_FLAGGED_ANOMALY", {
           severity: "CRITICAL",
-          message: `Impossible Travel: Login from ${geoData.country} but last login was ${lastSession.country}`,
-          details: `User teleported across borders. Last IP: ${lastSession.ipAddress}, Current IP: ${ip}`,
+          message: `Impossible travel detected: ${prevCountry} -> ${currCountry}`,
+          ip,
           userId: user._id,
-          sourceIp: ip
+          metadata: {
+            previousCountry: prevCountry,
+            currentCountry: currCountry,
+            previousIp: lastSession.ipAddress,
+            currentUserAgent: userAgent
+          }
         });
-        riskScoringService.evaluateUserRisk(user._id, "NEW_COUNTRY_LOGIN");
-        await incidentResponseService.terminateAllSessions(user._id, "Impossible Travel (Geo-velocity violation)");
       } else if (lastSession.ipAddress !== ip && lastSession.userAgent !== userAgent) {
-        await SecurityAlert.create({
-          type: "SUSPICIOUS_IP",
+        await correlationEngine.triggerAlert("SUSPICIOUS_IP", {
           severity: "HIGH",
-          message: `Suspicious Login: New Device and IP Address detected.`,
-          details: `Prev IP: ${lastSession.ipAddress}, New IP: ${ip}. Agent changed from [${lastSession.userAgent}] to [${userAgent}].`,
+          message: "Login from new device and network signature detected.",
+          ip,
           userId: user._id,
-          sourceIp: ip
+          metadata: {
+            previousIp: lastSession.ipAddress,
+            previousUserAgent: lastSession.userAgent,
+            currentUserAgent: userAgent
+          }
         });
-        riskScoringService.evaluateUserRisk(user._id, "NEW_DEVICE_LOGIN");
-        await incidentResponseService.terminateAllSessions(user._id, "Suspicious Device and IP Signature Shift");
       }
     }
 
-    // Persist current session telematic data
     await UserSession.create({
       userId: user._id,
       ipAddress: ip,
@@ -558,10 +568,8 @@ const verify2FALogin = async (req, res) => {
       city: geoData.city
     });
 
-    // 7️⃣ Generate JWT & System Updates
     const pair = tokenManager.generateTokenPair(user._id.toString(), user.role, user.tokenVersion);
 
-    // NON-BLOCKING: Parallelize system updates and logging
     setImmediate(async () => {
       try {
         await Promise.all([
@@ -573,7 +581,7 @@ const verify2FALogin = async (req, res) => {
                 lastLogin: new Date(),
                 lastLoginIp: ip,
               },
-              $unset: { lockUntil: '' }
+              $unset: { lockUntil: "" }
             }
           ),
           RefreshToken.deleteMany({ user: user._id }),
@@ -583,18 +591,24 @@ const verify2FALogin = async (req, res) => {
             user: user._id,
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           }),
-          logUserActivity(user._id, "LOGIN", "Successful 2FA authentication.", req)
+          logUserActivity(user._id, "LOGIN", "Successful 2FA authentication.", req),
+          correlationEngine.checkAnomalies(user._id, ip, {
+            fingerprint: req.body?.fingerprint || "unknown",
+            isNewDevice: true
+          })
         ]);
       } catch (err) {
         console.error("2FA Post-Login Update Error:", err.message);
       }
     });
 
-    res.cookie('jwt', pair.accessToken, getCookieOptions());
+    res.cookie("jwt", pair.accessToken, getCookieOptions());
 
     return res.json({
       success: true,
       token: pair.accessToken,
+      accessToken: pair.accessToken,
+      refreshToken: pair.refreshToken,
       user: {
         id: user._id,
         email: user.email,
@@ -604,19 +618,11 @@ const verify2FALogin = async (req, res) => {
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
       },
-      message: "Biometric identity verified. Access granted.",
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      role: user.role,
-      twoFactorEnabled: true,
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
+      message: "Two-factor verification successful"
     });
-
   } catch (err) {
     console.error("2FA VERIFY ERR:", err);
-    res.status(500).json({ success: false, message: err.message });
+    return res.status(500).json({ success: false, message: "Unable to verify two-factor code." });
   }
 };
 
@@ -629,7 +635,7 @@ const getMe = async (req, res) => {
     // Optimized: Fetch only required metadata for session state
     const user = await User.findById(req.user._id)
       .select("name email role preferences activityTimestamps twoFactorEnabled phone department location")
-      .lean(); // Use lean() for faster read-only access (§Performance)
+      .lean(); // Use lean() for faster read-only access (Â§Performance)
 
     if (!user) return res.status(404).json({ success: false, message: "User registry entry not found." });
     res.status(200).json({ success: true, user });
@@ -646,31 +652,56 @@ const changePassword = async (req, res) => {
     const { currentPassword, newPassword } = req.body;
 
     if (!currentPassword || !newPassword) {
-      return res.status(400).json({ message: "Please provide current and new password" });
+      return res.status(400).json({ success: false, message: "Please provide current and new password" });
+    }
+
+    const strength = validatePasswordStrength(newPassword);
+    if (!strength.isStrong) {
+      return res.status(400).json({
+        success: false,
+        message: "Password does not meet security requirements",
+        feedback: strength.feedback,
+        score: strength.score
+      });
     }
 
     const user = await User.findById(req.user._id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
     const isPasswordCorrect = await bcrypt.compare(currentPassword, user.password);
     if (!isPasswordCorrect) {
-      return res.status(400).json({ message: "Current password is incorrect" });
+      return res.status(400).json({ success: false, message: "Current password is incorrect" });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(newPassword, salt);
-    user.password = hashedPassword;
-    user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all active JWT sessions
+    if (currentPassword === newPassword) {
+      return res.status(400).json({ success: false, message: "New password must be different from current password" });
+    }
+
+    user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
 
     if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.passwordChangedAt = Date.now();
     user.markModified("activityTimestamps");
+
     await user.save();
 
-    await logUserActivity(user._id, "PASSWORD_CHANGE", "User changed their password", req);
+    await Promise.all([
+      RefreshToken.deleteMany({ user: user._id }),
+      logUserActivity(user._id, "PASSWORD_CHANGE", "User changed their password", req),
+      AuditLog.create({
+        action: "PASSWORD_CHANGED",
+        performedBy: user.email,
+        details: "Password changed and active sessions invalidated.",
+        ip: getClientIp(req),
+      })
+    ]);
 
-    res.json({ success: true, message: "Password changed successfully" });
+    return res.json({ success: true, message: "Password changed successfully" });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return res.status(500).json({ success: false, message: "Failed to change password" });
   }
 };
 
@@ -772,7 +803,7 @@ const refresh = async (req, res) => {
     // Check stored refresh token record
     const stored = await RefreshToken.findOne({ tokenId: decoded.tokenId, family: decoded.family, user: decoded.userId });
 
-    // SECURITY: Token Reuse Detection (§8.4)
+    // SECURITY: Token Reuse Detection (Â§8.4)
     // If a valid JWT refresh token is presented but not found in DB or already revoked,
     // it implies it might have been stolen and used already. 
     // We revoke the entire family to kill all related sessions.
@@ -936,7 +967,7 @@ const getAllUsers = async (req, res) => {
 
 const PendingAction = require("../models/PendingAction");
 
-// @desc    Promote user to Admin (Now requires Dual-Auth §3.1)
+// @desc    Promote user to Admin (Now requires Dual-Auth Â§3.1)
 // @route   PUT /api/auth/users/:id/promote
 // @access  Private/Admin
 const promoteUser = async (req, res) => {
@@ -944,23 +975,23 @@ const promoteUser = async (req, res) => {
     const userToPromote = await User.findById(req.params.id);
     if (!userToPromote) return res.status(404).json({ message: "User not found" });
 
-    // Privilege Abuse Detection (§5.3)
+    // Privilege Abuse Detection (Â§5.3)
     if (userToPromote._id.toString() === req.user._id.toString()) {
-      return res.status(403).json({ message: "Security Violation: Self-elevation is forbidden (§5.3)." });
+      return res.status(403).json({ message: "Security Violation: Self-elevation is forbidden (Â§5.3)." });
     }
 
     if (userToPromote.role === "Super Admin" || userToPromote.role === "Admin") {
       return res.status(403).json({ message: "User is already an Admin or Super Admin" });
     }
 
-    const { approvalId } = req.query; // Check if Approval token is provided (§3.1)
+    const { approvalId } = req.query; // Check if Approval token is provided (Â§3.1)
 
     if (approvalId) {
       // SECOND ADMIN APPROVER LOGIC
       const approvedAction = await PendingAction.findById(approvalId);
       if (approvedAction && approvedAction.status === "APPROVED" && approvedAction.data.targetUserId === req.params.id) {
 
-        // Verify it was approved by someone ELSE (§3.1)
+        // Verify it was approved by someone ELSE (Â§3.1)
         if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
           return res.status(403).json({ message: "4-Eyes Principle: You cannot approve your own promotion request." });
         }
@@ -982,7 +1013,7 @@ const promoteUser = async (req, res) => {
       }
     }
 
-    // If no approved action exists, create a pending one (§3.1)
+    // If no approved action exists, create a pending one (Â§3.1)
     const pending = await PendingAction.create({
       actionType: "PROMOTE_USER",
       data: { targetUserId: userToPromote._id, targetEmail: userToPromote.email, requestedRole: "Admin" },
@@ -1141,7 +1172,7 @@ const adminDisable2FA = async (req, res) => {
   }
 };
 
-// @desc    Delete user account (Now requires Dual-Auth §3.1)
+// @desc    Delete user account (Now requires Dual-Auth Â§3.1)
 // @route   DELETE /api/auth/users/:id
 // @access  Private/Admin
 const deleteUser = async (req, res) => {
@@ -1149,7 +1180,7 @@ const deleteUser = async (req, res) => {
     const userToDelete = await User.findById(req.params.id);
     if (!userToDelete) return res.status(404).json({ message: "User not found" });
 
-    // Self-elevation / Abuse check (§5.3)
+    // Self-elevation / Abuse check (Â§5.3)
     if (userToDelete.email === req.user.email) {
       return res.status(400).json({ message: "Self-deletion is restricted for continuity and forensics." });
     }
@@ -1161,7 +1192,7 @@ const deleteUser = async (req, res) => {
       }
     }
 
-    const { approvalId } = req.query; // Check for Dual-Auth approval (§3.1)
+    const { approvalId } = req.query; // Check for Dual-Auth approval (Â§3.1)
 
     if (approvalId) {
       const approvedAction = await PendingAction.findById(approvalId);
@@ -1169,7 +1200,7 @@ const deleteUser = async (req, res) => {
 
         // 4-Eyes Check: Approver must be DIFFERENT from the final executor
         if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
-          return res.status(403).json({ message: "Security Violation: Executioner cannot be the same as the Approver (§3.1)." });
+          return res.status(403).json({ message: "Security Violation: Executioner cannot be the same as the Approver (Â§3.1)." });
         }
 
         // Invalidate sessions and delete
@@ -1190,7 +1221,7 @@ const deleteUser = async (req, res) => {
       }
     }
 
-    // Otherwise, create a pending request (§3.1)
+    // Otherwise, create a pending request (Â§3.1)
     const pending = await PendingAction.create({
       actionType: "MASS_USER_DELETE",
       data: { targetUserId: userToDelete._id, targetEmail: userToDelete.email },
@@ -1205,7 +1236,7 @@ const deleteUser = async (req, res) => {
     });
 
     res.status(202).json({
-      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (§3.1).",
+      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (Â§3.1).",
       pendingActionId: pending._id
     });
   } catch (error) {
@@ -1334,122 +1365,74 @@ const getUserActivity = async (req, res) => {
  * @access  Public
  */
 const forgotPassword = async (req, res) => {
-  const startTime = Date.now();
   const { email } = req.body;
 
   try {
-    // 1. INPUT VALIDATION (Strategic §1.1)
     if (!email || !isValidEmail(email)) {
-      return res.status(400).json({ message: "Formal registry error: Invalid email format." });
+      return res.status(400).json({ success: false, message: "Invalid email format" });
     }
 
     const sanitizedEmail = email.trim().toLowerCase();
+    const genericResponse = {
+      success: true,
+      message: "If an account exists for this email address, a password reset link has been sent."
+    };
 
-    // 2. DB HEALTH CHECK (Requirement 1 - Diagnostic)
-    const mongoose = require("mongoose");
-    if (mongoose.connection.readyState !== 1) {
-      logger.error("[Auth] FATAL: Database not connected. Readiness State: " + mongoose.connection.readyState);
-      return res.status(503).json({ message: "Security Engine temporarily offline (DB Connection Failure)." });
-    }
-
-    // 3. OPTIMIZED USER LOOKUP (Requirement 3 - Performance)
-    // We only need the ID to generate the token
     const user = await User.findOne({ email: sanitizedEmail, isActive: true })
       .select("_id email name")
       .lean();
 
-    // 4. ANTI-ENUMERATION RESPONSE (§1.2 - Guard against discovery attacks)
-    const genericResponse = {
-      message: "If an account exists for this email address, a password reset link has been sent.",
-      latency: `${Date.now() - startTime}ms`
-    };
-
-    // If user doesn't exist, exit early but return standard success message
     if (!user) {
-      logger.info(`[Auth] Recovery attempted for unregistered node: ${sanitizedEmail}`);
-      return res.status(200).json({
-        ...genericResponse,
-        meta: { userStatus: 'unidentified', diagnostic: 'abort-early' }
-      });
+      return res.status(200).json(genericResponse);
     }
 
-    // 5. SECURE TOKEN GENERATION (§Step 3)
-    const resetToken = crypto.randomBytes(32).toString('hex');
-    const hashedToken = crypto.createHash('sha256').update(resetToken).digest('hex');
+    const resetToken = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto.createHash("sha256").update(resetToken).digest("hex");
 
-    // 6. PERSISTENCE (Requirement 3)
     const resetRecord = await PasswordResetToken.create({
       userId: user._id,
-      tokenHash: hashedToken,
+      tokenHash,
       expiresAt: new Date(Date.now() + 15 * 60 * 1000)
     });
 
-    // 7. PRODUCTION INCIDENT RESPONSE: Synchronous Email Dispatch
-    // As per Requirement 1: Do NOT allow silent success.
-    // We wait for the email to ensure delivery before returning 200.
-    try {
-      // PROD DIAGNOSTIC: Check for required env vars before attempting dispatch
-      const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
-
-      if (!hasSystemMail) {
-        console.error(`[Auth] FATAL: Email service not configured on host. EMAIL_USER=${!!process.env.EMAIL_USER}, RESEND=${!!process.env.RESEND_API_KEY}`);
-        // Cleanup token since we can't send it
-        await PasswordResetToken.deleteOne({ _id: resetRecord._id });
-
-        return res.status(503).json({
-          message: "Email dispatch service is currently offline. Please contact an administrator.",
-          code: "EMAIL_SERVICE_MISSING"
-        });
-      }
-
-      console.log(`[Auth] Initiating synchronous email dispatch to: ${user.email}`);
-      const emailResult = await sendPasswordResetEmail(user, resetToken);
-      console.log(`[Auth] Email sent successfully. ID: ${emailResult?.messageId || 'Resend API ID'}`);
-
-      // Strategic Audit Logging (Background)
-      setImmediate(async () => {
-        try {
-          await AuditLog.create({
-            action: "RECOVERY_LINK_DISPATCHED",
-            performedBy: user.email,
-            details: `Secure reset link transmitted to ${user.email} via ${emailResult?.provider || 'unknown'}.`,
-            ip: req.ip || req.connection?.remoteAddress,
-          });
-        } catch (logErr) { logger.error("Background Log Error:", logErr.message); }
-      });
-
-      return res.status(200).json({
-        ...genericResponse,
-        meta: {
-          provider: emailResult?.provider,
-          userStatus: 'identified',
-          diagnostic: 'handshake-complete'
-        }
-      });
-
-    } catch (emailErr) {
-      console.error(`[Auth] EXPLICIT RESET FAILURE for ${user.email}:`, emailErr.message);
-
-      // CLEANUP: Delete the token if it couldn't be sent
+    const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
+    if (!hasSystemMail) {
       await PasswordResetToken.deleteOne({ _id: resetRecord._id });
-
       return res.status(503).json({
-        message: "Network Error: Failed to transmit recovery link. Please try again in 5 minutes.",
-        meta: { userStatus: 'identified', error: emailErr.message },
+        success: false,
+        message: "Email service is unavailable. Please try again later.",
+        code: "EMAIL_SERVICE_MISSING"
+      });
+    }
+
+    try {
+      await sendPasswordResetEmail(user, resetToken);
+    } catch (emailErr) {
+      await PasswordResetToken.deleteOne({ _id: resetRecord._id });
+      return res.status(503).json({
+        success: false,
+        message: "Failed to send reset link. Please try again in a few minutes.",
         code: "EMAIL_DISPATCH_FAILURE"
       });
     }
 
-  } catch (error) {
-    const totalTime = Date.now() - startTime;
-    console.error(`[Auth] CRITICAL SYSTEM FAULT (Latency: ${totalTime}ms):`, error);
-
-    // REQUIREMENT: Must return JSON so frontend doesn't see "Bad Gateway" or "CORS Block"
-    return res.status(500).json({
-      message: "Internal Security Engine Failure.",
-      debug: error.message,
-      meta: { userStatus: 'unknown', diagnostic: 'abort-unhandled' }
+    setImmediate(async () => {
+      try {
+        await AuditLog.create({
+          action: "RECOVERY_LINK_DISPATCHED",
+          performedBy: user.email,
+          details: `Password reset link sent to ${user.email}`,
+          ip: getClientIp(req),
+        });
+      } catch (logErr) {
+        logger.error("Background Log Error:", logErr.message);
+      }
     });
+
+    return res.status(200).json(genericResponse);
+  } catch (error) {
+    logger.error("[Auth] Forgot password error:", error.message);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 };
 
@@ -1460,7 +1443,7 @@ const forgotPassword = async (req, res) => {
  */
 const validateResetToken = async (req, res) => {
   try {
-    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+    const hashedToken = crypto.createHash("sha256").update(req.params.token).digest("hex");
 
     const resetTokenRecord = await PasswordResetToken.findOne({
       tokenHash: hashedToken,
@@ -1469,13 +1452,19 @@ const validateResetToken = async (req, res) => {
     }).populate("userId");
 
     if (!resetTokenRecord || !resetTokenRecord.userId) {
-      return res.status(400).json({ message: "Reset signature invalid or identity link expired." });
+      return res.status(400).json({ success: false, message: "Reset link is invalid or expired." });
     }
 
-    res.json({ valid: true, email: resetTokenRecord.userId.email });
+    return res.json({
+      success: true,
+      data: {
+        valid: true,
+        email: resetTokenRecord.userId.email
+      }
+    });
   } catch (error) {
     logger.error("[Auth] Token validation error:", error.message);
-    res.status(500).json({ message: "Token validation internal error." });
+    return res.status(500).json({ success: false, message: "Token validation internal error." });
   }
 };
 
@@ -1487,56 +1476,58 @@ const validateResetToken = async (req, res) => {
 const resetPassword = async (req, res) => {
   try {
     const { password } = req.body;
+    if (!password) {
+      return res.status(400).json({ success: false, message: "New password is required" });
+    }
 
-    // 1. Cryptographic validation of the specific token
-    const hashedToken = crypto.createHash('sha256').update(req.params.token).digest('hex');
+    const strength = validatePasswordStrength(password);
+    if (!strength.isStrong) {
+      return res.status(400).json({
+        success: false,
+        message: "Password does not meet security requirements",
+        feedback: strength.feedback,
+        score: strength.score
+      });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(req.params.token).digest("hex");
 
     const resetTokenRecord = await PasswordResetToken.findOne({
-      tokenHash: hashedToken,
+      tokenHash,
       expiresAt: { $gt: Date.now() },
       used: false
     }).populate("userId");
 
     if (!resetTokenRecord || !resetTokenRecord.userId) {
-      return res.status(400).json({ message: "Strategic Reset Failure: Link has expired or was already rotated." });
+      return res.status(400).json({ success: false, message: "Reset link is invalid or expired." });
     }
 
     const user = resetTokenRecord.userId;
 
-    // 2. Security Check: Block weak passwords (§Step 4)
-    if (password.length < 12) {
-      return res.status(400).json({ message: "Password must be at least 12 characters long for security compliance." });
-    }
-
-    // 3. Commit new credentials
-    // The User model's pre-save hook was removed. Hash manually.
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
-    user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all active JWT sessions
+    user.password = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    user.tokenVersion = (user.tokenVersion || 0) + 1;
     user.passwordResetToken = undefined;
     user.passwordResetExpires = undefined;
 
-    // 4. Mark token as used and commit password change atomically.
     resetTokenRecord.used = true;
+
     await Promise.all([
       user.save(),
       resetTokenRecord.save(),
-      RefreshToken.deleteMany({ user: user._id }), // Revoke all sessions (§Step 4)
+      RefreshToken.deleteMany({ user: user._id }),
       AuditLog.create({
         action: "PASSWORD_RESET_SUCCESS",
         performedBy: user.email,
-        details: `Account credentials successfully rotated. All sessions invalidated.`,
-        ip: req.ip || req.connection?.remoteAddress,
+        details: "Password reset completed. Sessions revoked.",
+        ip: getClientIp(req),
       }),
       logUserActivity(user._id, "SECURITY", "Password successfully reset via recovery link.", req)
     ]);
 
-    logger.info(`[Auth] Password successfully rotated for ${user.email}`);
-
-    res.json({ message: "Credentials updated successfully. System state synchronized. Please sign in." });
+    return res.json({ success: true, message: "Credentials updated successfully. Please sign in." });
   } catch (error) {
     logger.error("[Auth] Reset Commit Failure:", error.message);
-    res.status(500).json({ message: "Credential rotation system failure." });
+    return res.status(500).json({ success: false, message: "Credential rotation system failure." });
   }
 };
 
@@ -1573,6 +1564,7 @@ const approveUserByAdmin = async (req, res) => {
 
 module.exports = {
   register,
+  checkEmailAvailability,
   login,
   forgotPassword,
   validateResetToken,
@@ -1600,3 +1592,11 @@ module.exports = {
   getUserActivity,
   verify2FALogin
 };
+
+
+
+
+
+
+
+
