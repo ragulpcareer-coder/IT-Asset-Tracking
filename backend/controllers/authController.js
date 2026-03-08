@@ -22,7 +22,7 @@ const geoip = require("geoip-lite");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
 const PasswordResetToken = require("../models/PasswordResetToken");
-const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = require("../utils/emailService");
+const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail, resend } = require("../utils/emailService");
 const correlationEngine = require("../services/correlationEngine");
 const { extractClientIp } = require("../utils/clientIp");
 
@@ -1341,24 +1341,31 @@ const rejectUser = async (req, res) => {
 
 const diagEmailTest = async (req, res) => {
   try {
+    const to = String(req.query.to || process.env.ADMIN_EMAIL || req.user?.email || "").trim();
+    if (!to) {
+      return res.status(400).json({ success: false, message: "Provide recipient via ?to=email@example.com" });
+    }
+
     const testUser = {
       _id: "test_67890",
       name: "Dummy Test User",
-      email: "dummy@test.com",
+      email: to,
       role: "User"
     };
-    const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
+    const adminEmail = to;
     const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
 
-    await sendApprovalRequest(testUser);
+    const dispatch = await sendApprovalRequest(testUser);
     res.json({
       success: true,
       message: "Approval request email triggered!",
-      sentTo: adminEmail.replace(/(.{2}).*(@.*)/, "$1...$2"),
+      sentTo: adminEmail,
+      provider: dispatch?.provider || "unknown",
       diag: {
         hasEmailUser: !!process.env.EMAIL_USER,
         hasEmailPass: !!process.env.EMAIL_PASS,
         hasResendKey: !!process.env.RESEND_API_KEY,
+        resendClientInitialized: !!resend,
         envHealthy: hasSystemMail
       }
     });

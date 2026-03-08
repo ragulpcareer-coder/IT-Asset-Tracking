@@ -55,7 +55,7 @@ router.get("/reset-password/:token", validateResetToken);
 router.post("/reset-password/:token", resetPassword);
 
 // Diagnostic (internal only)
-router.get("/diag/email-test", diagEmailTest);
+router.get("/diag/email-test", protect, admin, diagEmailTest);
 
 // â”€â”€ Authenticated User Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/me", protect, getMe);
