@@ -6,7 +6,7 @@ import LoadingSpinner from "../components/common/LoadingSpinner";
 import { Badge, Button, Card, ConfirmModal } from "../components/UI";
 import { ToastContainer, toast } from "react-toastify";
 import AssetNetworkMap from "../components/AssetNetworkMap";
-import { MapContainer, TileLayer, CircleMarker, Popup } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Marker, Tooltip } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 
 const emptyStats = {
@@ -153,6 +153,9 @@ export default function Cybersecurity() {
     [assets]
   );
 
+  // Protected network zone marker (can be replaced with org-specific coordinates from backend config)
+  const defenseHub = useMemo(() => [13.0827, 80.2707], []); // Chennai
+
   const handleScanNetwork = async () => {
     try {
       setScanning(true);
@@ -288,35 +291,50 @@ export default function Cybersecurity() {
                 scrollWheelZoom
               >
                 <TileLayer
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                  attribution="&copy; OpenStreetMap contributors"
+                  url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+                  attribution="&copy; OpenStreetMap contributors &copy; CARTO"
                 />
+                <Marker position={defenseHub}>
+                  <Tooltip direction="top" offset={[0, -8]} opacity={1}>
+                    Protected Network Zone
+                  </Tooltip>
+                </Marker>
                 {threatPoints.map((point) => {
                   const critical = String(point.severity).toUpperCase() === "CRITICAL";
+                  const sourcePosition = [Number(point.lat), Number(point.lon)];
                   return (
-                    <CircleMarker
-                      key={point.id}
-                      center={[Number(point.lat), Number(point.lon)]}
-                      radius={critical ? 8 : 6}
-                      pathOptions={{
-                        color: critical ? "#ef4444" : "#f59e0b",
-                        fillColor: critical ? "#ef4444" : "#f59e0b",
-                        fillOpacity: 0.7
-                      }}
-                    >
-                      <Popup>
-                        <div style={{ minWidth: 220 }}>
-                          <div><strong>{point.type}</strong></div>
-                          <div>IP: {point.ip || "Unknown"}</div>
-                          <div>IP Type: {point.ipType || "UNKNOWN"}</div>
-                          <div>Country: {point.country || "Unknown"}</div>
-                          <div>ASN: {point.asn || "Unknown"}</div>
-                          <div>ISP: {point.isp || point.org || "Unknown"}</div>
-                          <div>Abuse Score: {Number.isFinite(Number(point.abuseScore)) ? Number(point.abuseScore) : 0}/100</div>
-                          <div>Severity: {point.severity || "MEDIUM"}</div>
-                        </div>
-                      </Popup>
-                    </CircleMarker>
+                    <React.Fragment key={point.id}>
+                      <Polyline
+                        positions={[sourcePosition, defenseHub]}
+                        pathOptions={{
+                          color: critical ? "#ef4444" : "#f59e0b",
+                          weight: critical ? 3 : 2,
+                          opacity: 0.65
+                        }}
+                      />
+                      <CircleMarker
+                        center={sourcePosition}
+                        radius={critical ? 8 : 6}
+                        pathOptions={{
+                          color: critical ? "#ef4444" : "#f59e0b",
+                          fillColor: critical ? "#ef4444" : "#f59e0b",
+                          fillOpacity: 0.75
+                        }}
+                      >
+                        <Popup>
+                          <div style={{ minWidth: 240 }}>
+                            <div><strong>{point.type}</strong></div>
+                            <div>IP: {point.ip || "Unknown"}</div>
+                            <div>IP Type: {point.ipType || "UNKNOWN"}</div>
+                            <div>Country: {point.country || "Unknown"}</div>
+                            <div>ASN: {point.asn || "Unknown"}</div>
+                            <div>ISP: {point.isp || point.org || "Unknown"}</div>
+                            <div>Abuse Score: {Number.isFinite(Number(point.abuseScore)) ? Number(point.abuseScore) : 0}/100</div>
+                            <div>Severity: {point.severity || "MEDIUM"}</div>
+                          </div>
+                        </Popup>
+                      </CircleMarker>
+                    </React.Fragment>
                   );
                 })}
               </MapContainer>
