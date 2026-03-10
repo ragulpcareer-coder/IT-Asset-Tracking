@@ -1,4 +1,8 @@
 const nodemailer = require("nodemailer");
+const { Resend } = require('resend');
+
+// Initialize Resend (Optional Fallback)
+const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 // Initialize Nodemailer with Gmail optimized settings (Production Grade: Port 465)
 // REQUIREMENT: Use Port 465 + SSL (secure: true) for cloud reliability
@@ -51,6 +55,30 @@ try {
 }
 
 const fromEmail = process.env.EMAIL_FROM || 'IT Asset Tracker <ragulp.career@gmail.com>';
+const resendFrom = (process.env.RESEND_FROM_EMAIL || "").trim();
+const resendSandboxSender = "onboarding@resend.dev";
+
+const parseRecipientList = (value = "") =>
+    String(value)
+        .split(",")
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean);
+
+const normalizeRecipientEmails = (to) =>
+    (Array.isArray(to) ? to : [to])
+        .map((item) => String(item || "").trim().toLowerCase())
+        .filter(Boolean);
+
+const defaultSandboxRecipients = parseRecipientList([
+    process.env.ADMIN_EMAIL,
+    process.env.EMAIL_USER
+].filter(Boolean).join(","));
+
+const configuredSandboxRecipients = parseRecipientList(process.env.RESEND_SANDBOX_RECIPIENTS || "");
+const allowedSandboxRecipients = new Set([
+    ...defaultSandboxRecipients,
+    ...configuredSandboxRecipients
+]);
 const normalizeBaseUrl = (value) => {
     if (!value || typeof value !== "string") return "";
     return value.trim().replace(/\/+$/, "");
@@ -80,10 +108,50 @@ const resolveFrontendUrl = () => {
  * Common dispatch engine with forensic logging
  */
 const sendEmail = async ({ to, subject, html, reply_to }) => {
+    const isProd = process.env.NODE_ENV === 'production';
     console.log(`[Email Engine] Forensic Dispatch Start: to=${to} (Env: ${process.env.NODE_ENV})`);
-    // Strategy 1: SMTP Relay (Gmail) - Primary
+    const recipients = normalizeRecipientEmails(to);
+
+    // Strategy 1: Resend (HTTPS API) - The Production Gold Standard
+    if (resend) {
+        try {
+            console.log(`[Email Engine] P1: Attempting Resend API...`);
+
+            // Prefer explicitly configured verified sender for Resend in production.
+            // Fallback to sandbox sender only when configured sender is unavailable.
+            const sender = resendFrom || (!fromEmail.includes("gmail.com") ? fromEmail : resendSandboxSender);
+            const usingSandbox = sender === resendSandboxSender;
+            const sandboxRecipientAllowed = !usingSandbox || recipients.every((email) => allowedSandboxRecipients.has(email));
+
+            console.log(`[Email Engine] Identity: Sending as ${sender}`);
+
+            if (!sandboxRecipientAllowed) {
+                console.warn("[Email Engine] Resend sandbox sender blocked for this recipient set. Falling back to SMTP.");
+            } else {
+                const { data, error } = await resend.emails.send({
+                    from: sender,
+                    to: Array.isArray(to) ? to : [to],
+                    subject: usingSandbox ? `[IT-ASSET-SYSTEM] ${subject}` : subject,
+                    html,
+                    reply_to
+                });
+
+                if (error) {
+                    console.error(`[Email Engine] RESEND REJECTED (Code: ${error.name}): ${error.message}`);
+                    // Don't throw yet, try SMTP if we are allowed
+                } else {
+                    console.log(`[Email Engine] RESEND SUCCESS: ID: ${data.id}`);
+                    return { ...data, provider: "resend" };
+                }
+            }
+        } catch (resendErr) {
+            console.error(`[Email Engine] RESEND CRITICAL EXCEPTION:`, resendErr.message);
+        }
+    }
+
+    // Strategy 2: SMTP Relay (Gmail) - The Local/Fallback Engine
     try {
-        console.log(`[Email Engine] P1: Attempting SMTP (Port 465)...`);
+        console.log(`[Email Engine] P2: Attempting SMTP (Port 465)...`);
         const info = await Promise.race([
             transporter.sendMail({
                 from: fromEmail,
@@ -94,10 +162,10 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
             }),
             new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_PORT_465_TIMEOUT')), 10000))
         ]);
-        console.log(`[Email Engine] SMTP P1 SUCCESS: ${info.messageId}`);
+        console.log(`[Email Engine] SMTP P2 SUCCESS: ${info.messageId}`);
         return { ...info, provider: 'smtp-465' };
     } catch (smtp465Error) {
-        console.warn(`[Email Engine] SMTP P1 FAILED: ${smtp465Error.message}. Trying P2 (587)...`);
+        console.warn(`[Email Engine] SMTP P2 FAILED: ${smtp465Error.message}. Trying P3 (587)...`);
 
         try {
             const info = await Promise.race([
@@ -110,11 +178,11 @@ const sendEmail = async ({ to, subject, html, reply_to }) => {
                 }),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('SMTP_PORT_587_TIMEOUT')), 10000))
             ]);
-            console.log(`[Email Engine] SMTP P2 SUCCESS: ${info.messageId}`);
+            console.log(`[Email Engine] SMTP P3 SUCCESS: ${info.messageId}`);
             return { ...info, provider: 'smtp-587' };
         } catch (smtp587Error) {
             console.error(`[Email Engine] ALL EMAIL STRATEGIES FAILED.`);
-            throw new Error(`Unified Mailing Failure: [SMTP465: ${smtp465Error.message}] + [SMTP587: ${smtp587Error.message}]`);
+            throw new Error(`Unified Mailing Failure: [Resend Check Audit] + [SMTP465: ${smtp465Error.message}] + [SMTP587: ${smtp587Error.message}]`);
         }
     }
 };
@@ -188,6 +256,7 @@ const sendPasswordResetEmail = async (userInfo, resetToken) => {
 };
 
 module.exports = {
+    resend,
     sendSecurityAlert,
     sendApprovalRequest,
     sendPasswordResetEmail

@@ -22,7 +22,7 @@ const geoip = require("geoip-lite");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
 const PasswordResetToken = require("../models/PasswordResetToken");
-const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail } = require("../utils/emailService");
+const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail, resend } = require("../utils/emailService");
 const correlationEngine = require("../services/correlationEngine");
 const { extractClientIp } = require("../utils/clientIp");
 
@@ -1365,6 +1365,7 @@ const diagEmailTest = async (req, res) => {
         hasEmailUser: !!process.env.EMAIL_USER,
         hasEmailPass: !!process.env.EMAIL_PASS,
         hasResendKey: !!process.env.RESEND_API_KEY,
+        resendClientInitialized: !!resend,
         envHealthy: hasSystemMail
       }
     });
