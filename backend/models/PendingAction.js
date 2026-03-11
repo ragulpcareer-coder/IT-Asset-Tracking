@@ -4,7 +4,7 @@ const pendingActionSchema = new mongoose.Schema({
     actionType: {
         type: String,
         required: true,
-        enum: ["DELETE_ASSET_DB", "MASS_USER_DELETE", "SYSTEM_CONFIG_CHANGE", "DELETE_ASSET"]
+        enum: ["DELETE_ASSET_DB", "MASS_USER_DELETE", "SYSTEM_CONFIG_CHANGE", "DELETE_ASSET", "PROMOTE_USER"]
     },
     data: {
         type: mongoose.Schema.Types.Mixed,

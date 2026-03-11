@@ -23,6 +23,25 @@ const RISK_LEVELS = ["All", "Low", "Medium", "High", "Critical"];
 
 const getRiskLevel = (asset) => asset?.securityStatus?.riskLevel || "Low";
 const isInternalIp = (ip = "") => /^(10\.|127\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(String(ip));
+const isWirelessType = (type = "") => /laptop|mobile|tablet|phone|wifi/i.test(String(type));
+const toNumber = (value, fallback = 0) => (Number.isFinite(Number(value)) ? Number(value) : fallback);
+const isMaskedProvider = (value = "") => /amazon|aws|google|microsoft|digitalocean|ovh|hetzner|linode|vultr/i.test(String(value));
+const getStatusFromCheckIn = (asset) => {
+  if (asset?.status === "retired") return "Retired";
+  const last = asset?.lastCheckIn ? new Date(asset.lastCheckIn).getTime() : 0;
+  if (!last) return "Unknown";
+  const minutes = (Date.now() - last) / 60000;
+  if (minutes <= 10) return "Online";
+  if (minutes <= 60) return "Degraded";
+  return "Offline";
+};
+const STATUS_COLORS = {
+  Online: "#22c55e",
+  Degraded: "#f59e0b",
+  Offline: "#ef4444",
+  Retired: "#475569",
+  Unknown: "#64748b"
+};
 
 const toArray = (value, candidates = []) => {
   if (Array.isArray(value)) return value;
@@ -45,6 +64,8 @@ export default function AssetNetworkMap({ onClose }) {
   const [search, setSearch] = useState("");
   const [riskFilter, setRiskFilter] = useState("All");
   const [showThreatRoutes, setShowThreatRoutes] = useState(true);
+  const [overlay, setOverlay] = useState("security");
+  const [showLabels, setShowLabels] = useState(true);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -103,7 +124,8 @@ export default function AssetNetworkMap({ onClose }) {
       description: alert.description || "No description",
       asn: alert?.metadata?.asn || "Unknown",
       isp: alert?.metadata?.isp || alert?.metadata?.org || "Unknown",
-      abuseScore: Number.isFinite(Number(alert?.metadata?.abuseScore)) ? Number(alert.metadata.abuseScore) : 0
+      abuseScore: Number.isFinite(Number(alert?.metadata?.abuseScore)) ? Number(alert.metadata.abuseScore) : 0,
+      maskedVector: isMaskedProvider(alert?.metadata?.isp || alert?.metadata?.org || "")
     }));
   }, [alerts]);
 
@@ -142,6 +164,12 @@ export default function AssetNetworkMap({ onClose }) {
       riskScore: Number(asset.riskScore || 0),
       riskLevel: getRiskLevel(asset),
       status: asset.status || "available",
+      healthStatus: getStatusFromCheckIn(asset),
+      lastCheckIn: asset.lastCheckIn || null,
+      location: asset.location || asset.department || "Unknown",
+      os: asset.osVersion || asset.os || "Unknown",
+      trafficScore: Math.min(100, toNumber(asset.riskScore, 10) + (asset.status === "in use" ? 20 : 0)),
+      powerScore: Math.min(100, toNumber(asset.powerDrawWatts, 35)),
       assetType: asset.type || "Device",
       raw: asset
     }));
@@ -173,15 +201,16 @@ export default function AssetNetworkMap({ onClose }) {
     const nodes = [...coreNodes, ...assetNodes, ...threatNodes];
 
     const links = [
-      { id: "l-internet-firewall", source: "internet", target: "firewall", kind: "backbone", severity: "MEDIUM" },
-      { id: "l-firewall-core", source: "firewall", target: "core", kind: "backbone", severity: "LOW" },
-      { id: "l-core-identity", source: "core", target: "identity", kind: "backbone", severity: "LOW" },
+      { id: "l-internet-firewall", source: "internet", target: "firewall", kind: "backbone", severity: "MEDIUM", weight: 2.6 },
+      { id: "l-firewall-core", source: "firewall", target: "core", kind: "backbone", severity: "LOW", weight: 2.1 },
+      { id: "l-core-identity", source: "core", target: "identity", kind: "backbone", severity: "LOW", weight: 1.9 },
       ...assetNodes.map((node) => ({
         id: `l-core-${node.id}`,
         source: "core",
         target: node.id,
         kind: "asset",
-        severity: node.riskLevel.toUpperCase()
+        severity: node.riskLevel.toUpperCase(),
+        weight: 1.3 + (node.trafficScore / 60)
       })),
       ...threatNodes.flatMap((node) => ([
         {
@@ -190,7 +219,8 @@ export default function AssetNetworkMap({ onClose }) {
           target: "firewall",
           kind: "threat",
           severity: node.riskLevel.toUpperCase(),
-          description: node.description
+          description: node.description,
+          weight: node.riskLevel === "Critical" ? 3.2 : 2.6
         },
         {
           id: `l-threat-target-${node.id}`,
@@ -198,7 +228,8 @@ export default function AssetNetworkMap({ onClose }) {
           target: node.mappedTargetId,
           kind: "threat",
           severity: node.riskLevel.toUpperCase(),
-          description: node.description
+          description: node.description,
+          weight: node.riskLevel === "Critical" ? 3.2 : 2.6
         }
       ]))
     ];
@@ -228,7 +259,7 @@ export default function AssetNetworkMap({ onClose }) {
         if (d.kind === "backbone") return "#38bdf8";
         return "#334155";
       })
-      .attr("stroke-width", (d) => (d.kind === "threat" ? 2.6 : 1.6))
+      .attr("stroke-width", (d) => d.weight || (d.kind === "threat" ? 2.6 : 1.6))
       .attr("stroke-opacity", (d) => (d.kind === "threat" ? 0.85 : 0.55))
       .attr("stroke-dasharray", (d) => (d.kind === "threat" ? "7 6" : "none"))
       .style("cursor", "pointer")
@@ -274,12 +305,25 @@ export default function AssetNetworkMap({ onClose }) {
       .append("circle")
       .attr("r", (d) => (d.nodeType === "threat" ? 10 : d.nodeType === "asset" ? 16 : 20))
       .attr("fill", (d) => {
-        if (d.nodeType === "asset") return RISK_COLORS[d.riskLevel] || NODE_COLORS.asset;
+        if (d.nodeType === "asset") {
+          if (overlay === "wireless") return isWirelessType(d.assetType) ? "#22d3ee" : "#334155";
+          if (overlay === "power") return d.powerScore > 70 ? "#ef4444" : d.powerScore > 40 ? "#f59e0b" : "#22c55e";
+          if (overlay === "traffic") return d.trafficScore > 70 ? "#f97316" : d.trafficScore > 40 ? "#38bdf8" : "#22c55e";
+          return RISK_COLORS[d.riskLevel] || NODE_COLORS.asset;
+        }
         return NODE_COLORS[d.nodeType] || NODE_COLORS.asset;
       })
       .attr("stroke", "#e2e8f0")
       .attr("stroke-width", (d) => (d.nodeType === "threat" ? 1.6 : 1.2))
       .attr("stroke-opacity", 0.4);
+
+    nodeSelection
+      .append("circle")
+      .attr("r", (d) => (d.nodeType === "asset" ? 22 : d.nodeType === "threat" ? 16 : 0))
+      .attr("fill", "none")
+      .attr("stroke", (d) => (d.nodeType === "asset" ? STATUS_COLORS[d.healthStatus] || STATUS_COLORS.Unknown : d.nodeType === "threat" ? "#ef4444" : "none"))
+      .attr("stroke-width", (d) => (d.nodeType === "asset" ? 2 : 0))
+      .attr("stroke-opacity", 0.55);
 
     nodeSelection
       .append("circle")
@@ -296,7 +340,7 @@ export default function AssetNetworkMap({ onClose }) {
       .attr("font-size", "10px")
       .attr("font-weight", "700")
       .attr("fill", "#cbd5e1")
-      .text((d) => (d.name.length > 22 ? `${d.name.slice(0, 22)}...` : d.name));
+      .text((d) => (showLabels ? (d.name.length > 22 ? `${d.name.slice(0, 22)}...` : d.name) : ""));
 
     nodeSelection
       .append("text")
@@ -331,7 +375,7 @@ export default function AssetNetworkMap({ onClose }) {
       dashTimer.stop();
       simulation.stop();
     };
-  }, [loading, filteredAssets, normalizedThreats, showThreatRoutes]);
+  }, [loading, filteredAssets, normalizedThreats, showThreatRoutes, overlay, showLabels]);
 
   if (loading) return <LoadingSpinner message="Building network topology graph..." />;
 
@@ -339,7 +383,8 @@ export default function AssetNetworkMap({ onClose }) {
     totalAssets: filteredAssets.length,
     highRiskAssets: filteredAssets.filter((a) => ["High", "Critical"].includes(getRiskLevel(a))).length,
     threatRoutes: showThreatRoutes ? normalizedThreats.length : 0,
-    unmanaged: filteredAssets.filter((a) => !a.assignedTo).length
+    unmanaged: filteredAssets.filter((a) => !a.assignedTo).length,
+    online: filteredAssets.filter((a) => getStatusFromCheckIn(a) === "Online").length
   };
 
   const recentThreats = normalizedThreats.slice(0, 6);
@@ -377,6 +422,19 @@ export default function AssetNetworkMap({ onClose }) {
           >
             {showThreatRoutes ? "Hide Threat Routes" : "Show Threat Routes"}
           </Button>
+          <select
+            className="input h-9 w-36 bg-slate-900 border-white/10 text-xs"
+            value={overlay}
+            onChange={(e) => setOverlay(e.target.value)}
+          >
+            <option value="security">Security Overlay</option>
+            <option value="wireless">Wireless Overlay</option>
+            <option value="power">Power Overlay</option>
+            <option value="traffic">Traffic Overlay</option>
+          </select>
+          <Button variant={showLabels ? "secondary" : "ghost"} size="sm" onClick={() => setShowLabels((prev) => !prev)}>
+            {showLabels ? "Hide Labels" : "Show Labels"}
+          </Button>
           <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
         </div>
       </div>
@@ -396,9 +454,16 @@ export default function AssetNetworkMap({ onClose }) {
               <div className="flex justify-between"><span className="text-slate-400">High Risk Assets</span><span className="text-red-400 font-bold">{stats.highRiskAssets}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Threat Routes</span><span className="text-amber-400 font-bold">{stats.threatRoutes}</span></div>
               <div className="flex justify-between"><span className="text-slate-400">Unmanaged Assets</span><span className="text-cyan-400 font-bold">{stats.unmanaged}</span></div>
+              <div className="flex justify-between"><span className="text-slate-400">Online Now</span><span className="text-emerald-400 font-bold">{stats.online}</span></div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
               {Object.entries(RISK_COLORS).map(([label, color]) => (
+                <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">
+                  <span className="w-2 h-2 rounded-full" style={{ background: color }} />
+                  {label}
+                </span>
+              ))}
+              {Object.entries(STATUS_COLORS).map(([label, color]) => (
                 <span key={label} className="inline-flex items-center gap-1 rounded-full border border-white/10 px-2 py-0.5 text-[10px] text-slate-300">
                   <span className="w-2 h-2 rounded-full" style={{ background: color }} />
                   {label}
@@ -416,11 +481,22 @@ export default function AssetNetworkMap({ onClose }) {
                 <div className="flex justify-between"><span className="text-slate-500">IP</span><span className="text-slate-200 font-mono">{selectedNode.ipAddress || "N/A"}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Risk Score</span><span className="text-slate-200">{Math.round(Number(selectedNode.riskScore || 0))}</span></div>
                 <div className="flex justify-between"><span className="text-slate-500">Risk Level</span><Badge variant={["High", "Critical"].includes(selectedNode.riskLevel) ? "danger" : "warning"}>{selectedNode.riskLevel || "Low"}</Badge></div>
+                {selectedNode.nodeType === "asset" && (
+                  <>
+                    <div className="flex justify-between"><span className="text-slate-500">Status</span><span className="text-slate-200">{selectedNode.healthStatus || "Unknown"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Owner</span><span className="text-slate-200">{selectedNode.assignedTo || "Unassigned"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Location</span><span className="text-slate-200">{selectedNode.location || "Unknown"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">OS</span><span className="text-slate-200">{selectedNode.os || "Unknown"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Last Check-in</span><span className="text-slate-200">{selectedNode.lastCheckIn ? new Date(selectedNode.lastCheckIn).toLocaleString() : "Unknown"}</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Traffic Score</span><span className="text-slate-200">{Math.round(selectedNode.trafficScore || 0)}%</span></div>
+                  </>
+                )}
                 {selectedNode.nodeType === "threat" && (
                   <>
                     <div className="flex justify-between"><span className="text-slate-500">ASN</span><span className="text-slate-200">{selectedNode.asn || "Unknown"}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">ISP</span><span className="text-slate-200">{selectedNode.isp || "Unknown"}</span></div>
                     <div className="flex justify-between"><span className="text-slate-500">Abuse Score</span><span className="text-red-300 font-bold">{selectedNode.abuseScore || 0}/100</span></div>
+                    <div className="flex justify-between"><span className="text-slate-500">Vector</span><span className="text-slate-200">{selectedNode.maskedVector ? "Masked (Cloud/VPN)" : "Direct"}</span></div>
                   </>
                 )}
               </div>

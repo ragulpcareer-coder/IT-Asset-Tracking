@@ -141,6 +141,7 @@ export default function AssetModal({ isOpen, onClose, onSubmit, initialData }) {
                                         <option value="available">Available / Inventory</option>
                                         <option value="assigned">Assigned / Locked</option>
                                         <option value="maintenance">Maintenance / Offline</option>
+                                        <option value="pending_recovery">Pending Recovery</option>
                                         <option value="retired">Retired / Decommissioned</option>
                                     </select>
                                 </div>

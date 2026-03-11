@@ -39,6 +39,9 @@ const userSchema = new mongoose.Schema({
   privilegeToken: { type: String },
   privilegeTokenExpires: { type: Date },
   tokenVersion: { type: Number, default: 0 }, // Used to invalidate all JWTs upon password change
+  offboardedAt: { type: Date },
+  offboardedBy: { type: String },
+  offboardReason: { type: String, default: "" },
 
 
   // ─── BEHAVIORAL & SECURITY PROFILING (§Category 11) ─────────────

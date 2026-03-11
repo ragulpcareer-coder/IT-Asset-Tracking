@@ -12,6 +12,16 @@ export default function Users() {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionUser, setActionUser] = useState(null);
+    const [onboardName, setOnboardName] = useState("");
+    const [onboardEmail, setOnboardEmail] = useState("");
+    const [onboardingLoading, setOnboardingLoading] = useState(false);
+    const [offboardReason, setOffboardReason] = useState("");
+    const [auditLogs, setAuditLogs] = useState([]);
+    const [auditLoading, setAuditLoading] = useState(false);
+    const [auditUserEmail, setAuditUserEmail] = useState("");
+    const [pendingActions, setPendingActions] = useState([]);
+    const [pendingStatus, setPendingStatus] = useState("PENDING");
+    const [pendingLoading, setPendingLoading] = useState(false);
 
     const fetchUsers = async () => {
         try {
@@ -35,12 +45,78 @@ export default function Users() {
             if (!removedId) return;
             setUsers((prev) => prev.filter((u) => String(getUserId(u)) !== String(removedId)));
         };
+        const onUserOffboarded = (payload) => {
+            const offId = payload?.userId;
+            if (!offId) return;
+            setUsers((prev) => prev.map((u) => String(getUserId(u)) === String(offId) ? { ...u, isActive: false, offboardedAt: new Date().toISOString() } : u));
+        };
         socket.on("userDeleted", onUserDeleted);
+        socket.on("userOffboarded", onUserOffboarded);
 
         return () => {
             socket.off("userDeleted", onUserDeleted);
+            socket.off("userOffboarded", onUserOffboarded);
         };
     }, []);
+
+    useEffect(() => {
+        const loadAudit = async () => {
+            try {
+                setAuditLoading(true);
+                const res = await axios.get("/audit?limit=200");
+                const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+                setAuditLogs(list);
+            } catch (err) {
+                setAuditLogs([]);
+            } finally {
+                setAuditLoading(false);
+            }
+        };
+        if (["Super Admin", "Admin"].includes(currentUser?.role)) {
+            loadAudit();
+        }
+    }, [currentUser?.role]);
+
+    const loadPending = async () => {
+        try {
+            setPendingLoading(true);
+            const res = await axios.get(`/pending?status=${pendingStatus}`);
+            const list = Array.isArray(res.data?.actions) ? res.data.actions : [];
+            setPendingActions(list);
+        } catch (err) {
+            setPendingActions([]);
+        } finally {
+            setPendingLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (["Super Admin", "Admin"].includes(currentUser?.role)) {
+            loadPending();
+        }
+    }, [currentUser?.role, pendingStatus]);
+
+    const executePendingAction = async (action) => {
+        try {
+            if (action.actionType === "DELETE_ASSET") {
+                await axios.delete(`/assets/${action.data?.assetId}?approvalId=${action._id}`);
+                toast.success("Asset deletion executed.");
+            } else if (action.actionType === "MASS_USER_DELETE") {
+                await axios.delete(`/auth/users/${action.data?.targetUserId}?approvalId=${action._id}`);
+                toast.success("User deletion executed.");
+            } else if (action.actionType === "PROMOTE_USER") {
+                await axios.put(`/auth/users/${action.data?.targetUserId}/promote?approvalId=${action._id}`);
+                toast.success("User promotion executed.");
+            } else {
+                toast.info("No executor available for this action type.");
+            }
+            setPendingStatus("PENDING");
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Execution failed.");
+        } finally {
+            loadPending();
+        }
+    };
 
     const getUserId = (u) => u?._id || u?.id;
     const currentUserId = getUserId(currentUser);
@@ -78,6 +154,11 @@ export default function Users() {
                     setUsers((prev) => prev.filter((u) => String(getUserId(u)) !== String(targetId)));
                     toast.success(`User ${actionUser.email} has been removed.`);
                 }
+            } else if (actionUser.actionType === "offboard") {
+                response = await axios.put(`/auth/users/${targetId}/offboard`, {
+                    reason: offboardReason.trim() || "Administrative offboard"
+                });
+                toast.success(response.data?.message || `User ${actionUser.email} offboarded.`);
             } else if (actionUser.actionType === "approve") {
                 response = await axios.put(`/auth/users/${targetId}/approve`);
                 toast.success(response.data?.message || `Account for ${actionUser.email} has been approved.`);
@@ -90,6 +171,28 @@ export default function Users() {
             toast.error(err.response?.data?.message || "Action failed. Please try again.");
         } finally {
             setActionUser(null);
+            setOffboardReason("");
+        }
+    };
+
+    const handleOnboarding = async () => {
+        if (!onboardEmail.trim()) {
+            toast.error("Email is required for onboarding.");
+            return;
+        }
+        try {
+            setOnboardingLoading(true);
+            const res = await axios.post("/onboarding/auto-assign", {
+                name: onboardName.trim(),
+                email: onboardEmail.trim()
+            });
+            toast.success(res.data?.message || "Onboarding complete.");
+            setOnboardName("");
+            setOnboardEmail("");
+        } catch (err) {
+            toast.error(err.response?.data?.message || "Onboarding failed.");
+        } finally {
+            setOnboardingLoading(false);
         }
     };
 
@@ -113,6 +216,34 @@ export default function Users() {
                 </p>
             </div>
 
+            <Card className="mb-8 p-6 bg-slate-900/40 border-white/5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h2 className="text-lg font-bold text-white">Zero‑Touch Onboarding Simulator</h2>
+                        <p className="text-slate-500 text-xs mt-1 uppercase tracking-widest">
+                            Auto‑assign the oldest available laptop and send a welcome email.
+                        </p>
+                    </div>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
+                    <input
+                        className="input bg-slate-950/40 border-white/5"
+                        placeholder="New hire name"
+                        value={onboardName}
+                        onChange={(e) => setOnboardName(e.target.value)}
+                    />
+                    <input
+                        className="input bg-slate-950/40 border-white/5"
+                        placeholder="New hire email"
+                        value={onboardEmail}
+                        onChange={(e) => setOnboardEmail(e.target.value)}
+                    />
+                    <Button variant="primary" onClick={handleOnboarding} disabled={onboardingLoading}>
+                        {onboardingLoading ? "Assigning..." : "Auto‑Assign Laptop"}
+                    </Button>
+                </div>
+            </Card>
+
             <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40">
                 <div className="table-container border-none rounded-none">
                     <table className="table">
@@ -122,6 +253,8 @@ export default function Users() {
                                 <th>Role</th>
                                 <th>Account Status</th>
                                 <th>MFA Status</th>
+                                <th>Last Login</th>
+                                <th>Offboarded</th>
                                 <th className="text-right">Actions</th>
                             </tr>
                         </thead>
@@ -161,13 +294,19 @@ export default function Users() {
                                         <td>
                                             <div className="flex items-center gap-2">
                                                 <div className={`w-1.5 h-1.5 rounded-full ${u.isActive ? "bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]" : "bg-red-500"}`} />
-                                                <span className="text-[10px] font-black text-slate-300 uppercase">{u.isActive ? "Active" : "Suspended"}</span>
+                                                <span className="text-[10px] font-black text-slate-300 uppercase">{u.isActive ? "Active" : (u.offboardedAt ? "Offboarded" : "Suspended")}</span>
                                             </div>
                                         </td>
                                         <td>
                                             <span className={`text-[10px] font-bold ${u.twoFactorEnabled ? "text-cyan-500" : "text-slate-600"}`}>
                                                 {u.twoFactorEnabled ? "VERIFIED" : "UNSET"}
                                             </span>
+                                        </td>
+                                        <td className="text-[10px] text-slate-400">
+                                            {u.lastLogin ? new Date(u.lastLogin).toLocaleString() : "—"}
+                                        </td>
+                                        <td className="text-[10px] text-slate-400">
+                                            {u.offboardedAt ? new Date(u.offboardedAt).toLocaleString() : "—"}
                                         </td>
                                         <td className="text-right">
                                             <div className="flex justify-end gap-2">
@@ -184,6 +323,11 @@ export default function Users() {
                                                 {getUserId(u) !== currentUserId && (
                                                     <Button variant="danger" size="sm" onClick={() => setActionUser({ ...u, actionType: "terminate" })}>
                                                         Remove User
+                                                    </Button>
+                                                )}
+                                                {u.isActive && getUserId(u) !== currentUserId && (
+                                                    <Button variant="secondary" size="sm" onClick={() => setActionUser({ ...u, actionType: "offboard" })}>
+                                                        Offboard
                                                     </Button>
                                                 )}
                                             </div>
@@ -203,6 +347,8 @@ export default function Users() {
                         ? "Promote to Admin?"
                         : actionUser?.actionType === "approve"
                             ? "Approve User?"
+                            : actionUser?.actionType === "offboard"
+                                ? "Offboard User?"
                             : "Remove User?"
                 }
                 message={
@@ -210,6 +356,8 @@ export default function Users() {
                         ? `Are you sure you want to promote ${actionUser?.name || actionUser?.email} to Administrator?`
                         : actionUser?.actionType === "approve"
                             ? `Are you sure you want to approve ${actionUser?.email}?`
+                            : actionUser?.actionType === "offboard"
+                                ? `Offboard ${actionUser?.email} and mark their assets for recovery?`
                             : `Are you sure you want to remove ${actionUser?.email}?`
                 }
                 confirmText={
@@ -217,12 +365,131 @@ export default function Users() {
                         ? "Confirm Promotion"
                         : actionUser?.actionType === "approve"
                             ? "Approve Account"
+                            : actionUser?.actionType === "offboard"
+                                ? "Confirm Offboard"
                             : "Confirm Removal"
                 }
                 type={actionUser?.actionType === "terminate" ? "danger" : "primary"}
                 onConfirm={handleConfirmAction}
                 onCancel={() => setActionUser(null)}
-            />
+            >
+                {actionUser?.actionType === "offboard" && (
+                    <div className="space-y-2">
+                        <label className="text-[11px] uppercase tracking-widest text-slate-500">Offboard Reason</label>
+                        <input
+                            className="input bg-slate-950/40 border-white/10"
+                            placeholder="Reason for offboarding"
+                            value={offboardReason}
+                            onChange={(e) => setOffboardReason(e.target.value)}
+                        />
+                    </div>
+                )}
+            </ConfirmModal>
+
+            <Card className="mt-10 p-6 bg-slate-900/40 border-white/5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h2 className="text-lg font-bold text-white">Pending 4‑Eyes Actions</h2>
+                        <p className="text-slate-500 text-xs mt-1 uppercase tracking-widest">Approve, reject, or execute approved actions</p>
+                    </div>
+                    <select
+                        className="input bg-slate-950/40 border-white/10 w-full md:w-60"
+                        value={pendingStatus}
+                        onChange={(e) => setPendingStatus(e.target.value)}
+                    >
+                        <option value="PENDING">Pending</option>
+                        <option value="APPROVED">Approved</option>
+                        <option value="REJECTED">Rejected</option>
+                    </select>
+                </div>
+                <div className="mt-4 space-y-2 max-h-72 overflow-y-auto">
+                    {pendingLoading && <div className="text-slate-500 text-sm">Loading pending actions...</div>}
+                    {!pendingLoading && pendingActions.length === 0 && (
+                        <div className="text-slate-500 text-sm">No actions in this state.</div>
+                    )}
+                    {!pendingLoading && pendingActions.map((action) => (
+                        <div key={action._id} className="rounded border border-white/5 bg-slate-950/40 p-3 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                                <div>
+                                    <div className="text-white font-semibold">{action.actionType}</div>
+                                    <div className="text-slate-500">Requested by: {action.createdBy?.email || action.createdBy}</div>
+                                </div>
+                                <Badge variant={action.status === "APPROVED" ? "success" : action.status === "REJECTED" ? "danger" : "warning"}>
+                                    {action.status}
+                                </Badge>
+                            </div>
+                            <div className="text-slate-500 mt-2">
+                                Target: {action.data?.assetName || action.data?.targetEmail || action.data?.assetId || action.data?.targetUserId || "N/A"}
+                            </div>
+                            <div className="text-slate-600 mt-1">Requested: {new Date(action.createdAt).toLocaleString()}</div>
+                            <div className="flex gap-2 mt-3">
+                                {action.status === "PENDING" && (
+                                    <>
+                                        <Button
+                                            size="sm"
+                                            variant="success"
+                                            onClick={() => axios.put(`/pending/${action._id}/approve`)
+                                                .then(() => { toast.success("Approved."); setPendingStatus("PENDING"); loadPending(); })
+                                                .catch((err) => toast.error(err.response?.data?.message || "Approval failed."))}
+                                        >
+                                            Approve
+                                        </Button>
+                                        <Button
+                                            size="sm"
+                                            variant="danger"
+                                            onClick={() => axios.put(`/pending/${action._id}/reject`)
+                                                .then(() => { toast.info("Rejected."); setPendingStatus("PENDING"); loadPending(); })
+                                                .catch((err) => toast.error(err.response?.data?.message || "Rejection failed."))}
+                                        >
+                                            Reject
+                                        </Button>
+                                    </>
+                                )}
+                                {action.status === "APPROVED" && (
+                                    <Button size="sm" variant="primary" onClick={() => executePendingAction(action)}>
+                                        Execute
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </Card>
+
+            <Card className="mt-10 p-6 bg-slate-900/40 border-white/5">
+                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                    <div>
+                        <h2 className="text-lg font-bold text-white">IAM Audit Trail</h2>
+                        <p className="text-slate-500 text-xs mt-1 uppercase tracking-widest">Immutable account activity log</p>
+                    </div>
+                    <select
+                        className="input bg-slate-950/40 border-white/10 w-full md:w-72"
+                        value={auditUserEmail}
+                        onChange={(e) => setAuditUserEmail(e.target.value)}
+                    >
+                        <option value="">Filter by user email</option>
+                        {users.map((u) => (
+                            <option key={getUserId(u)} value={u.email}>{u.email}</option>
+                        ))}
+                    </select>
+                </div>
+                <div className="mt-4 space-y-2 max-h-72 overflow-y-auto">
+                    {auditLoading && <div className="text-slate-500 text-sm">Loading audit trail...</div>}
+                    {!auditLoading && (auditLogs.filter((log) => !auditUserEmail || log.performedBy === auditUserEmail).slice(0, 20)).map((log) => (
+                        <div key={log._id} className="flex items-start justify-between gap-4 rounded border border-white/5 bg-slate-950/40 p-3 text-xs">
+                            <div>
+                                <div className="text-white font-semibold">{log.action}</div>
+                                <div className="text-slate-500">{log.details || "No details"}</div>
+                                <div className="text-slate-600 mt-1">By: {log.performedBy}</div>
+                            </div>
+                            <div className="text-slate-500 font-mono">{new Date(log.createdAt).toLocaleString()}</div>
+                        </div>
+                    ))}
+                    {!auditLoading && auditLogs.length === 0 && (
+                        <div className="text-slate-500 text-sm">No audit activity yet.</div>
+                    )}
+                </div>
+            </Card>
         </div>
     );
 }

@@ -25,6 +25,7 @@ const PasswordResetToken = require("../models/PasswordResetToken");
 const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail, resend } = require("../utils/emailService");
 const correlationEngine = require("../services/correlationEngine");
 const { extractClientIp } = require("../utils/clientIp");
+const Asset = require("../models/Asset");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -1266,6 +1267,61 @@ const deleteUser = async (req, res) => {
   }
 };
 
+// @desc    Offboard user (deactivate + asset recovery)
+// @route   PUT /api/auth/users/:id/offboard
+// @access  Private/Admin
+const offboardUser = async (req, res) => {
+  try {
+    const userToOffboard = await User.findById(req.params.id);
+    if (!userToOffboard) return res.status(404).json({ message: "User not found" });
+
+    if (userToOffboard.email === req.user.email) {
+      return res.status(400).json({ message: "Self-offboarding is restricted for continuity." });
+    }
+
+    if (["Super Admin", "Admin"].includes(userToOffboard.role) && req.user.role !== "Super Admin") {
+      return res.status(403).json({ message: "Only a Super Admin can offboard administrative accounts." });
+    }
+
+    const reason = sanitizeInput(req.body?.reason || "Administrative offboard");
+
+    userToOffboard.isActive = false;
+    userToOffboard.isApproved = false;
+    userToOffboard.offboardedAt = new Date();
+    userToOffboard.offboardedBy = req.user.email;
+    userToOffboard.offboardReason = reason;
+    userToOffboard.tokenVersion = (userToOffboard.tokenVersion || 0) + 1;
+    await userToOffboard.save();
+
+    await RefreshToken.deleteMany({ user: userToOffboard._id });
+
+    const assetUpdate = await Asset.updateMany(
+      { assignedTo: userToOffboard.email },
+      { $set: { status: "pending_recovery", assignedTo: null } }
+    );
+
+    await AuditLog.create({
+      action: "User Offboarded",
+      performedBy: req.user.email,
+      details: `Offboarded ${userToOffboard.email}. Assets moved to pending recovery: ${assetUpdate.modifiedCount || 0}. Reason: ${reason}`,
+      ip: req.ip || req.connection?.remoteAddress,
+      resourceId: userToOffboard._id
+    });
+
+    if (req.app.get("io")) {
+      req.app.get("io").emit("userOffboarded", { userId: String(req.params.id), email: userToOffboard.email });
+    }
+
+    return res.json({
+      success: true,
+      message: "User offboarded successfully. Assets marked for recovery.",
+      assetsUpdated: assetUpdate.modifiedCount || 0
+    });
+  } catch (error) {
+    return res.status(500).json({ message: "Offboarding failed: " + error.message });
+  }
+};
+
 // @desc    Approve user account
 // @route   GET /api/auth/approve/:id
 // @access  Public (via secure link in email)
@@ -1618,6 +1674,7 @@ module.exports = {
   adminResetPassword,
   adminDisable2FA,
   deleteUser,
+  offboardUser,
   approveUser,
   rejectUser,
   approveUserByAdmin,

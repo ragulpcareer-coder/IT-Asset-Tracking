@@ -57,11 +57,12 @@ app.set("trust proxy", 1);
 const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://127.0.0.1:5173",
   "http://localhost:5174",
+  "http://127.0.0.1:5174",
   "http://localhost:5175",
-  FRONTEND_URL,
-  "https://it-asset-tracking-ragul.vercel.app",
-  "https://it-asset-tracking-ragulpcareer-coders-projects.vercel.app"
+  "http://127.0.0.1:5175",
+  FRONTEND_URL
 ];
 
 
@@ -69,10 +70,9 @@ app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
 
-    const isVercelOrigin = origin.endsWith(".vercel.app");
     const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
 
-    if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
+    if (allowedOrigins.indexOf(origin) !== -1 || isLocalhost) {
       callback(null, origin); // MUST return exact origin here, NOT 'true', so ACAO header is echoed back specifically.
     } else {
       console.warn(`[CORS-Forensic] BLOCKED: ${origin}`);
@@ -93,10 +93,9 @@ const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
       if (!origin) return callback(null, true);
-      const isVercelOrigin = origin.endsWith(".vercel.app");
       const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
 
-      if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
+      if (allowedOrigins.indexOf(origin) !== -1 || isLocalhost) {
         callback(null, origin);
       } else {
         callback(null, false);
@@ -269,6 +268,9 @@ app.get("/diag", (req, res) => {
   });
 });
 
+// Public routes (no auth)
+app.use("/api/public", require("./routes/publicRoutes"));
+
 
 
 // CSRF Protection configuration
@@ -298,6 +300,9 @@ apiV1.use("/pending", require("./routes/pendingActionRoutes"));
 apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
 apiV1.use("/dashboard", require("./routes/dashboardRoutes"));
 apiV1.use("/security", require("./routes/securityRoutes")); // SOC Platform — alerts, incidents, simulations
+apiV1.use("/onboarding", require("./routes/onboardingRoutes"));
+apiV1.use("/checkin", require("./routes/checkinRoutes"));
+apiV1.use("/procurement", require("./routes/procurementRoutes"));
 
 // Multi-version support (§39)
 app.use("/api/v1", apiV1);
@@ -329,6 +334,7 @@ try {
   require('./jobs/backupJob');
   require('./jobs/pingWatchdog');
   require('./jobs/keepAliveJob');
+  require('./jobs/lifecycleJob');
 } catch (err) {
   console.warn('Job Initialization Warning:', err.message);
 }

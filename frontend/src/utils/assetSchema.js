@@ -14,7 +14,7 @@ export const assetSchema = {
     },
 
     // Allowed lifecycle states for validation
-    allowedStates: ["available", "assigned", "maintenance", "retired", "lost"],
+    allowedStates: ["available", "assigned", "maintenance", "retired", "lost", "pending_recovery"],
 
     // Formatter functions mapped to exportableFields keys
     formatters: {
@@ -32,6 +32,7 @@ export const assetSchema = {
         lifecycleStatus: (asset) => {
             if (!asset.status) return "Unknown";
             if (asset.status.toLowerCase() === "retired") return "Archived";
+            if (asset.status.toLowerCase() === "pending_recovery") return "Pending Recovery";
             return asset.status.charAt(0).toUpperCase() + asset.status.slice(1).toLowerCase();
         },
         registryState: (asset) => {

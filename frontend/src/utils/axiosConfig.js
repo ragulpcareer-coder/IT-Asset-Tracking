@@ -4,8 +4,8 @@ import "nprogress/nprogress.css";
 
 NProgress.configure({ showSpinner: false, speed: 400, minimum: 0.1 });
 
-const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-const fallbackBaseURL = isLocal ? "http://localhost:5000/api" : "https://it-asset-tracking.onrender.com/api";
+const isLocalhost = (hostname) => hostname === "localhost" || hostname === "127.0.0.1";
+const fallbackBaseURL = "http://localhost:5000/api";
 
 const normalizeApiBase = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== "string") return fallbackBaseURL;
@@ -14,7 +14,15 @@ const normalizeApiBase = (rawUrl) => {
   return /\/api$/i.test(trimmed) ? trimmed : `${trimmed}/api`;
 };
 
-const baseURL = normalizeApiBase(import.meta.env.VITE_API_URL || fallbackBaseURL);
+const envApiUrl = import.meta.env.VITE_API_URL;
+const normalizedEnvApiUrl = normalizeApiBase(envApiUrl);
+const isEnvLocal =
+  typeof normalizedEnvApiUrl === "string" &&
+  (normalizedEnvApiUrl.startsWith("http://localhost") || normalizedEnvApiUrl.startsWith("http://127.0.0.1"));
+
+const baseURL = isLocalhost(window.location.hostname) && isEnvLocal
+  ? normalizedEnvApiUrl
+  : fallbackBaseURL;
 
 const instance = axios.create({
   baseURL,

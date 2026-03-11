@@ -6,6 +6,24 @@ const BlockedIp = require("../models/BlockedIp");
 const attackSimulator = require("../services/attackSimulator");
 const { getGeoLocation } = require("../utils/geoIpService");
 const securityEventService = require("../services/securityEventService");
+const Asset = require("../models/Asset");
+
+const parseNumber = (value, fallback) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : fallback;
+};
+
+const getHqCoordinates = () => ({
+    lat: parseNumber(process.env.HQ_LAT, 13.0827), // Chennai default
+    lon: parseNumber(process.env.HQ_LON, 80.2707),
+    label: process.env.HQ_LABEL || "HQ"
+});
+
+const isMaskedProvider = (org = "") => {
+    const text = String(org).toLowerCase();
+    const providers = ["amazon", "aws", "google", "microsoft", "digitalocean", "ovh", "hetzner", "linode", "vultr"];
+    return providers.some((p) => text.includes(p));
+};
 
 const simulateBruteForce = async (req, res) => {
     try {
@@ -120,9 +138,26 @@ const getSocStats = async (req, res) => {
 const getThreatMapPoints = async (req, res) => {
     try {
         const events = await securityEventService.getMapEvents(24, 300);
+        const hq = getHqCoordinates();
         const points = await Promise.all(events.map(async (e) => {
             const missingIntel = !e.asn || !e.isp;
             const liveIntel = missingIntel ? await getGeoLocation(e.sourceIp) : null;
+            let targetLat = hq.lat;
+            let targetLon = hq.lon;
+            let targetLabel = hq.label;
+
+            if (e.targetAssetId) {
+                const asset = await Asset.findById(e.targetAssetId).lean();
+                if (asset?.lastCheckInGeo?.lat && asset?.lastCheckInGeo?.lon) {
+                    targetLat = asset.lastCheckInGeo.lat;
+                    targetLon = asset.lastCheckInGeo.lon;
+                    targetLabel = asset.name || "Asset";
+                }
+            }
+
+            const org = e.org || liveIntel?.org || "";
+            const masked = isMaskedProvider(org);
+            const certaintyScore = masked ? 0.45 : (e.geoConfidence === "high" ? 0.9 : 0.7);
 
             return {
                 id: e._id,
@@ -131,17 +166,22 @@ const getThreatMapPoints = async (req, res) => {
                 ip: e.sourceIp,
                 lat: e.lat,
                 lon: e.lon,
+                targetLat,
+                targetLon,
+                targetLabel,
                 country: e.country || liveIntel?.country || "Unknown",
                 ipType: e.ipType || liveIntel?.ipType || "UNKNOWN",
                 geoConfidence: e.geoConfidence || liveIntel?.geoConfidence || "low",
                 asn: e.asn || liveIntel?.asn || "Unknown",
                 isp: e.isp || liveIntel?.isp || "Unknown",
-                org: e.org || liveIntel?.org || "Unknown",
+                org: org || "Unknown",
                 abuseScore: Number.isFinite(Number(e.abuseScore))
                     ? Number(e.abuseScore)
                     : (Number.isFinite(Number(liveIntel?.abuseScore)) ? Number(liveIntel.abuseScore) : 0),
                 intelConfidence: e.intelConfidence || liveIntel?.intelConfidence || "low",
-                time: e.occurredAt || e.createdAt
+                time: e.occurredAt || e.createdAt,
+                maskedVector: masked,
+                certaintyScore
             };
         }));
 

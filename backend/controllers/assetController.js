@@ -11,6 +11,26 @@ const net = require('net');
 const logger = require("../utils/logger");
 const riskScoringService = require("../services/riskScoringService");
 const correlationEngine = require("../services/correlationEngine");
+const { getGeoLocation } = require("../utils/geoIpService");
+
+const normalizeBaseUrl = (value) => {
+  if (!value || typeof value !== "string") return "";
+  return value.trim().replace(/\/+$/, "");
+};
+
+const resolveFrontendUrl = () => {
+  return normalizeBaseUrl(process.env.FRONTEND_URL) || "http://localhost:5173";
+};
+
+const buildHealthCardUrl = (assetId) => {
+  const base = resolveFrontendUrl();
+  return `${base}/asset-health/${assetId}`;
+};
+
+const generateQrDataUrl = async (assetId) => {
+  const healthUrl = buildHealthCardUrl(assetId);
+  return QRCode.toDataURL(healthUrl);
+};
 
 // Private/Local IP Check (RFC 1918 + loopback/link-local)
 const isPrivateIP = (ip) => {
@@ -218,8 +238,7 @@ const createAsset = async (req, res) => {
     // SECURITY: Explicit mapping to prevent Mass Assignment (§Item 30 / §3.1)
     const { name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location } = req.body;
 
-    const qrData = JSON.stringify({ id: "NEW", serialNumber, name });
-    const qrCodeDataUrl = await QRCode.toDataURL(qrData);
+    const qrCodeDataUrl = await generateQrDataUrl("NEW");
 
     const asset = await Asset.create({
       name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location,
@@ -228,7 +247,7 @@ const createAsset = async (req, res) => {
     });
 
     // Finalize QR with permanent reference
-    asset.qrCode = await QRCode.toDataURL(JSON.stringify({ id: asset._id, serialNumber, name }));
+    asset.qrCode = await generateQrDataUrl(asset._id);
     await asset.save();
 
     await AuditLog.create({
@@ -268,11 +287,7 @@ const updateAsset = async (req, res) => {
 
     // Regenerate QR if critical identifiers changed
     if (name || serialNumber) {
-      asset.qrCode = await QRCode.toDataURL(JSON.stringify({
-        id: asset._id,
-        serialNumber: asset.serialNumber,
-        name: asset.name
-      }));
+      asset.qrCode = await generateQrDataUrl(asset._id);
     }
 
     await asset.save();
@@ -294,6 +309,60 @@ const updateAsset = async (req, res) => {
   } catch (error) {
     logger.error("Registry Sync Failure:", error);
     res.status(500).json({ success: false, message: "Strategic Error: Asset modification protocol failed." });
+  }
+};
+
+// BULK UPDATE assets — Admin only
+const bulkUpdateAssets = async (req, res) => {
+  if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
+    return res.status(403).json({ message: "Forbidden: Only administrators can bulk update assets." });
+  }
+  try {
+    const { assetIds, update } = req.body || {};
+    if (!Array.isArray(assetIds) || assetIds.length === 0) {
+      return res.status(400).json({ message: "assetIds array is required." });
+    }
+    if (!update || typeof update !== "object") {
+      return res.status(400).json({ message: "update payload is required." });
+    }
+
+    const allowed = {};
+    if (update.status) allowed.status = update.status;
+    if (update.assignedTo !== undefined) allowed.assignedTo = update.assignedTo;
+    if (update.classification) allowed.classification = update.classification;
+    if (update.location) allowed.location = update.location;
+
+    if (!allowed.status && update.assignedTo !== undefined) {
+      allowed.status = update.assignedTo ? "assigned" : "available";
+    }
+
+    if (Object.keys(allowed).length === 0) {
+      return res.status(400).json({ message: "No supported fields to update." });
+    }
+
+    const result = await Asset.updateMany(
+      { _id: { $in: assetIds } },
+      { $set: allowed }
+    );
+
+    await AuditLog.create({
+      action: "BULK_ASSET_UPDATE",
+      performedBy: req.user.email,
+      details: `Bulk update applied to ${result.modifiedCount || 0} assets.`,
+      ip: req.ip || req.connection?.remoteAddress,
+      resourceId: assetIds
+    });
+
+    const io = req.app.get("io");
+    if (io) {
+      const updatedAssets = await Asset.find({ _id: { $in: assetIds } });
+      updatedAssets.forEach((asset) => io.emit("assetUpdated", asset));
+    }
+
+    res.json({ success: true, modified: result.modifiedCount || 0 });
+  } catch (error) {
+    logger.error("Bulk Update Failure:", error);
+    res.status(500).json({ success: false, message: "Bulk update failed." });
   }
 };
 
@@ -473,12 +542,7 @@ const bulkUploadAssets = async (req, res) => {
               continue;
             }
 
-            const qrData = JSON.stringify({
-              id: "NEW",
-              serialNumber: row.serialNumber,
-              name: row.name
-            });
-            const qrCodeDataUrl = await QRCode.toDataURL(qrData);
+            const qrCodeDataUrl = await generateQrDataUrl("NEW");
 
             const newAsset = new Asset({
               name: row.name,
@@ -496,11 +560,7 @@ const bulkUploadAssets = async (req, res) => {
             await newAsset.save();
 
             // update qr id
-            newAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
-              id: newAsset._id,
-              serialNumber: newAsset.serialNumber,
-              name: newAsset.name
-            }));
+            newAsset.qrCode = await generateQrDataUrl(newAsset._id);
             await newAsset.save();
 
             successCount++;
@@ -662,11 +722,7 @@ const scanNetwork = async (req, res) => {
         const rogueAsset = await Asset.create(assetData);
 
         // Finalize QR with ID
-        rogueAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
-          id: rogueAsset._id,
-          serialNumber: rogueAsset.serialNumber,
-          name: rogueAsset.name
-        }));
+        rogueAsset.qrCode = await generateQrDataUrl(rogueAsset._id);
         await rogueAsset.save();
 
         // Evaluate Compliance Risk Score
@@ -864,12 +920,7 @@ const agentReport = async (req, res) => {
         status: "available",
       });
       // Generate QR
-      const qrData = JSON.stringify({
-        id: "NEW",
-        serialNumber: asset.serialNumber,
-        name: asset.name
-      });
-      asset.qrCode = await QRCode.toDataURL(qrData);
+      asset.qrCode = await generateQrDataUrl("NEW");
     }
 
     // Update telemetry
@@ -896,11 +947,7 @@ const agentReport = async (req, res) => {
 
     // update qr id if it was newly created
     if (isNewlyCreated) {
-      asset.qrCode = await QRCode.toDataURL(JSON.stringify({
-        id: asset._id,
-        serialNumber: asset.serialNumber,
-        name: asset.name
-      }));
+      asset.qrCode = await generateQrDataUrl(asset._id);
       await asset.save();
     }
 
@@ -960,6 +1007,108 @@ const verifyAssetIntegrity = async (req, res) => {
   }
 };
 
+// PUBLIC ASSET HEALTH CARD (QR landing page)
+const getPublicAssetHealth = async (req, res) => {
+  try {
+    const asset = await Asset.findById(req.params.id);
+    if (!asset) return res.status(404).json({ success: false, message: "Asset not found" });
+
+    const assetObj = asset.toObject({ virtuals: true });
+    const purchaseDate = asset.purchaseDate ? new Date(asset.purchaseDate) : null;
+    const yearsOld = purchaseDate ? (Date.now() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25) : 0;
+    const needsReplacement = yearsOld >= 3;
+
+    res.json({
+      success: true,
+      asset: {
+        id: assetObj._id,
+        name: assetObj.name,
+        type: assetObj.type,
+        serialNumber: assetObj.serialNumber,
+        status: assetObj.status,
+        classification: assetObj.classification,
+        assignedTo: assetObj.assignedTo || "Unassigned",
+        purchaseDate: assetObj.purchaseDate,
+        warrantyExpiry: assetObj.warrantyExpiry,
+        bookValue: assetObj.bookValue,
+        riskScore: assetObj.riskScore,
+        riskLevel: assetObj.securityStatus?.riskLevel || "Low",
+        healthStatus: assetObj.healthStatus,
+        networkStatus: assetObj.networkStatus,
+        lastCheckIn: assetObj.lastCheckIn,
+        lastCheckInGeo: assetObj.lastCheckInGeo,
+        geofenceStatus: assetObj.geofenceStatus,
+        needsReplacement
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Failed to load asset health card" });
+  }
+};
+
+// ASSET CHECK-IN + GEOFENCE VALIDATION
+const checkInAsset = async (req, res) => {
+  try {
+    const { assetId, latitude, longitude, city } = req.body || {};
+    if (!assetId) return res.status(400).json({ success: false, message: "assetId is required" });
+
+    const asset = await Asset.findById(assetId);
+    if (!asset) return res.status(404).json({ success: false, message: "Asset not found" });
+
+    const ip = req.ip || req.connection?.remoteAddress || "unknown";
+    const geo = await getGeoLocation(ip);
+
+    const reportedCity = city || geo.city || "Unknown";
+    const reportedCountry = geo.country || "Unknown";
+    const allowedCities = String(process.env.GEOFENCE_ALLOWED_CITIES || "Chennai").split(",").map((v) => v.trim()).filter(Boolean);
+    const allowedCountries = String(process.env.GEOFENCE_ALLOWED_COUNTRIES || "India").split(",").map((v) => v.trim()).filter(Boolean);
+
+    const isCityAllowed = allowedCities.includes(reportedCity);
+    const isCountryAllowed = allowedCountries.includes(reportedCountry);
+    const isInside = (allowedCities.length ? isCityAllowed : true) && (allowedCountries.length ? isCountryAllowed : true);
+
+    asset.lastCheckIn = new Date();
+    asset.lastCheckInGeo = {
+      ip,
+      city: reportedCity,
+      country: reportedCountry,
+      lat: Number.isFinite(Number(latitude)) ? Number(latitude) : geo.lat || 0,
+      lon: Number.isFinite(Number(longitude)) ? Number(longitude) : geo.lon || 0,
+      provider: geo.provider || "unknown",
+      ipType: geo.ipType || "UNKNOWN"
+    };
+    asset.geofenceStatus = {
+      status: isInside ? "INSIDE" : "OUTSIDE",
+      checkedAt: new Date()
+    };
+
+    await asset.save();
+
+    if (!isInside) {
+      await correlationEngine.triggerAlert("GEOFENCE_VIOLATION", {
+        message: `Geofence violation detected for ${asset.name}. Location: ${reportedCity}, ${reportedCountry}.`,
+        ip,
+        severity: "HIGH",
+        metadata: {
+          assetId: String(asset._id),
+          city: reportedCity,
+          country: reportedCountry,
+          ipType: geo.ipType,
+          provider: geo.provider
+        }
+      });
+    }
+
+    res.json({
+      success: true,
+      status: isInside ? "INSIDE" : "OUTSIDE",
+      geo: asset.lastCheckInGeo
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Check-in failed" });
+  }
+};
+
 module.exports = {
   getAssets,
   getAssetById,
@@ -968,8 +1117,11 @@ module.exports = {
   deleteAsset,
   exportAssets,
   bulkUploadAssets,
+  bulkUpdateAssets,
   scanNetwork,
   getSecurityAlerts,
   agentReport,
   verifyAssetIntegrity,
+  getPublicAssetHealth,
+  checkInAsset
 };

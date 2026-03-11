@@ -9,7 +9,9 @@ const AuditLog = require("../models/AuditLog");
 // List all pending actions for approval
 exports.getPendingActions = async (req, res) => {
     try {
-        const actions = await PendingAction.find({ status: "PENDING" })
+        const status = req.query.status;
+        const query = status ? { status } : { status: "PENDING" };
+        const actions = await PendingAction.find(query)
             .populate("createdBy", "name email");
         res.json({ success: true, count: actions.length, actions });
     } catch (error) {

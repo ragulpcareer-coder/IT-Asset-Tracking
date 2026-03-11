@@ -23,7 +23,8 @@ const SecurityAlertSchema = new mongoose.Schema({
             "DATA_EXFILTRATION",
             "UNAUTHORIZED_CMD",
             "LATERAL_MOVEMENT",
-            "PERSISTENCE"
+            "PERSISTENCE",
+            "GEOFENCE_VIOLATION"
         ]
     },
     severity: {

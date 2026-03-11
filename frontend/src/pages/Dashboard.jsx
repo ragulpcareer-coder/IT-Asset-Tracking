@@ -9,6 +9,7 @@ import { Card, PermissionGuard } from "../components/UI";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
   AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  BarChart, Bar, Legend,
 } from "recharts";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -118,6 +119,7 @@ export default function Dashboard() {
   // Asset + audit log data for charts
   const [assets, setAssets] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const fetchMetrics = useCallback(async () => {
@@ -167,6 +169,13 @@ export default function Dashboard() {
       ]);
       setAssets(assetsRes.data.assets || assetsRes.data || []);
       setLogs(logsRes.data?.data || logsRes.data || []);
+
+      try {
+        const analyticsRes = await axios.get("/dashboard/analytics");
+        setAnalytics(analyticsRes.data);
+      } catch (err) {
+        setAnalytics(null);
+      }
     } catch (err) {
       console.error("[Dashboard] Chart data fetch error:", err.message);
       toast.error("Telemetry link degraded. Charts may be incomplete.");
@@ -216,6 +225,50 @@ export default function Dashboard() {
       events: logs.filter(log => new Date(log.createdAt).toLocaleDateString() === dateStr).length,
     };
   });
+
+  const departmentDistribution = analytics?.departmentDistribution || {};
+  const departmentData = Object.keys(departmentDistribution).map((key) => ({
+    department: key,
+    count: departmentDistribution[key]
+  }));
+
+  const typeDistribution = analytics?.typeDistribution || {};
+  const carbonData = Object.keys(typeDistribution).map((key) => ({
+    type: key,
+    count: typeDistribution[key]
+  }));
+
+  const matrix = analytics?.departmentStatusMatrix || [];
+  const totalValue = assets.reduce((sum, a) => sum + (Number(a.bookValue ?? a.purchasePrice ?? 0) || 0), 0);
+  const inUseCount = assets.filter(a => a.status === "assigned").length;
+  const inStockCount = assets.filter(a => a.status === "available").length;
+  const upcomingRenewals = assets.filter(a => {
+    if (!a.warrantyExpiry) return false;
+    const exp = new Date(a.warrantyExpiry).getTime();
+    const now = Date.now();
+    return exp >= now && exp <= now + 30 * 24 * 60 * 60 * 1000;
+  }).length;
+  const ageBuckets = [
+    { label: "0-1 yrs", value: 0 },
+    { label: "1-3 yrs", value: 0 },
+    { label: "3+ yrs", value: 0 }
+  ];
+  assets.forEach((a) => {
+    if (!a.purchaseDate) return;
+    const years = (Date.now() - new Date(a.purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+    if (years <= 1) ageBuckets[0].value += 1;
+    else if (years <= 3) ageBuckets[1].value += 1;
+    else ageBuckets[2].value += 1;
+  });
+
+  const valueByDepartment = Object.entries(
+    assets.reduce((acc, a) => {
+      const dept = a.location?.department || "Unassigned";
+      const value = Number(a.bookValue ?? a.purchasePrice ?? 0) || 0;
+      acc[dept] = (acc[dept] || 0) + value;
+      return acc;
+    }, {})
+  ).map(([department, value]) => ({ department, value }));
 
   if (loading) return <LoadingSpinner fullScreen message="Loading dashboard data..." />;
 
@@ -405,6 +458,147 @@ export default function Dashboard() {
         </PermissionGuard>
       </div>
 
+
+      {/* Executive Insights */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <Card>
+          <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">Total Asset Value</div>
+          <div className="text-3xl font-extrabold text-white">₹{totalValue.toLocaleString()}</div>
+          <div className="text-xs text-slate-500 mt-2">Based on book value or purchase price</div>
+        </Card>
+        <Card>
+          <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">In Use vs In Stock</div>
+          <div className="text-3xl font-extrabold text-white">{inUseCount} / {inStockCount}</div>
+          <div className="text-xs text-slate-500 mt-2">Assigned vs available assets</div>
+        </Card>
+        <Card>
+          <div className="text-xs uppercase tracking-widest text-slate-500 mb-2">Upcoming Renewals</div>
+          <div className="text-3xl font-extrabold text-amber-400">{upcomingRenewals}</div>
+          <div className="text-xs text-slate-500 mt-2">Warranty expirations in 30 days</div>
+        </Card>
+      </div>
+
+      {/* Analytics Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
+        <Card className="lg:col-span-2">
+          <h3 className="text-lg font-bold text-white mb-6">Asset Distribution by Department</h3>
+          <div style={{ height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={departmentData}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="department" stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
+                  itemStyle={{ color: "#fff" }}
+                />
+                <Legend />
+                <Bar dataKey="count" fill="#38bdf8" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        <Card>
+          <h3 className="text-lg font-bold text-white mb-4">Green IT Impact</h3>
+          <div className="text-slate-400 text-sm mb-4">
+            Estimated annual carbon footprint based on asset types.
+          </div>
+          <div className="text-3xl font-extrabold text-emerald-400">
+            {analytics?.carbon?.totalCarbonKg || 0} kg CO2e
+          </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Avg per asset: {analytics?.carbon?.perAssetAverage || 0} kg CO2e
+          </div>
+          <div className="mt-6">
+            <h4 className="text-xs uppercase tracking-widest text-slate-500 mb-2">Lifecycle Alerts</h4>
+            <div className="text-sm text-slate-300">
+              End-of-life assets: <span className="text-red-400 font-bold">{analytics?.lifecycle?.endOfLifeCount || 0}</span>
+            </div>
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
+        <Card className="lg:col-span-2">
+          <h3 className="text-lg font-bold text-white mb-6">Hardware Refresh Cycle</h3>
+          <div style={{ height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={ageBuckets}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="label" stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
+                  itemStyle={{ color: "#fff" }}
+                />
+                <Bar dataKey="value" fill="#60a5fa" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <h3 className="text-lg font-bold text-white mb-4">Upgrade Predictor</h3>
+          <div className="text-slate-400 text-sm mb-3">
+            Actionable suggestions based on lifecycle status.
+          </div>
+          <div className="text-2xl font-extrabold text-red-400">
+            {analytics?.lifecycle?.endOfLifeCount || 0} assets
+          </div>
+          <div className="text-xs text-slate-500 mt-2">
+            Recommend budgeting for lifecycle refresh in next quarter.
+          </div>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
+        <Card className="lg:col-span-2">
+          <h3 className="text-lg font-bold text-white mb-6">Asset Value by Department</h3>
+          <div style={{ height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={valueByDepartment}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="department" stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                <YAxis stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                <Tooltip
+                  contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
+                  itemStyle={{ color: "#fff" }}
+                />
+                <Bar dataKey="value" fill="#34d399" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+        <Card>
+          <h3 className="text-lg font-bold text-white mb-4">Cost Focus</h3>
+          <div className="text-slate-400 text-sm mb-3">
+            Departments with the highest asset value.
+          </div>
+          {valueByDepartment.slice(0, 3).map((row) => (
+            <div key={row.department} className="flex justify-between text-sm text-slate-300 mb-2">
+              <span>{row.department}</span>
+              <span className="text-emerald-400 font-bold">₹{Math.round(row.value).toLocaleString()}</span>
+            </div>
+          ))}
+        </Card>
+      </div>
+
+      {/* Department x Status Heatmap */}
+      <Card className="mb-10">
+        <h3 className="text-lg font-bold text-white mb-6">Operational Heatmap</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {(matrix.length ? matrix : []).map((cell, idx) => (
+            <div key={`${cell.department}-${cell.status}-${idx}`} className="p-3 rounded-lg bg-white/5 border border-white/5">
+              <div className="text-xs uppercase tracking-widest text-slate-500">{cell.department}</div>
+              <div className="text-sm text-slate-300 mt-1">{cell.status}</div>
+              <div className="text-2xl font-extrabold text-white mt-2">{cell.count}</div>
+            </div>
+          ))}
+          {matrix.length === 0 && (
+            <div className="text-slate-500 text-sm">No heatmap data available yet.</div>
+          )}
+        </div>
+      </Card>
       {/* Security Ledger — admin only */}
       <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
         <Card className="bg-slate-900/50 border-red-500/10 hover:border-red-500/30">
@@ -451,3 +645,4 @@ export default function Dashboard() {
     </div>
   );
 }
+

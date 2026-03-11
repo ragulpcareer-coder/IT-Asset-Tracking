@@ -84,7 +84,35 @@ router.get("/export", protect, admin, requireAdmin2FA, async (req, res) => {
   }
 });
 
-// ── POST /api/audit — Create a new audit log (Available to all authenticated users) ──
+// ── POST /api/audit — Create a new audit log (Available to all authenticated users) ──// ---- GET /api/audit/verify � Verify hash chain integrity (Admin only) ----
+router.get("/verify", protect, admin, async (req, res) => {
+  try {
+    const logs = await AuditLog.find().sort({ createdAt: 1 }).lean();
+    let valid = true;
+    let firstInvalidId = null;
+
+    for (let i = 1; i < logs.length; i++) {
+      const prev = logs[i - 1];
+      const current = logs[i];
+      if (current.previousHash !== prev.hash) {
+        valid = false;
+        firstInvalidId = current._id;
+        break;
+      }
+    }
+
+    res.json({
+      success: true,
+      valid,
+      checked: logs.length,
+      firstInvalidId,
+      lastHash: logs.length ? logs[logs.length - 1].hash : null
+    });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Integrity verification failed." });
+  }
+});
+
 router.post("/", protect, async (req, res) => {
   try {
     const { action, details, resourceId, resourceType, meta } = req.body;
@@ -113,3 +141,4 @@ router.post("/", protect, async (req, res) => {
 });
 
 module.exports = router;
+

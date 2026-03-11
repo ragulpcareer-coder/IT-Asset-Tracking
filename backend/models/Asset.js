@@ -27,7 +27,7 @@ const assetSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["available", "assigned", "maintenance", "lost", "retired"],
+      enum: ["available", "assigned", "maintenance", "lost", "retired", "pending_recovery"],
       default: "available",
     },
     assignedTo: {
@@ -87,6 +87,22 @@ const assetSchema = new mongoose.Schema(
       uuid: { type: String, default: '' },
       biosSerial: { type: String, default: '' }
     },
+    lastCheckIn: {
+      type: Date
+    },
+    lastCheckInGeo: {
+      ip: { type: String, default: '' },
+      city: { type: String, default: '' },
+      country: { type: String, default: '' },
+      lat: { type: Number, default: 0 },
+      lon: { type: Number, default: 0 },
+      provider: { type: String, default: '' },
+      ipType: { type: String, default: '' }
+    },
+    geofenceStatus: {
+      status: { type: String, enum: ["INSIDE", "OUTSIDE", "UNKNOWN"], default: "UNKNOWN" },
+      checkedAt: { type: Date }
+    },
     securityStatus: {
       isAuthorized: { type: Boolean, default: true },
       riskLevel: { type: String, enum: ['Low', 'Medium', 'High', 'Critical'], default: 'Low' },
@@ -137,6 +153,7 @@ assetSchema.pre('save', function (next) {
   // Status-based risk factors
   if (this.status === 'lost') score += 40;
   else if (this.status === 'maintenance') score += 10;
+  else if (this.status === 'pending_recovery') score += 15;
   else if (this.status === 'retired') score += 5;
 
   // Authorization: unauthorized asset is a critical risk
@@ -157,10 +174,13 @@ assetSchema.pre('save', function (next) {
   if (this.classification === 'Restricted') score += 15;
   else if (this.classification === 'Confidential') score += 10;
 
-  // Asset age: purchased over 5 years ago
+  // Asset age: purchased over 3 years ago (student edition lifecycle policy)
   if (this.purchaseDate) {
     const yearsOld = (Date.now() - new Date(this.purchaseDate)) / (1000 * 60 * 60 * 24 * 365.25);
-    if (yearsOld > 5) score += 10;
+    if (yearsOld > 3) score += 10;
+    if (yearsOld > 3 && !this.securityStatus?.remarks) {
+      this.securityStatus.remarks = "Lifecycle exceeded: replacement recommended";
+    }
   }
 
   // ELITE: Factor in recent security alerts

@@ -259,7 +259,29 @@ module.exports = {
     resend,
     sendSecurityAlert,
     sendApprovalRequest,
-    sendPasswordResetEmail
+    sendPasswordResetEmail,
+    sendWelcomeOnboardingEmail: async ({ name, email, asset }) => {
+        const frontendUrl = resolveFrontendUrl();
+        const assetLink = `${frontendUrl}/assets`;
+
+        return await sendEmail({
+            to: email,
+            subject: `Welcome to AssetTrack â€” Your Device Is Ready`,
+            html: `
+                <div style="font-family: Arial, sans-serif; padding: 20px; border-radius: 8px; background-color: #0f172a; color: #e2e8f0;">
+                    <h2 style="color:#38bdf8;">Welcome, ${name || "New User"}!</h2>
+                    <p>Your onboarding device has been assigned.</p>
+                    <ul>
+                      <li><strong>Asset:</strong> ${asset?.name || "Assigned Device"}</li>
+                      <li><strong>Serial:</strong> ${asset?.serialNumber || "N/A"}</li>
+                      <li><strong>Type:</strong> ${asset?.type || "N/A"}</li>
+                    </ul>
+                    <p>You can view your assigned assets any time from your dashboard.</p>
+                    <a href="${assetLink}" style="display:inline-block;margin-top:12px;padding:10px 16px;background:#38bdf8;color:#0f172a;text-decoration:none;border-radius:6px;font-weight:bold;">Open Asset Portal</a>
+                </div>
+            `
+        });
+    }
 };
 
 
