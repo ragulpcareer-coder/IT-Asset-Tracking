@@ -5,7 +5,7 @@ import "nprogress/nprogress.css";
 NProgress.configure({ showSpinner: false, speed: 400, minimum: 0.1 });
 
 const isLocal = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
-const fallbackBaseURL = isLocal ? "http://localhost:5000/api" : "https://it-asset-tracking.onrender.com/api";
+const fallbackBaseURL = isLocal ? "http://localhost:5000/api" : "/api";
 
 const normalizeApiBase = (rawUrl) => {
   if (!rawUrl || typeof rawUrl !== "string") return fallbackBaseURL;
@@ -27,11 +27,6 @@ instance.interceptors.request.use(
   (config) => {
     if (activeRequests === 0) NProgress.start();
     activeRequests += 1;
-
-    const token = localStorage.getItem("token");
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
 
     return config;
   },
@@ -81,7 +76,6 @@ instance.interceptors.response.use(
       if (!["/login", "/verify-2fa"].includes(window.location.pathname)) {
         axios.post(`${baseURL}/auth/logout`, {}, { withCredentials: true }).catch(() => {});
       }
-      localStorage.removeItem("token");
       if (window.location.pathname !== "/login") {
         window.location.href = "/login";
       }

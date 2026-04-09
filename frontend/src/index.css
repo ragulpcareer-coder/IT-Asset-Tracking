@@ -1,14 +1,17 @@
 @import "tailwindcss";
+@import "./modern.css";
 
 /* 3D Perspective & Transform Defaults */
 html {
   perspective: 1000px;
+  scroll-behavior: smooth;
 }
 
 body {
   overflow-x: hidden;
   background: linear-gradient(135deg, #0F2050 0%, #1a3a52 50%, #003d33 100%);
   min-height: 100vh;
+  color: var(--text-primary, #f8fafc);
 }
 
 /* Advanced Animations */
@@ -211,11 +214,6 @@ body {
 
 .tilt-container:hover .tilt-child {
   animation: tilt-rotate 0.8s ease-in-out;
-}
-
-/* Smooth Scrolling */
-html {
-  scroll-behavior: smooth;
 }
 
 /* Text Selection Style */

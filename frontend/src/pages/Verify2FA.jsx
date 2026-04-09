@@ -1,9 +1,9 @@
-﻿import React, { useContext, useMemo, useState } from "react";
+import React, { useContext, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { AuthContext } from "../context/AuthContext";
-import { QuantumBackground, FutureCard, QuantumButton } from "../components/FuturisticUI";
-import "../modern.css";
+import { Alert, Button, Input } from "../components/UI";
+import AuthShell from "../components/AuthShell";
+import { validateVerificationCode } from "../utils/formValidation";
 
 export default function Verify2FA() {
   const navigate = useNavigate();
@@ -13,6 +13,7 @@ export default function Verify2FA() {
   const [token, setToken] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [fieldError, setFieldError] = useState("");
 
   const pending = useMemo(() => {
     const stateUser = location.state?.userId;
@@ -32,8 +33,8 @@ export default function Verify2FA() {
     return null;
   }, [location.state]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setError("");
 
     if (!pending?.userId) {
@@ -41,8 +42,9 @@ export default function Verify2FA() {
       return;
     }
 
-    if (!/^\d{6}$/.test(token)) {
-      setError("Enter a valid 6-digit verification code.");
+    const nextFieldError = validateVerificationCode(token);
+    if (nextFieldError) {
+      setFieldError(nextFieldError);
       return;
     }
 
@@ -64,63 +66,48 @@ export default function Verify2FA() {
   };
 
   return (
-    <div className="min-h-screen w-full overflow-hidden relative bg-[#0a1128]">
-      <QuantumBackground className="z-0" />
+    <AuthShell
+      title="Verify Identity"
+      subtitle={`Enter the 6-digit code from your authenticator app${pending?.email ? ` for ${pending.email}` : ""}.`}
+      footer={
+        <p>
+          Need to restart sign-in?{" "}
+          <Link to="/login" className="font-semibold text-sky-300 hover:text-sky-200">
+            Back to login
+          </Link>
+        </p>
+      }
+      maxWidth="max-w-md"
+    >
+      {error ? <Alert type="error" message={error} onClose={() => setError("")} className="mb-5" /> : null}
 
-      <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-8">
-        <motion.div
-          className="w-full max-w-md"
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5 }}
-        >
-          <FutureCard accentColor="#00d4ff" fullWidth>
-            <div className="text-center mb-6">
-              <h1 className="text-3xl font-black text-cyan-200 mb-2">Verify Identity</h1>
-              <p className="text-blue-300/80 text-sm">
-                Enter the 6-digit code from your authenticator app
-                {pending?.email ? ` for ${pending.email}` : ""}.
-              </p>
-            </div>
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        <Input
+          id="verification-code"
+          label="Verification Code"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
+          maxLength={6}
+          value={token}
+          onChange={(event) => {
+            const value = event.target.value.replace(/\D/g, "").slice(0, 6);
+            setToken(value);
+            setFieldError(validateVerificationCode(value));
+            if (error) setError("");
+          }}
+          onBlur={(event) => setFieldError(validateVerificationCode(event.target.value))}
+          placeholder="000000"
+          autoFocus
+          error={fieldError}
+          required
+          inputClassName="text-center font-mono text-3xl tracking-[0.45em]"
+        />
 
-            {error && (
-              <div className="mb-5 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-300 text-sm">
-                {error}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="block text-cyan-300 text-sm font-semibold mb-2">Verification Code</label>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  maxLength={6}
-                  value={token}
-                  onChange={(e) => {
-                    setToken(e.target.value.replace(/\D/g, "").slice(0, 6));
-                    if (error) setError("");
-                  }}
-                  className="w-full px-4 py-3 rounded-lg bg-white/5 backdrop-blur border-2 border-cyan-500/30 text-white text-center font-mono text-3xl tracking-[0.45em] focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                  placeholder="000000"
-                  autoFocus
-                />
-              </div>
-
-              <QuantumButton type="submit" disabled={loading} variant="primary" size="lg" className="w-full disabled:opacity-50">
-                {loading ? "Verifying..." : "Verify & Sign In"}
-              </QuantumButton>
-            </form>
-
-            <div className="mt-5 text-center">
-              <Link to="/login" className="text-cyan-400 hover:text-cyan-300 text-sm">
-                Back to Login
-              </Link>
-            </div>
-          </FutureCard>
-        </motion.div>
-      </div>
-    </div>
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={loading} disabled={loading}>
+          {loading ? "Verifying..." : "Verify & Sign In"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

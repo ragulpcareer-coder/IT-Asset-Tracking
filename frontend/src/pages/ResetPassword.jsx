@@ -1,12 +1,10 @@
-﻿import React, { useState, useEffect } from "react";
-import { Link, useSearchParams, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { useEffect, useRef, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import axios from "../utils/axiosConfig";
-import { Button, Input, Alert, PasswordStrengthMeter } from "../components/UI";
-import { BrandLogo } from "../components/ProfessionalIcons";
-import { Background3D, HolographicCard, TechGrid } from "../components/3DBackground";
-import { animationVariants } from "../utils/animations";
+import { Alert, Button, Input, PasswordStrengthMeter } from "../components/UI";
+import AuthShell from "../components/AuthShell";
 import { getPasswordRequirements } from "../utils/validation";
+import { validateConfirmPasswordField, validatePasswordField } from "../utils/formValidation";
 
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
@@ -20,40 +18,63 @@ export default function ResetPassword() {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [email, setEmail] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({ password: "", confirmPassword: "" });
+  const redirectTimerRef = useRef(null);
 
   const passwordRequirements = getPasswordRequirements();
 
   useEffect(() => {
+    let isMounted = true;
+
     const verifyToken = async () => {
       if (!token) {
-        setError("Invalid or missing reset token.");
-        setVerifying(false);
+        if (isMounted) {
+          setError("Invalid or missing reset token.");
+          setVerifying(false);
+        }
         return;
       }
+
       try {
         const { data } = await axios.get(`/auth/reset-password/${token}`);
         const payload = data?.data || data;
+        if (!isMounted) return;
         setIsValid(true);
         setEmail(payload?.email || "");
       } catch (err) {
-        setError(err.response?.data?.message || "This reset link is invalid or expired.");
+        if (isMounted) {
+          setError(err.response?.data?.message || "This reset link is invalid or expired.");
+        }
       } finally {
-        setVerifying(false);
+        if (isMounted) setVerifying(false);
       }
     };
+
     verifyToken();
+    return () => {
+      isMounted = false;
+    };
   }, [token]);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    return () => {
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+    };
+  }, []);
 
-    if (formData.password !== formData.confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
+  const handleSubmit = async (event) => {
+    event.preventDefault();
 
-    if (formData.password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    const nextErrors = {
+      password: validatePasswordField(formData.password),
+      confirmPassword: validateConfirmPasswordField(formData.confirmPassword, formData.password),
+    };
+    setFieldErrors(nextErrors);
+
+    if (nextErrors.password || nextErrors.confirmPassword) {
+      setError("Please correct the highlighted password fields.");
       return;
     }
 
@@ -62,10 +83,13 @@ export default function ResetPassword() {
 
     try {
       const { data } = await axios.post(`/auth/reset-password/${token}`, {
-        password: formData.password
+        password: formData.password,
       });
       setMessage(data.message || "Password updated successfully.");
-      setTimeout(() => navigate("/login"), 2500);
+      if (redirectTimerRef.current) {
+        clearTimeout(redirectTimerRef.current);
+      }
+      redirectTimerRef.current = setTimeout(() => navigate("/login"), 2500);
     } catch (err) {
       setError(err.response?.data?.message || "Failed to reset password. Please request a new link.");
     } finally {
@@ -73,136 +97,115 @@ export default function ResetPassword() {
     }
   };
 
-  return (
-    <div className="min-h-screen relative overflow-hidden gradient-animated">
-      <Background3D className="z-0" />
-      <TechGrid className="z-1" />
+  let content = null;
 
-      <div className="relative z-10 min-h-screen flex items-center justify-center p-4">
-        <motion.div
-          className="w-full max-w-md"
-          initial="hidden"
-          animate="visible"
-          variants={animationVariants.containerVariants}
-        >
-          <div className="text-center mb-10">
-            <motion.div className="inline-block mb-6" variants={animationVariants.itemVariants}>
-              <BrandLogo variant="icon" size="lg" />
-            </motion.div>
-            <motion.h1
-              className="text-4xl font-black bg-gradient-to-r from-teal-300 via-blue-300 to-teal-400 bg-clip-text text-transparent mb-2"
-              variants={animationVariants.itemVariants}
-            >
-              Reset Password
-            </motion.h1>
-            <motion.p className="text-blue-100 font-light" variants={animationVariants.itemVariants}>
-              Set a new password for {email || "your account"}
-            </motion.p>
-          </div>
-
-          <motion.div className="card-3d corner-glow" variants={animationVariants.itemVariants}>
-            <HolographicCard className="rounded-3xl p-8">
-              <AnimatePresence mode="wait">
-                {verifying ? (
-                  <motion.div
-                    key="verifying"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    exit={{ opacity: 0 }}
-                    className="flex flex-col items-center py-10"
-                  >
-                    <div className="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin mb-4"></div>
-                    <p className="text-cyan-200 animate-pulse font-mono text-xs">VERIFYING RESET TOKEN...</p>
-                  </motion.div>
-                ) : message ? (
-                  <motion.div
-                    key="success"
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    className="text-center py-6"
-                  >
-                    <div className="w-20 h-20 bg-green-500/20 rounded-full flex items-center justify-center mx-auto mb-6 border border-green-500/50 shadow-lg shadow-green-500/20">
-                      <svg className="w-10 h-10 text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7" />
-                      </svg>
-                    </div>
-                    <h3 className="text-2xl font-bold text-white mb-3">Password Updated</h3>
-                    <p className="text-blue-200 text-sm mb-6 leading-relaxed">{message}</p>
-                    <p className="text-xs text-cyan-400 animate-pulse font-bold">REDIRECTING TO LOGIN...</p>
-                  </motion.div>
-                ) : !isValid ? (
-                  <motion.div
-                    key="invalid"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-center py-6"
-                  >
-                    <Alert type="error" message={error} />
-                    <Link to="/forgot-password">
-                      <Button variant="outline" className="w-full mt-6 h-12 border-blue-500/30 text-blue-300">
-                        Request New Reset Link
-                      </Button>
-                    </Link>
-                  </motion.div>
-                ) : (
-                  <motion.form
-                    key="form"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    onSubmit={handleSubmit}
-                    className="space-y-6"
-                  >
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-blue-100">New Password</label>
-                      <Input
-                        type="password"
-                        placeholder="Enter a strong password"
-                        value={formData.password}
-                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                        required
-                        className="bg-black/40 border-blue-500/40 text-white h-12"
-                      />
-                      <PasswordStrengthMeter
-                        password={formData.password}
-                        requirements={passwordRequirements}
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <label className="block text-sm font-semibold text-blue-100">Confirm Password</label>
-                      <Input
-                        type="password"
-                        placeholder="Re-enter your password"
-                        value={formData.confirmPassword}
-                        onChange={(e) => setFormData({ ...formData, confirmPassword: e.target.value })}
-                        required
-                        className="bg-black/40 border-blue-500/40 text-white h-12"
-                      />
-                    </div>
-
-                    {error && (
-                      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-                        <Alert type="error" message={error} onClose={() => setError("")} />
-                      </motion.div>
-                    )}
-
-                    <Button
-                      type="submit"
-                      variant="primary"
-                      size="lg"
-                      className="w-full h-12 bg-gradient-to-r from-blue-600 to-green-600 font-bold"
-                      loading={loading}
-                      disabled={loading || formData.password.length < 8}
-                    >
-                      {loading ? "Updating..." : "Update Password"}
-                    </Button>
-                  </motion.form>
-                )}
-              </AnimatePresence>
-            </HolographicCard>
-          </motion.div>
-        </motion.div>
+  if (verifying) {
+    content = (
+      <div className="flex flex-col items-center py-10">
+        <div className="mb-4 h-12 w-12 rounded-full border-4 border-sky-400/20 border-t-sky-400 animate-spin" />
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-sky-200">Verifying reset token</p>
       </div>
-    </div>
+    );
+  } else if (message) {
+    content = (
+      <div className="space-y-5 text-center">
+        <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-2xl text-emerald-200">
+          OK
+        </div>
+        <Alert type="success" title="Password Updated" message={message} />
+        <p className="text-sm text-slate-400">Redirecting to login...</p>
+      </div>
+    );
+  } else if (!isValid) {
+    content = (
+      <div className="space-y-5 text-center">
+        <Alert type="error" message={error} />
+        <Link to="/forgot-password" className="btn btn-secondary w-full">
+          Request New Reset Link
+        </Link>
+      </div>
+    );
+  } else {
+    content = (
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        <Input
+          id="reset-password"
+          label="New Password"
+          type="password"
+          placeholder="Enter a strong password"
+          value={formData.password}
+          onChange={(event) => {
+            const value = event.target.value;
+            setFormData((prev) => ({ ...prev, password: value }));
+            setFieldErrors((prev) => ({
+              ...prev,
+              password: validatePasswordField(value),
+              confirmPassword: formData.confirmPassword
+                ? validateConfirmPasswordField(formData.confirmPassword, value)
+                : prev.confirmPassword,
+            }));
+          }}
+          onBlur={(event) => setFieldErrors((prev) => ({ ...prev, password: validatePasswordField(event.target.value) }))}
+          error={fieldErrors.password}
+          required
+        />
+
+        {formData.password ? (
+          <PasswordStrengthMeter password={formData.password} requirements={passwordRequirements} />
+        ) : null}
+
+        <Input
+          id="reset-confirm-password"
+          label="Confirm Password"
+          type="password"
+          placeholder="Re-enter your password"
+          value={formData.confirmPassword}
+          onChange={(event) => {
+            const value = event.target.value;
+            setFormData((prev) => ({ ...prev, confirmPassword: value }));
+            setFieldErrors((prev) => ({
+              ...prev,
+              confirmPassword: validateConfirmPasswordField(value, formData.password),
+            }));
+          }}
+          onBlur={(event) => setFieldErrors((prev) => ({
+            ...prev,
+            confirmPassword: validateConfirmPasswordField(event.target.value, formData.password),
+          }))}
+          error={fieldErrors.confirmPassword}
+          required
+        />
+
+        {error ? <Alert type="error" message={error} onClose={() => setError("")} /> : null}
+
+        <Button
+          type="submit"
+          variant="primary"
+          size="lg"
+          className="w-full"
+          loading={loading}
+          disabled={loading || !!fieldErrors.password || !!fieldErrors.confirmPassword || !formData.password || !formData.confirmPassword}
+        >
+          {loading ? "Updating..." : "Update Password"}
+        </Button>
+      </form>
+    );
+  }
+
+  return (
+    <AuthShell
+      title="Reset Password"
+      subtitle={`Set a new password${email ? ` for ${email}` : " for your account"}.`}
+      footer={
+        <p>
+          Need a different link?{" "}
+          <Link to="/forgot-password" className="font-semibold text-sky-300 hover:text-sky-200">
+            Request a new reset email
+          </Link>
+        </p>
+      }
+    >
+      {content}
+    </AuthShell>
   );
 }

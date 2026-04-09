@@ -1,80 +1,157 @@
-# 🚀 AssetTrack - Enterprise IT Asset Management
+# AssetTrack - Secure IT Asset Tracking Platform
 
-AssetTrack is an advanced, Zero-Trust Architecture web application built with the **MERN stack** (MongoDB, Express, React, Node.js). It is designed to track monetary hardware lifecycles, assign software licenses, securely manage user access with brute-force prevention, and automatically back up your organization's entire infrastructure.
+AssetTrack is a MERN-based IT Asset Tracking and security operations platform built for organizations that need more than a static inventory register. It combines asset lifecycle management, role-based access, endpoint telemetry, network discovery, auditability, and SOC-oriented security controls in one system.
 
----
+## What makes this project different
 
-## ✨ Enterprise Features
+Many traditional ITAM tools are strong at inventory storage but weak in live security and operational awareness. AssetTrack is designed to close those gaps with code-backed capabilities:
 
-### �️ SOC-Level Cybersecurity (10/10 Enterprise Setup)
-### 🛡️ SOC-Level Cybersecurity (10/10 Enterprise Setup)
-- **Active Network Scanner Integration**: Real-time ARP scanning (`local-devices`) natively discovers devices connected to the network automatically without manual entry, transforming this into a Cybersecurity Asset Detection System.
-- **Rogue Device Alerts**: Instantly detects and isolates unknown/unauthorized devices on the network, tagging them with High Risk and firing an automated **Email Alert** to the Security Admin (`Nodemailer`).
-- **Endpoint Health Agent**: Includes a separate lightweight Node.js agent (`/endpoint-agent`) that can be installed on target machines to securely report CPU/RAM telemetry, active IP/MAC changes, and online status directly back to the main server.
-- **Automated Cloud Backup**: Nightly scheduled database snapshots are not just saved locally, but fully integrated to mathematically upload directly to **AWS S3 Cloud Storage** (`@aws-sdk/client-s3`), guarding against server failure.
-- **Real-Time Ping Watchdog**: Automated tracking pings every 2 minutes tracking physical device connectivities across the network natively.
+- Continuous network awareness through manual ARP scans plus scheduled discovery and a TCP-based ping watchdog.
+- Zero-trust controls for privileged routes with RBAC, 2FA, step-up re-authentication, and device-aware policy checks.
+- Built-in cybersecurity integration through alerts, threat telemetry, SIEM-ready Winston logs, and security event correlation.
+- Endpoint visibility through a lightweight agent that reports CPU, RAM, network, and host identity telemetry.
+- Automated protection workflows including rogue-device alerting, backup jobs, and continuous operational logging.
+- Cryptographically verifiable audit logs with immutable write-once behavior and an integrity verification API.
 
-### 🔐 Zero-Trust Security & OWASP Integrations
-- **Agent HMAC Authentication**: Cryptographic SHA-256 signatures ensure endpoint spoofing is impossible. Remote endpoints attach heavily encrypted signatures to node payloads.
-- **Strict Role-Based Access Control (RBAC)**: Deep Node.js middleware completely silences undocumented/unauthorized API queries.
-- **Cryptographic 2FA (Two-Factor Auth)**: Base32 Time-Based One-Time Passwords via Microsoft/Google Authenticator (`speakeasy` & `qrcode`) with mathematically generated Hash Backup Codes.
-- **HttpOnly Secure Cookies**: Complete elimination of LocalStorage token vectors to prevent Cross-Site Scripting (XSS) via `SameSite=Strict` policies.
-- **Immutable Audit Logging**: Write-once policies physically intercept Mongoose engine events to prevent rogue administrative tampering of history logs.
-- **Database Field-Level Encryption**: Integration of `mongoose-field-encryption` to mathematically encrypt sensitive internal 2FA secrets directly into AES-256 format within the database.
-- **SIEM Pipeline Integration**: `Winston` JSON formatting pushes direct structured data out to ElasticStack/Splunk SIEM ingestion channels. 
-- **Auto-Lockout Engine**: 5 consecutive failed logins trigger a 15-minute complete account lockout, logging the IP.
-- **Advanced Network Sanitization**: Built-in HTTP compression, XSS query sanitization (`xss-clean`), CSRF protections, Content Security Policy headers (Helmet), and NoSQL injection blockades (`express-mongo-sanitize`).
-- **Global & Localized Rate Limiting**: DDOS prevention.
+## Verified core capabilities
 
-### 💻 Infrastructure & Asset Management
-- **Hardware Lifecycles**: Calculate financial depreciation directly via `purchase price`, `salvage value`, and `useful life years`.
-- **Bulk CSV Uploads**: Instantly drag-and-drop massive Excel/CSV sheets using `react-dropzone` and `csv-parser` to generate thousands of assets simultaneously.
-- **Smart QR Code Generation**: Every hardware asset automatically mints its own scannable tracking ID.
-- **Software License Tracking**: Keep track of "Adobe" and "Microsoft 365" seats mathematically.
-- **Helpdesk Ticketing System**: Internal users can flag broken devices and trigger repair pipelines.
-- **Real-Time Synchronizations**: Instant screen updates via WebSockets (`Socket.IO`).
+### Real-time and continuous monitoring
 
-### 📊 Professional Analytics & Export
-- **PDF Exec Reports**: Instantly render highly visual PDF documents (`jspdf`, `jspdf-autotable`) of your entire current asset valuation.
-- **CSV Data Tunnels**: Bidirectional importing and exporting.
-- **Tamper-Proof Audit Logging**: Every system mutation is cryptographically logged forever.
+- Manual ARP-based network discovery via `POST /api/assets/scan-network`
+- Scheduled network discovery job every 5 minutes via `backend/jobs/networkDiscoveryJob.js`
+- TCP watchdog job every 2 minutes via `backend/jobs/pingWatchdog.js`
+- Real-time inventory and alert updates with Socket.IO
+- Rogue device detection with automatic asset creation, alert generation, and risk scoring
 
-### 🛡️ Automatic Backup & API Keys
-- **WebHooks & API Keys**: Generate secure integration keys to plug AssetTrack into Slack or custom CI/CD pipelines.
-- **Automated Nightly Backups**: Node.js Cron job generates highly compressed pure JSON database snapshots securely into your local directory every night at 2:00 AM. 
+### Zero-trust and security controls
 
----
+- JWT authentication with refresh-token support
+- Mandatory zero-trust middleware on privileged user-management routes
+- TOTP-based 2FA using `speakeasy` and QR provisioning
+- Step-up re-authentication for destructive or sensitive admin actions
+- HMAC validation for endpoint-agent reports
+- Input hardening with Helmet, XSS protection, NoSQL sanitization, CSRF support, and rate limiting
 
-## 🛠️ Tech Stack
+### Endpoint telemetry and operational visibility
 
-- **Frontend**: React 18, Vite, Framer Motion (Animations), Tailwind CSS, Recharts, jsPDF, Axios.
-- **Backend**: Node.js, Express, MongoDB (Mongoose), Socket.IO, JSONWebToken (JWT). 
-- **Security Tools**: bcryptjs, speakeasy (2FA), Helmet, express-rate-limit.
+- Separate `endpoint-agent` service for reporting host telemetry
+- CPU, RAM, IP, MAC, hardware fingerprint, and operating-system reporting
+- Endpoint telemetry analysis through the detection engine
+- Security posture metrics from backend dashboard analytics
 
----
+### Audit, backup, and recovery
 
-## 🚀 Quick Start Guide
+- Immutable audit log model with chain hashing and update/delete blocking
+- HMAC signatures added to audit entries for stronger integrity validation
+- Audit integrity API at `GET /api/audit/integrity`
+- Encrypted local backups plus optional AWS S3 upload
+- Scheduled retention and operational jobs for continuity
 
-### 1. Backend Setup
+## Architecture overview
+
+### Frontend
+
+- React 18
+- Vite
+- Framer Motion
+- Recharts
+- D3 and Leaflet
+- Axios
+- jsPDF and `jspdf-autotable`
+
+### Backend
+
+- Node.js
+- Express
+- MongoDB with Mongoose
+- Socket.IO
+- Winston
+- Node Cron
+
+### Security and reliability
+
+- Helmet
+- bcryptjs
+- JWT
+- Speakeasy
+- `express-rate-limit`
+- `express-mongo-sanitize`
+- `xss-clean`
+- HMAC signing and verification helpers
+
+## Main application modules
+
+- Dashboard
+- Asset Inventory
+- Cybersecurity Monitoring
+- Users and IAM
+- Audit Logs
+- Password Recovery
+- Settings
+- Endpoint Agent
+
+## Quality status
+
+The current codebase passes the built-in project quality gates:
+
+- Backend tests: pass
+- Frontend production build: pass
+- Continuity check: pass
+
+Command used:
+
+```bash
+npm run test:all
+```
+
+## Quick start
+
+### Backend
+
 ```bash
 cd backend
 npm install
 npm run dev
 ```
 
-### 2. Frontend Setup
+### Frontend
+
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-### 3. Initialize Admin
-- Navigate to `http://localhost:5173`
-- Click **Register** and create an account.
-- **Note:** The very first account created is permanently locked in as the **Admin**. From the "Users" tab inside the dashboard, the Admin can configure 2FA, generate API Keys, promote other staff, and oversee the entire environment.
+### Root quality checks
 
----
+```bash
+npm install
+npm run test:all
+```
 
-## 📄 License
-MIT License - Free to use for personal or commercial development.
+## Report
+
+Project report PDF:
+
+- `docs/IT_Asset_Tracking_Project_Report.pdf`
+
+Regenerate the PDF after documentation updates:
+
+```bash
+cd frontend
+node ./scripts/generate-project-report.mjs
+```
+
+## Current strengths against common ITAM limitations
+
+- Limited real-time awareness: addressed with scheduled discovery, ARP scan, and watchdog jobs
+- Weak trust model: addressed with zero-trust route enforcement, HMAC agent auth, RBAC, and 2FA
+- No cybersecurity integration: addressed with alerts, threat monitoring, SIEM-ready logs, and security event services
+- Poor automation: addressed with background jobs, auto-discovery, automated alerts, and backup scheduling
+- Weak endpoint visibility: addressed with the endpoint agent and telemetry ingestion flow
+- Weak backup and recovery: addressed with encrypted local snapshots and optional S3 upload
+- Weak audit logging: addressed with immutable logs, chain hashes, HMAC signatures, and integrity verification
+
+## License
+
+MIT

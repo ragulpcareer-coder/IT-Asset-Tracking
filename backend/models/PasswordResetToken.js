@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 
 const passwordResetTokenSchema = new mongoose.Schema({
     userId: {
@@ -15,16 +15,19 @@ const passwordResetTokenSchema = new mongoose.Schema({
     expiresAt: {
         type: Date,
         required: true,
-        index: { expires: 0 } // Auto-delete after expiration
+        index: { expires: 0 }
     },
     used: {
         type: Boolean,
-        default: false
+        default: false,
+        index: true
     },
     createdAt: {
         type: Date,
         default: Date.now
     }
 });
+
+passwordResetTokenSchema.index({ tokenHash: 1, used: 1, expiresAt: 1 });
 
 module.exports = mongoose.model("PasswordResetToken", passwordResetTokenSchema);

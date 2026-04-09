@@ -10,7 +10,7 @@ services:
       - "27017:27017"
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_USER:-admin}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-changeme}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD}
       MONGO_INITDB_DATABASE: asset-tracker
     volumes:
       - mongodb_data:/data/db
@@ -53,10 +53,10 @@ services:
     environment:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 5000
-      MONGO_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD:-changeme}@mongodb:27017/asset-tracker?authSource=admin
+      MONGO_URI: mongodb://${MONGO_USER:-admin}:${MONGO_PASSWORD}@mongodb:27017/asset-tracker?authSource=admin
       REDIS_URL: redis://redis:6379
-      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
-      REFRESH_SECRET: ${REFRESH_SECRET:-your-refresh-secret-change-in-production}
+      JWT_SECRET: ${JWT_SECRET}
+      REFRESH_SECRET: ${REFRESH_SECRET}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:5173}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SENTRY_DSN: ${SENTRY_DSN:-}
@@ -83,15 +83,15 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        REACT_APP_API_URL: ${REACT_APP_API_URL:-http://localhost:5000/api}
-        REACT_APP_SOCKET_URL: ${REACT_APP_SOCKET_URL:-http://localhost:5000}
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api}
+        VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:5000}
     container_name: asset-tracker-frontend
     restart: unless-stopped
     ports:
       - "5173:5173"
     environment:
-      VITE_API_URL: ${REACT_APP_API_URL:-http://localhost:5000/api}
-      VITE_SOCKET_URL: ${REACT_APP_SOCKET_URL:-http://localhost:5000}
+      VITE_API_URL: ${VITE_API_URL:-http://localhost:5000/api}
+      VITE_SOCKET_URL: ${VITE_SOCKET_URL:-http://localhost:5000}
     depends_on:
       - backend
     volumes:

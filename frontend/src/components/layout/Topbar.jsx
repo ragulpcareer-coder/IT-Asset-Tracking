@@ -1,4 +1,4 @@
-import React, { useContext, useState, useEffect } from "react";
+import React, { useContext, useState, useEffect, useRef } from "react";
 import { AuthContext } from "../../context/AuthContext";
 import { useNavigate, Link } from "react-router-dom";
 import { Button, Badge } from "../UI";
@@ -10,6 +10,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
   const [notifications, setNotifications] = useState([]);
   const [showNotifications, setShowNotifications] = useState(false);
   const navigate = useNavigate();
+  const notificationPanelRef = useRef(null);
 
   const adminNeeds2FA = ["Super Admin", "Admin"].includes(user?.role) && !user?.twoFactorEnabled;
 
@@ -39,10 +40,40 @@ export default function Topbar({ toggleSidebar, openMobile }) {
     };
   }, [user?.preferences?.pushNotifications]);
 
+  useEffect(() => {
+    if (!showNotifications) return undefined;
+
+    const handleClickOutside = (event) => {
+      if (notificationPanelRef.current && !notificationPanelRef.current.contains(event.target)) {
+        setShowNotifications(false);
+      }
+    };
+
+    const handleEscape = (event) => {
+      if (event.key === "Escape") {
+        setShowNotifications(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [showNotifications]);
+
   return (
     <>
-      {adminNeeds2FA && (
-        <div className="bg-red-500/10 border-b border-red-500/20 py-2.5 px-6 flex justify-between items-center z-[60] relative backdrop-blur-sm">
+            <div style={{ minHeight: 44 }}>
+        <div
+          className="bg-red-500/10 border-b border-red-500/20 py-2.5 px-6 flex justify-between items-center z-[60] relative backdrop-blur-sm"
+          style={{
+            visibility: adminNeeds2FA ? "visible" : "hidden",
+            pointerEvents: adminNeeds2FA ? "auto" : "none",
+          }}
+          aria-hidden={!adminNeeds2FA}
+        >
           <div className="flex items-center gap-3">
             <span className="text-red-500 text-lg">!</span>
             <span className="text-red-400 text-[11px] font-bold uppercase tracking-[0.15em]">
@@ -56,10 +87,9 @@ export default function Topbar({ toggleSidebar, openMobile }) {
             Enable 2FA Now
           </Link>
         </div>
-      )}
-
-      <header className="flex items-center justify-between px-8 py-4 border-b border-white/5 bg-slate-950/50 backdrop-blur-md sticky top-0 z-40">
-        <div className="flex items-center gap-6">
+      </div>
+<header className="topbar-shell">
+        <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button
             onClick={() => {
               if (window.innerWidth >= 1024) {
@@ -68,7 +98,7 @@ export default function Topbar({ toggleSidebar, openMobile }) {
                 openMobile();
               }
             }}
-            className="btn btn-ghost p-2 text-xl hover:bg-white/10 rounded-lg transition-colors"
+            className="btn btn-ghost sidebar-icon-button topbar-action px-3"
             aria-label="Toggle menu"
           >
             Menu
@@ -85,20 +115,20 @@ export default function Topbar({ toggleSidebar, openMobile }) {
           </div>
 
           <div
-            className="hidden md:flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2 rounded-xl focus-within:border-blue-500/50 transition-all w-80 cursor-text"
+            className="hidden min-h-11 md:flex items-center gap-2 rounded-2xl border border-white/10 bg-white/5 px-4 py-2 text-sm transition-all w-72 lg:w-80 cursor-text"
             onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}
           >
             <span className="text-slate-500 text-sm">Search</span>
-            <span className="text-slate-400 text-xs w-full select-none">Registry Lookup (Cmd+K)...</span>
+            <span className="text-slate-400 text-xs w-full truncate select-none">Registry Lookup (Cmd+K)...</span>
           </div>
         </div>
 
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2 sm:gap-3">
           <div className="hidden sm:flex items-center gap-2">
-            <Button variant="ghost" size="sm" onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}>
+            <Button variant="ghost" size="sm" className="topbar-action" onClick={() => window.dispatchEvent(new CustomEvent("open-command-palette"))}>
               Cmd+K
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => setShowNotifications((p) => !p)}>
+            <Button variant="ghost" size="sm" className="topbar-action" onClick={() => setShowNotifications((p) => !p)}>
               Alerts
               {notifications.length > 0 && (
                 <span className="ml-2 text-[10px] bg-red-500 text-white rounded-full px-1 min-w-[16px] text-center">
@@ -122,16 +152,16 @@ export default function Topbar({ toggleSidebar, openMobile }) {
                 )}
               </div>
             </div>
-            <Link to="/settings" title="User Settings" className="flex-center w-10 h-10 rounded-xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-all">
+            <Link to="/settings" title="User Settings" className="flex-center h-11 w-11 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 hover:border-white/20 hover:shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-all">
               <span className="text-sm font-black text-white">{user?.name ? user.name.charAt(0).toUpperCase() : "U"}</span>
             </Link>
-            <Button variant="secondary" size="sm" onClick={logout} className="ml-2">Logout</Button>
+            <Button variant="secondary" size="sm" className="topbar-action ml-1" onClick={logout}>Logout</Button>
           </div>
         </div>
       </header>
 
       {showNotifications && (
-        <div className="absolute right-8 top-20 z-50 w-[360px] max-h-[420px] overflow-y-auto bg-slate-950 border border-white/10 rounded-xl shadow-2xl">
+        <div ref={notificationPanelRef} className="fixed right-3 top-28 z-[90] max-h-[70vh] w-[min(92vw,360px)] overflow-y-auto rounded-2xl border border-white/10 bg-slate-950 shadow-2xl sm:right-6">
           <div className="p-3 border-b border-white/10 flex items-center justify-between">
             <div className="text-xs uppercase tracking-widest text-slate-400 font-bold">Notifications</div>
             <button onClick={() => setNotifications([])} className="text-[11px] text-cyan-400 hover:text-cyan-300">Clear</button>
@@ -155,3 +185,5 @@ export default function Topbar({ toggleSidebar, openMobile }) {
     </>
   );
 }
+
+

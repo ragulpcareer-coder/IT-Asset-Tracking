@@ -212,23 +212,22 @@ const trackPerformance = (operation, duration) => {
  * Usage: <ErrorBoundary><YourComponent /></ErrorBoundary>
  */
 const createErrorBoundary = () => {
+  const React = require("react");
   const SentryReact = require("@sentry/react");
 
-  const ErrorBoundaryComponent = ({ children }) => {
-    return (
-      <SentryReact.ErrorBoundary
-        fallback={
-          <div style={{ padding: "20px", textAlign: "center" }}>
-            <h2>Oops! Something went wrong</h2>
-            <p>Our team has been notified. Please try refreshing the page.</p>
-          </div>
-        }
-        showDialog
-      >
-        {children}
-      </SentryReact.ErrorBoundary>
+  const fallback = React.createElement(
+    "div",
+    { style: { padding: "20px", textAlign: "center" } },
+    React.createElement("h2", null, "Oops! Something went wrong"),
+    React.createElement("p", null, "Our team has been notified. Please try refreshing the page.")
+  );
+
+  const ErrorBoundaryComponent = ({ children }) =>
+    React.createElement(
+      SentryReact.ErrorBoundary,
+      { fallback, showDialog: true },
+      children
     );
-  };
 
   return ErrorBoundaryComponent;
 };

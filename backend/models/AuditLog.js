@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 const crypto = require("crypto");
+const AuditLogSecurity = require("../utils/auditLogSecurity");
 
 const auditLogSchema = new mongoose.Schema(
     {
@@ -17,6 +18,8 @@ const auditLogSchema = new mongoose.Schema(
         meta: { type: mongoose.Schema.Types.Mixed },
         hash: { type: String },
         previousHash: { type: String },
+        signature: { type: String },
+        signatureVersion: { type: String, default: "2.0" },
     },
     { timestamps: true }
 );
@@ -33,6 +36,16 @@ auditLogSchema.pre("save", async function (next) {
 
             const payload = `${this.action}|${this.performedBy}|${this.previousHash}|${new Date().getTime()}`;
             this.hash = crypto.createHash("sha256").update(payload).digest("hex");
+            this.signature = AuditLogSecurity.generateSignature({
+                action: this.action,
+                performedBy: this.performedBy,
+                details: this.details || "",
+                ip: this.ip || "",
+                resourceId: this.resourceId || null,
+                meta: this.meta || null,
+                previousHash: this.previousHash,
+                hash: this.hash,
+            });
         } catch (error) {
             return next(error);
         }

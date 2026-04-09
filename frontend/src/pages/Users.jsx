@@ -3,8 +3,9 @@ import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "react-toastify";
-import { Button, Card, Badge, ConfirmModal } from "../components/UI";
+import { Button, Card, Badge, ConfirmModal, Input } from "../components/UI";
 import LoadingSpinner from "../components/common/LoadingSpinner";
+import PageHeader from "../components/PageHeader";
 import { socket } from "../services/socket";
 
 export default function Users() {
@@ -12,6 +13,9 @@ export default function Users() {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [actionUser, setActionUser] = useState(null);
+    const [confirmPassword, setConfirmPassword] = useState("");
+    const [confirmError, setConfirmError] = useState("");
+    const [confirmLoading, setConfirmLoading] = useState(false);
 
     const fetchUsers = async () => {
         try {
@@ -44,6 +48,7 @@ export default function Users() {
 
     const getUserId = (u) => u?._id || u?.id;
     const currentUserId = getUserId(currentUser);
+    const requiresStepUp = actionUser?.actionType === "promote" || actionUser?.actionType === "terminate";
 
     const handleConfirmAction = async () => {
         if (!actionUser) return;
@@ -59,19 +64,25 @@ export default function Users() {
             setActionUser(null);
             return;
         }
+        if (requiresStepUp && !confirmPassword.trim()) {
+            setConfirmError("Please enter your current password to confirm this action.");
+            return;
+        }
 
+        setConfirmLoading(true);
         try {
             let response;
+            const reauthPayload = { confirmPassword };
 
             if (actionUser.actionType === "promote") {
-                response = await axios.put(`/auth/users/${targetId}/promote`);
+                response = await axios.put(`/auth/users/${targetId}/promote`, reauthPayload);
                 if (response.status === 202 || response.data?.pendingActionId) {
                     toast.info(response.data?.message || "Promotion request submitted for secondary approval.");
                 } else {
                     toast.success(`${actionUser.name || actionUser.email} has been promoted.`);
                 }
             } else if (actionUser.actionType === "terminate") {
-                response = await axios.delete(`/auth/users/${targetId}`);
+                response = await axios.delete(`/auth/users/${targetId}`, { data: reauthPayload });
                 if (response.status === 202 || response.data?.pendingActionId) {
                     toast.info(response.data?.message || "Deletion request submitted for secondary approval.");
                 } else {
@@ -86,10 +97,15 @@ export default function Users() {
             if (!(response?.status === 202 || response?.data?.pendingActionId)) {
                 await fetchUsers();
             }
-        } catch (err) {
-            toast.error(err.response?.data?.message || "Action failed. Please try again.");
-        } finally {
             setActionUser(null);
+            setConfirmPassword("");
+            setConfirmError("");
+        } catch (err) {
+            const message = err.response?.data?.message || "Action failed. Please try again.";
+            if (requiresStepUp) setConfirmError(message);
+            toast.error(message);
+        } finally {
+            setConfirmLoading(false);
         }
     };
 
@@ -106,12 +122,10 @@ export default function Users() {
 
     return (
         <div className="fade-in pb-12">
-            <div className="mb-10">
-                <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Identity & Access Management</h1>
-                <p className="text-slate-500 font-medium mt-1 text-xs tracking-widest uppercase italic">
-                    Manage user accounts, roles, and access permissions
-                </p>
-            </div>
+            <PageHeader
+                title="Identity & Access Management"
+                subtitle="Manage user accounts, privileged roles, and access approvals."
+            />
 
             <Card className="p-0 overflow-hidden border-white/5 bg-slate-900/40">
                 <div className="table-container border-none rounded-none">
@@ -170,7 +184,7 @@ export default function Users() {
                                             </span>
                                         </td>
                                         <td className="text-right">
-                                            <div className="flex justify-end gap-2">
+                                            <div className="flex flex-col items-stretch justify-end gap-2 sm:flex-row sm:items-center">
                                                 {!u.isApproved && (
                                                     <Button variant="success" size="sm" onClick={() => setActionUser({ ...u, actionType: "approve" })}>
                                                         Approve Account
@@ -220,9 +234,31 @@ export default function Users() {
                             : "Confirm Removal"
                 }
                 type={actionUser?.actionType === "terminate" ? "danger" : "primary"}
+                confirmDisabled={requiresStepUp && !confirmPassword.trim()}
+                confirmLoading={confirmLoading}
                 onConfirm={handleConfirmAction}
-                onCancel={() => setActionUser(null)}
-            />
+                onCancel={() => {
+                    if (confirmLoading) return;
+                    setActionUser(null);
+                    setConfirmPassword("");
+                    setConfirmError("");
+                }}
+            >
+                {requiresStepUp && (
+                    <Input
+                        label="Current Password"
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(e) => {
+                            setConfirmPassword(e.target.value);
+                            if (confirmError) setConfirmError("");
+                        }}
+                        placeholder="Enter your current password"
+                        required
+                        error={confirmError}
+                    />
+                )}
+            </ConfirmModal>
         </div>
     );
 }

@@ -1,5 +1,6 @@
 const nodemailer = require("nodemailer");
 const { Resend } = require('resend');
+const jwt = require("jsonwebtoken");
 
 // Initialize Resend (Optional Fallback)
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
@@ -208,6 +209,16 @@ const sendApprovalRequest = async (userInfo) => {
     const adminEmail = process.env.ADMIN_EMAIL || 'ragulp.career@gmail.com';
     const backendUrl = process.env.BACKEND_URL || 'https://it-asset-tracking.onrender.com';
     const userId = userInfo._id.toString();
+    const approvalSecret = process.env.APPROVAL_LINK_SECRET || process.env.JWT_SECRET;
+    const tokenOptions = {
+        algorithm: "HS256",
+        expiresIn: "24h",
+        issuer: "it-asset-tracker",
+        audience: "admin-approval",
+        subject: userId,
+    };
+    const approveToken = jwt.sign({ action: "approve" }, approvalSecret, tokenOptions);
+    const rejectToken = jwt.sign({ action: "reject" }, approvalSecret, tokenOptions);
 
     return await sendEmail({
         to: adminEmail,
@@ -222,8 +233,8 @@ const sendApprovalRequest = async (userInfo) => {
                 <hr/>
                 <p>Action Required:</p>
                 <div style="margin-top: 20px;">
-                    <a href="${backendUrl}/api/auth/approve/${userId}" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-right: 10px;">Approve</a>
-                    <a href="${backendUrl}/api/auth/reject/${userId}" style="background-color: #dc3545; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reject</a>
+                    <a href="${backendUrl}/api/auth/approve/${userId}/${approveToken}" style="background-color: #28a745; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; margin-right: 10px;">Approve</a>
+                    <a href="${backendUrl}/api/auth/reject/${userId}/${rejectToken}" style="background-color: #dc3545; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px;">Reject</a>
                 </div>
             </div>
         `
@@ -255,11 +266,37 @@ const sendPasswordResetEmail = async (userInfo, resetToken) => {
     });
 };
 
+const sendEmailVerificationEmail = async (userInfo, verificationToken) => {
+    const backendUrl = normalizeBaseUrl(process.env.BACKEND_URL || "https://it-asset-tracking.onrender.com");
+    const verificationUrl = `${backendUrl}/api/auth/verify-email/${verificationToken}`;
+
+    return await sendEmail({
+        to: userInfo.email,
+        subject: `Verify your email address`,
+        html: `
+            <div style="font-family: Arial, sans-serif; padding: 20px; border: 1px solid #00d4ff; border-radius: 8px; max-width: 600px; margin: auto; background-color: #0d1117; color: #ffffff;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="color: #00d4ff;">Confirm Your Email</h2>
+                </div>
+                <p>Hello ${userInfo.name},</p>
+                <p>Please verify your email address to complete your account security setup.</p>
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="${verificationUrl}" style="background: #00d4ff; color: #000000; padding: 12px 30px; text-decoration: none; border-radius: 6px; font-weight: bold; display: inline-block;">
+                        VERIFY EMAIL
+                    </a>
+                </div>
+                <p style="font-size: 13px; color: #8b949e;">This verification link will expire in 24 hours. If you did not create this account, you can ignore this email.</p>
+            </div>
+        `
+    });
+};
+
 module.exports = {
     resend,
     sendSecurityAlert,
     sendApprovalRequest,
-    sendPasswordResetEmail
+    sendPasswordResetEmail,
+    sendEmailVerificationEmail
 };
 
 

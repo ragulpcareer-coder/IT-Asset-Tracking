@@ -1,31 +1,39 @@
 const ApiKey = require("../models/ApiKey");
 const AuditLog = require("../models/AuditLog");
 const crypto = require("crypto");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
 
-// @desc    Get all API keys
-// @route   GET /api/keys
-// @access  Private/Admin
 const getKeys = async (req, res) => {
     try {
-        const keys = await ApiKey.find({ createdBy: req.user._id }).sort({ createdAt: -1 });
-        res.json({ success: true, keys });
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+        const filter = { createdBy: req.user._id };
+
+        const [keys, total] = await Promise.all([
+            ApiKey.find(filter)
+                .sort({ createdAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean(),
+            ApiKey.countDocuments(filter),
+        ]);
+
+        return sendSuccess(res, 200, "API keys fetched successfully", {
+            keys,
+            total,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch API keys" });
+        return sendError(res, 500, "Failed to fetch API keys");
     }
 };
 
-// @desc    Create an API key
-// @route   POST /api/keys
-// @access  Private/Admin
 const createKey = async (req, res) => {
     try {
         const { name } = req.body;
+        const rawKey = `at_${crypto.randomBytes(32).toString("hex")}`;
 
-        // Generate a secure payload key string
-        const rawKey = `at_${crypto.randomBytes(32).toString('hex')}`;
-
-        // Store raw key directly or hash it (since users only see it once). 
-        // In production you hash the key and show it one time. Here we just store it raw for simplicity.
         const apiKey = await ApiKey.create({
             name,
             key: rawKey,
@@ -39,23 +47,18 @@ const createKey = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.status(201).json({
-            success: true,
-            message: "API Key generated successfully",
-            key: { _id: apiKey._id, name: apiKey.name, key: apiKey.key, createdAt: apiKey.createdAt }
+        return sendSuccess(res, 201, "API key generated successfully", {
+            key: { _id: apiKey._id, name: apiKey.name, key: apiKey.key, createdAt: apiKey.createdAt },
         });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to create API key" });
+        return sendError(res, 500, "Failed to create API key");
     }
 };
 
-// @desc    Revoke an API key
-// @route   POST /api/keys/:id/revoke
-// @access  Private/Admin
 const revokeKey = async (req, res) => {
     try {
         const apiKey = await ApiKey.findById(req.params.id);
-        if (!apiKey) return res.status(404).json({ message: "API key not found" });
+        if (!apiKey) return sendError(res, 404, "API key not found", { id: "invalid_api_key" });
 
         apiKey.revoked = true;
         await apiKey.save();
@@ -67,9 +70,9 @@ const revokeKey = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.json({ success: true, message: "API Key revoked", key: apiKey });
+        return sendSuccess(res, 200, "API key revoked", { key: apiKey });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to revoke API key" });
+        return sendError(res, 500, "Failed to revoke API key");
     }
 };
 

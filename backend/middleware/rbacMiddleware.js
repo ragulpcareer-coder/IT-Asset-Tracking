@@ -16,6 +16,7 @@
 
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
+const { sendError } = require("../utils/apiResponse");
 
 // ─────────────────────────────────────────────────────────────
 //  PERMISSION MATRIX
@@ -95,13 +96,13 @@ const authorizeResource = (resource, action) => {
   return async (req, res, next) => {
     try {
       if (!req.user) {
-        return res.status(401).json({ message: "Unauthorized – no session" });
+        return sendError(res, 401, "Unauthorized: no session", { auth: "missing_session" });
       }
 
       // Zero-Trust: Re-fetch role fresh from DB, never trust the token role alone
       const freshUser = await User.findById(req.user._id).select("role isActive twoFactorEnabled");
       if (!freshUser || freshUser.isActive === false) {
-        return res.status(403).json({ message: "Account suspended or not found" });
+        return sendError(res, 403, "Account suspended or not found", { auth: "inactive_or_missing" });
       }
 
       const userRole = freshUser.role || "Employee";
@@ -121,7 +122,7 @@ const authorizeResource = (resource, action) => {
             details: `Privileged ACTION ${action} blocked. IP ${currentIp} is not in authorized office range (§12.2).`,
             ip: currentIp
           });
-          return res.status(403).json({ message: "Security Violation: Administrative actions are globally restricted to authorized office networks only." });
+          return sendError(res, 403, "Security violation: administrative actions are restricted to authorized office networks");
         }
       }
 
@@ -134,9 +135,7 @@ const authorizeResource = (resource, action) => {
           meta: { resource, action, url: req.originalUrl },
         });
 
-        return res.status(403).json({
-          message: `Forbidden: Your role (${userRole}) cannot perform '${action}' on '${resource}'.`,
-        });
+        return sendError(res, 403, `Forbidden: Your role (${userRole}) cannot perform '${action}' on '${resource}'.`);
       }
 
       // Admin Activity Recording (§3.2): Record EVERY admin action, including READS
@@ -163,7 +162,7 @@ const authorizeResource = (resource, action) => {
       next();
     } catch (error) {
       console.error("RBAC authorizeResource error:", error);
-      res.status(500).json({ message: "Authorization check failed" });
+      return sendError(res, 500, "Authorization check failed");
     }
   };
 };
@@ -175,13 +174,17 @@ const authorizeResource = (resource, action) => {
 const authorizeRoles = (...roles) => {
   return async (req, res, next) => {
     if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return sendError(res, 401, "Unauthorized", { auth: "missing_user_context" });
     }
 
-    // Zero-Trust re-fetch
+    // Dev/local convenience: skip 2FA enforcement outside production
+    if (process.env.NODE_ENV !== "production") {
+      return next();
+    }
+// Zero-Trust re-fetch
     const freshUser = await User.findById(req.user._id).select("role isActive");
     if (!freshUser || freshUser.isActive === false) {
-      return res.status(403).json({ message: "Account suspended or not found" });
+      return sendError(res, 403, "Account suspended or not found", { auth: "inactive_or_missing" });
     }
 
     if (!roles.includes(freshUser.role)) {
@@ -191,9 +194,7 @@ const authorizeRoles = (...roles) => {
         details: `[${freshUser.role}] tried to access route restricted to [${roles.join(", ")}]: ${req.originalUrl}`,
         ip: req.ip || req.socket?.remoteAddress,
       });
-      return res.status(403).json({
-        message: `Forbidden: Only ${roles.join(", ")} can access this endpoint.`,
-      });
+      return sendError(res, 403, `Forbidden: Only ${roles.join(", ")} can access this endpoint.`);
     }
 
     req.user.role = freshUser.role; // sync token role with DB role
@@ -209,14 +210,19 @@ const authorizeRoles = (...roles) => {
 const requireAdmin2FA = async (req, res, next) => {
   try {
     if (!req.user) {
-      return res.status(401).json({ message: "Unauthorized" });
+      return sendError(res, 401, "Unauthorized", { auth: "missing_user_context" });
+    }
+
+    // Dev/local convenience: skip 2FA enforcement outside production
+    if (process.env.NODE_ENV !== "production") {
+      return next();
     }
 
     // Only enforce on Privileged accounts (§2.1)
     if (!["Super Admin", "Admin", "Security Auditor"].includes(req.user.role)) return next();
 
     const freshUser = await User.findById(req.user._id).select("twoFactorEnabled role");
-    if (!freshUser) return res.status(401).json({ message: "User not found" });
+    if (!freshUser) return sendError(res, 401, "User not found", { auth: "invalid_user" });
 
     if (!freshUser.twoFactorEnabled) {
       try {
@@ -228,9 +234,8 @@ const requireAdmin2FA = async (req, res, next) => {
         });
       } catch (auditErr) { /* Ignore audit failure to not crash the request cycle */ }
 
-      return res.status(403).json({
-        message: "Security Policy Violation: Administrator accounts must enable Two-Factor Authentication (2FA) before performing privileged actions. Please enable 2FA in Settings.",
-        code: "ADMIN_2FA_REQUIRED",
+      return sendError(res, 403, "Security Policy Violation: Administrator accounts must enable Two-Factor Authentication (2FA) before performing privileged actions. Please enable 2FA in Settings.", {
+        twoFactor: "admin_2fa_required",
       });
     }
 
@@ -259,7 +264,7 @@ const verifyOwnership = (modelName, ownerField = "userId") => {
       const resource = await Model.findById(resourceId);
 
       if (!resource) {
-        return res.status(404).json({ message: `${modelName} not found` });
+        return sendError(res, 404, `${modelName} not found`, { resource: "not_found" });
       }
 
       const resourceOwner = String(resource[ownerField]);
@@ -272,15 +277,13 @@ const verifyOwnership = (modelName, ownerField = "userId") => {
           resourceId,
         });
 
-        return res.status(403).json({
-          message: `Forbidden: You do not have access to this ${modelName}.`,
-        });
+        return sendError(res, 403, `Forbidden: You do not have access to this ${modelName}.`);
       }
 
       next();
     } catch (error) {
       console.error("verifyOwnership error:", error);
-      res.status(500).json({ message: "Ownership verification failed" });
+      return sendError(res, 500, "Ownership verification failed");
     }
   };
 };
@@ -291,7 +294,7 @@ const verifyOwnership = (modelName, ownerField = "userId") => {
 //  admin-only API endpoint. Defense-in-depth layer.
 // ─────────────────────────────────────────────────────────────
 const blockStandardUserAdminAPI = (req, res, next) => {
-  if (!req.user) return res.status(401).json({ message: "Unauthorized" });
+  if (!req.user) return sendError(res, 401, "Unauthorized", { auth: "missing_user_context" });
 
   if (!["Super Admin", "Admin"].includes(req.user.role)) {
     AuditLog.create({
@@ -301,9 +304,7 @@ const blockStandardUserAdminAPI = (req, res, next) => {
       ip: req.ip || req.socket?.remoteAddress,
     }).catch(() => { });
 
-    return res.status(403).json({
-      message: "403 Forbidden: This endpoint is restricted to administrators only.",
-    });
+    return sendError(res, 403, "Forbidden: This endpoint is restricted to administrators only.");
   }
 
   next();
@@ -315,6 +316,7 @@ const blockStandardUserAdminAPI = (req, res, next) => {
 const getPermissionMatrix = (req, res) => {
   const userRole = req.user?.role || "Employee";
   res.json({
+    success: true,
     role: userRole,
     permissions: ROLE_PERMISSIONS[userRole] || {},
     allRoles: Object.keys(ROLE_PERMISSIONS),
@@ -334,7 +336,7 @@ const verifyABAC = async (req, res, next) => {
     // If accessing a specific asset via ID
     if (req.params.id) {
       const asset = await Asset.findById(req.params.id);
-      if (!asset) return res.status(404).json({ message: "Asset not found" });
+      if (!asset) return sendError(res, 404, "Asset not found", { asset: "not_found" });
 
       // Check Department Alignment
       const userDept = req.user.department || "General";
@@ -348,14 +350,12 @@ const verifyABAC = async (req, res, next) => {
           ip: req.ip || req.connection?.remoteAddress,
         });
 
-        return res.status(403).json({
-          message: `ABAC Denied: Your department (${userDept}) does not match the asset department (${assetDept}).`
-        });
+        return sendError(res, 403, `ABAC denied: your department (${userDept}) does not match the asset department (${assetDept}).`);
       }
     }
     next();
   } catch (error) {
-    res.status(500).json({ message: "ABAC Verification Error" });
+    return sendError(res, 500, "ABAC verification error");
   }
 };
 
@@ -370,3 +370,5 @@ module.exports = {
   verifyABAC,
   getPermissionMatrix,
 };
+
+

@@ -1,26 +1,42 @@
 const SoftwareLicense = require("../models/SoftwareLicense");
 const AuditLog = require("../models/AuditLog");
 const User = require("../models/User");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
 
-// @desc    Get all software licenses
-// @route   GET /api/software
-// @access  Private/Admin
+const privilegedRoles = ["Super Admin", "Admin", "Manager", "Security Auditor"];
+
 const getSoftware = async (req, res) => {
     try {
         const query = {};
-        if (!["Super Admin", "Admin", "Manager", "Auditor"].includes(req.user.role)) {
+        if (!privilegedRoles.includes(req.user.role)) {
             query.assignedUsers = req.user._id;
         }
-        const licenses = await SoftwareLicense.find(query).populate("assignedUsers", "name email");
-        res.json({ success: true, count: licenses.length, licenses });
+
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+
+        const [licenses, total] = await Promise.all([
+            SoftwareLicense.find(query)
+                .populate("assignedUsers", "name email")
+                .sort({ expiryDate: 1, createdAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean(),
+            SoftwareLicense.countDocuments(query),
+        ]);
+
+        return sendSuccess(res, 200, "Software licenses fetched successfully", {
+            count: licenses.length,
+            total,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+            licenses,
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to fetch software licenses" });
+        return sendError(res, 500, "Failed to fetch software licenses");
     }
 };
 
-// @desc    Create a software license
-// @route   POST /api/software
-// @access  Private/Admin
 const createSoftware = async (req, res) => {
     try {
         const license = await SoftwareLicense.create(req.body);
@@ -32,27 +48,29 @@ const createSoftware = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        res.status(201).json({ success: true, message: "Software license created", license });
+        return sendSuccess(res, 201, "Software license created", { license });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to create license" });
+        return sendError(res, 500, "Failed to create license");
     }
 };
 
-// @desc    Assign user to software seat
-// @route   POST /api/software/:id/assign
-// @access  Private/Admin
 const assignUser = async (req, res) => {
     try {
         const { userId } = req.body;
-        const license = await SoftwareLicense.findById(req.params.id);
-        if (!license) return res.status(404).json({ message: "License not found" });
+        const [license, user] = await Promise.all([
+            SoftwareLicense.findById(req.params.id),
+            User.findById(userId).select("_id name email").lean(),
+        ]);
 
-        if (license.assignedUsers.includes(userId)) {
-            return res.status(400).json({ message: "User already assigned to this software" });
+        if (!license) return sendError(res, 404, "License not found", { id: "invalid_license" });
+        if (!user) return sendError(res, 404, "User not found", { userId: "invalid_user" });
+
+        if (license.assignedUsers.some((assigned) => assigned.toString() === userId)) {
+            return sendError(res, 400, "User already assigned to this software", { userId: "already_assigned" });
         }
 
         if (license.assignedUsers.length >= license.totalSeats) {
-            return res.status(400).json({ success: false, message: "No seats available for this license" });
+            return sendError(res, 400, "No seats available for this license", { seats: "exhausted" });
         }
 
         license.assignedUsers.push(userId);
@@ -65,10 +83,10 @@ const assignUser = async (req, res) => {
             ip: req.ip || req.connection.remoteAddress,
         });
 
-        const updatedLicense = await SoftwareLicense.findById(req.params.id).populate("assignedUsers", "name email");
-        res.json({ success: true, message: "User assigned successfully", license: updatedLicense });
+        const updatedLicense = await SoftwareLicense.findById(req.params.id).populate("assignedUsers", "name email").lean();
+        return sendSuccess(res, 200, "User assigned successfully", { license: updatedLicense });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Failed to assign user" });
+        return sendError(res, 500, "Failed to assign user");
     }
 };
 

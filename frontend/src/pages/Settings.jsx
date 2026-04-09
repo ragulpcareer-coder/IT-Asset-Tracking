@@ -3,11 +3,19 @@ import { motion, AnimatePresence } from "framer-motion";
 import axios from "../utils/axiosConfig";
 import { ToastContainer, toast } from "react-toastify";
 import { AuthContext } from "../context/AuthContext";
-import { Button, Input, Card, Badge, PasswordStrengthMeter, Alert } from "../components/UI";
+import { Button, Input, Card, Badge, PasswordStrengthMeter, Alert, ConfirmModal } from "../components/UI";
 import { ProfessionalIcon, RoleBadge } from "../components/ProfessionalIcons";
 import { getPasswordRequirements } from "../utils/validation";
+import {
+  validateConfirmPasswordField,
+  validatePasswordField,
+  validatePhoneField,
+  validateRequired,
+  validateVerificationCode,
+} from "../utils/formValidation";
 import { animationVariants, transitionPresets } from "../utils/animations";
 import { theme } from "../config/theme";
+import PageHeader from "../components/PageHeader";
 
 const DEPARTMENTS = [
   "IT Support",
@@ -32,8 +40,28 @@ function validatePassword(pwd) {
   };
 }
 
+function validateName(value) {
+  const requiredMessage = validateRequired(value, "Full name");
+  if (requiredMessage) return requiredMessage;
+  if (String(value).trim().length < 3) return "Full name must be at least 3 characters.";
+  if (String(value).trim().length > 50) return "Full name must be 50 characters or fewer.";
+  if (/\d/.test(String(value))) return "Full name must not contain numbers.";
+  return "";
+}
+
 // ── Inline confirmation modal (replaces window.confirm) ──────────────────────
-function ConfirmationModal({ isOpen, title, message, confirmLabel, confirmVariant = "danger", onConfirm, onCancel }) {
+function ConfirmationModal({
+  isOpen,
+  title,
+  message,
+  confirmLabel,
+  confirmVariant = "danger",
+  onConfirm,
+  onCancel,
+  children,
+  confirmDisabled = false,
+  confirmLoading = false,
+}) {
   if (!isOpen) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
@@ -46,21 +74,24 @@ function ConfirmationModal({ isOpen, title, message, confirmLabel, confirmVarian
         <div className="text-2xl mb-3 text-center">⚠️</div>
         <h3 className="text-white font-bold text-lg text-center mb-2">{title}</h3>
         <p className="text-gray-400 text-sm text-center mb-6 leading-relaxed">{message}</p>
+        {children && <div className="mb-6">{children}</div>}
         <div className="flex gap-3">
           <button
             onClick={onCancel}
+            disabled={confirmLoading}
             className="flex-1 py-2.5 rounded-lg border border-white/10 text-gray-400 hover:text-white hover:border-white/30 font-medium text-sm transition"
           >
             Cancel
           </button>
           <button
             onClick={onConfirm}
+            disabled={confirmDisabled || confirmLoading}
             className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition ${confirmVariant === "danger"
               ? "bg-red-600 hover:bg-red-500 text-white"
               : "bg-blue-600 hover:bg-blue-500 text-white"
               }`}
           >
-            {confirmLabel}
+            {confirmLoading ? "Please wait..." : confirmLabel}
           </button>
         </div>
       </motion.div>
@@ -73,6 +104,10 @@ export default function Settings() {
   const [activeTab, setActiveTab] = useState("profile");
   const [loading, setLoading] = useState(false);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
+  const [showDisable2FAModal, setShowDisable2FAModal] = useState(false);
+  const [disable2FAPassword, setDisable2FAPassword] = useState("");
+  const [disable2FAError, setDisable2FAError] = useState("");
+  const [disable2FALoading, setDisable2FALoading] = useState(false);
   const [activityFilter, setActivityFilter] = useState("All");
 
   const [passwordData, setPasswordData] = useState({
@@ -128,16 +163,22 @@ export default function Settings() {
     return Math.floor(seconds) + " seconds ago";
   };
 
-  const fetchActivity = async () => {
+  const fetchActivity = async (options = {}) => {
+    const { isMountedRef } = options;
     try {
       const res = await axios.get("/auth/activity");
-      setRealActivity(res.data || []);
+      if (isMountedRef && !isMountedRef.current) return;
+      setRealActivity(Array.isArray(res.data) ? res.data : Array.isArray(res.data?.data) ? res.data.data : []);
     } catch (err) {
-      console.error("Failed to fetch activity logs");
+      if (!isMountedRef || isMountedRef.current) {
+        setRealActivity([]);
+        toast.error("We couldn't load your recent activity.");
+      }
     }
   };
 
   React.useEffect(() => {
+    const isMountedRef = { current: true };
     if (user) {
       setProfileData({
         name: user.name || "",
@@ -157,8 +198,11 @@ export default function Settings() {
         sessionTimeout: user.preferences?.sessionTimeout || 30,
         twoFactorEnabled: user.twoFactorEnabled || false,
       });
-      fetchActivity();
+      fetchActivity({ isMountedRef });
     }
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [user]);
 
   const updatePreferences = async (newPrefs) => {
@@ -179,14 +223,8 @@ export default function Settings() {
   // ── Profile validation ──────────────────────────────────────────────────────
   const validateProfile = () => {
     const errs = {};
-    if (!profileData.name.trim() || profileData.name.trim().length < 3)
-      errs.name = "Full name must be at least 3 characters.";
-    if (profileData.name.trim().length > 50)
-      errs.name = "Full name must be 50 characters or fewer.";
-    if (/\d/.test(profileData.name))
-      errs.name = "Full name must not contain numbers.";
-    if (profileData.phone && !/^\+?[0-9\s\-().]{7,20}$/.test(profileData.phone))
-      errs.phone = "Enter a valid phone number (e.g. +91 9876543210).";
+    errs.name = validateName(profileData.name);
+    errs.phone = validatePhoneField(profileData.phone);
     setProfileErrors(errs);
     return Object.keys(errs).length === 0;
   };
@@ -194,17 +232,15 @@ export default function Settings() {
   // ── Password validation ─────────────────────────────────────────────────────
   const validatePasswordForm = () => {
     const errs = {};
-    if (!passwordData.currentPassword) errs.currentPassword = "Current password is required.";
+    errs.currentPassword = validateRequired(passwordData.currentPassword, "Current password");
     const reqs = validatePassword(passwordData.newPassword);
-    if (!reqs.minLength) errs.newPassword = "Password must be at least 8 characters.";
-    else if (!reqs.hasUpper) errs.newPassword = "Add at least one uppercase letter.";
-    else if (!reqs.hasLower) errs.newPassword = "Add at least one lowercase letter.";
-    else if (!reqs.hasNumber) errs.newPassword = "Add at least one number.";
-    else if (!reqs.hasSpecial) errs.newPassword = "Add at least one special character (e.g. @, #, !).";
-    if (passwordData.newPassword !== passwordData.confirmPassword)
-      errs.confirmPassword = "Passwords do not match.";
+    errs.newPassword = validatePasswordField(passwordData.newPassword);
+    if (reqs.minLength && reqs.hasUpper && reqs.hasLower && reqs.hasNumber && reqs.hasSpecial && passwordData.currentPassword === passwordData.newPassword) {
+      errs.newPassword = "New password must be different from your current password.";
+    }
+    errs.confirmPassword = validateConfirmPasswordField(passwordData.confirmPassword, passwordData.newPassword);
     setPwdErrors(errs);
-    return Object.keys(errs).length === 0;
+    return !Object.values(errs).some(Boolean);
   };
 
   const tabs = [
@@ -218,6 +254,36 @@ export default function Settings() {
   const inputClass =
     "w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 transition-all font-medium";
   const errorClass = "text-red-400 text-xs mt-1 flex items-center gap-1";
+
+  const disableTwoFactor = async () => {
+    if (!disable2FAPassword.trim()) {
+      setDisable2FAError("Please enter your current password to disable 2FA.");
+      return;
+    }
+
+    setDisable2FALoading(true);
+    setDisable2FAError("");
+
+    try {
+      await axios.post("/auth/2fa/disable", {
+        confirmPassword: disable2FAPassword,
+      });
+      setPreferences((prev) => ({ ...prev, twoFactorEnabled: false }));
+      setTfaSetup({ qrCode: null, secret: null, token: "", isSettingUp: false });
+      await refreshUser();
+      await fetchActivity();
+      toast.success("Two-Factor Authentication has been disabled.");
+      setShowDisable2FAModal(false);
+      setDisable2FAPassword("");
+      setDisable2FAError("");
+    } catch (e) {
+      const message = e.response?.data?.message || "Failed to disable 2FA. Please try again.";
+      setDisable2FAError(message);
+      toast.error(message);
+    } finally {
+      setDisable2FALoading(false);
+    }
+  };
 
   // ─────────────────────────────────────────────────────────────────────────────
   // PROFILE TAB
@@ -277,17 +343,19 @@ export default function Settings() {
                 Full Name <span className="text-red-400">*</span>
               </div>
             </label>
-            <input
-              type="text"
-              value={profileData.name}
-              maxLength={50}
-              onChange={(e) => {
-                setProfileData({ ...profileData, name: e.target.value });
-                if (profileErrors.name) setProfileErrors((p) => ({ ...p, name: "" }));
-              }}
-              required
-              className={`${inputClass} ${profileErrors.name ? "border-red-500/50" : ""}`}
-              style={{ color: "white" }}
+              <input
+                type="text"
+                value={profileData.name}
+                maxLength={50}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setProfileData({ ...profileData, name: value });
+                  setProfileErrors((p) => ({ ...p, name: validateName(value) }));
+                }}
+                onBlur={(e) => setProfileErrors((p) => ({ ...p, name: validateName(e.target.value) }))}
+                required
+                className={`${inputClass} ${profileErrors.name ? "border-red-500/50" : ""}`}
+                style={{ color: "white" }}
             />
             {profileErrors.name && <p className={errorClass}>⚠ {profileErrors.name}</p>}
           </div>
@@ -317,17 +385,19 @@ export default function Settings() {
                 Phone Number
               </div>
             </label>
-            <input
-              type="tel"
-              placeholder="+91 9876543210"
-              value={profileData.phone}
-              onChange={(e) => {
-                setProfileData({ ...profileData, phone: e.target.value });
-                if (profileErrors.phone) setProfileErrors((p) => ({ ...p, phone: "" }));
-              }}
-              className={`${inputClass} ${profileErrors.phone ? "border-red-500/50" : ""}`}
-              style={{ color: "white" }}
-            />
+              <input
+                type="tel"
+                placeholder="+91 9876543210"
+                value={profileData.phone}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setProfileData({ ...profileData, phone: value });
+                  setProfileErrors((p) => ({ ...p, phone: validatePhoneField(value) }));
+                }}
+                onBlur={(e) => setProfileErrors((p) => ({ ...p, phone: validatePhoneField(e.target.value) }))}
+                className={`${inputClass} ${profileErrors.phone ? "border-red-500/50" : ""}`}
+                style={{ color: "white" }}
+              />
             {profileErrors.phone && <p className={errorClass}>⚠ {profileErrors.phone}</p>}
           </div>
 
@@ -412,9 +482,11 @@ export default function Settings() {
                   type="password"
                   value={passwordData.currentPassword}
                   onChange={(e) => {
-                    setPasswordData({ ...passwordData, currentPassword: e.target.value });
-                    if (pwdErrors.currentPassword) setPwdErrors((p) => ({ ...p, currentPassword: "" }));
+                    const value = e.target.value;
+                    setPasswordData({ ...passwordData, currentPassword: value });
+                    setPwdErrors((p) => ({ ...p, currentPassword: validateRequired(value, "Current password") }));
                   }}
+                  onBlur={(e) => setPwdErrors((p) => ({ ...p, currentPassword: validateRequired(e.target.value, "Current password") }))}
                   required
                   className={`${inputClass} ${pwdErrors.currentPassword ? "border-red-500/50" : ""}`}
                   style={{ color: "white" }}
@@ -430,9 +502,28 @@ export default function Settings() {
                   value={passwordData.newPassword}
                   onFocus={() => setShowPwdReqs(true)}
                   onChange={(e) => {
-                    setPasswordData({ ...passwordData, newPassword: e.target.value });
-                    if (pwdErrors.newPassword) setPwdErrors((p) => ({ ...p, newPassword: "" }));
+                    const value = e.target.value;
+                    setPasswordData({ ...passwordData, newPassword: value });
+                    setPwdErrors((p) => ({
+                      ...p,
+                      newPassword:
+                        value === passwordData.currentPassword
+                          ? "New password must be different from your current password."
+                          : validatePasswordField(value),
+                      confirmPassword: passwordData.confirmPassword
+                        ? validateConfirmPasswordField(passwordData.confirmPassword, value)
+                        : p.confirmPassword,
+                    }));
                   }}
+                  onBlur={(e) =>
+                    setPwdErrors((p) => ({
+                      ...p,
+                      newPassword:
+                        e.target.value === passwordData.currentPassword
+                          ? "New password must be different from your current password."
+                          : validatePasswordField(e.target.value),
+                    }))
+                  }
                   required
                   className={`${inputClass} ${pwdErrors.newPassword ? "border-red-500/50" : ""}`}
                   style={{ color: "white" }}
@@ -464,9 +555,19 @@ export default function Settings() {
                   type="password"
                   value={passwordData.confirmPassword}
                   onChange={(e) => {
-                    setPasswordData({ ...passwordData, confirmPassword: e.target.value });
-                    if (pwdErrors.confirmPassword) setPwdErrors((p) => ({ ...p, confirmPassword: "" }));
+                    const value = e.target.value;
+                    setPasswordData({ ...passwordData, confirmPassword: value });
+                    setPwdErrors((p) => ({
+                      ...p,
+                      confirmPassword: validateConfirmPasswordField(value, passwordData.newPassword),
+                    }));
                   }}
+                  onBlur={(e) =>
+                    setPwdErrors((p) => ({
+                      ...p,
+                      confirmPassword: validateConfirmPasswordField(e.target.value, passwordData.newPassword),
+                    }))
+                  }
                   required
                   className={`${inputClass} ${pwdErrors.confirmPassword ? "border-red-500/50" : ""}`}
                   style={{ color: "white" }}
@@ -512,11 +613,7 @@ export default function Settings() {
                   onClick={async () => {
                     try {
                       if (preferences.twoFactorEnabled) {
-                        await axios.post("/auth/2fa/disable");
-                        setPreferences((prev) => ({ ...prev, twoFactorEnabled: false }));
-                        await refreshUser();
-                        await fetchActivity();
-                        toast.success("Two-Factor Authentication has been disabled.");
+                        setShowDisable2FAModal(true);
                       } else {
                         const res = await axios.post("/auth/2fa/generate");
                         setTfaSetup({ ...tfaSetup, qrCode: res.data.qrCode, secret: res.data.secret, isSettingUp: true });
@@ -558,6 +655,7 @@ export default function Settings() {
                     onChange={(e) => setTfaSetup({ ...tfaSetup, token: e.target.value.replace(/\D/g, "").slice(0, 6) })}
                     className="w-full bg-[#111] border border-white/10 rounded-lg p-2.5 text-white caret-white outline-none focus:border-white/30 tracking-widest text-center text-xl font-mono"
                     style={{ color: "white" }}
+                    aria-invalid={!!(tfaSetup.token && validateVerificationCode(tfaSetup.token))}
                   />
                   <div className="flex gap-3">
                     <button
@@ -568,8 +666,9 @@ export default function Settings() {
                     </button>
                     <button
                       onClick={async () => {
-                        if (tfaSetup.token.length < 6) {
-                          toast.error("Please enter a 6-digit code.");
+                        const tfaError = validateVerificationCode(tfaSetup.token);
+                        if (tfaError) {
+                          toast.error(tfaError);
                           return;
                         }
                         try {
@@ -862,12 +961,42 @@ export default function Settings() {
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
       {/* Logout Confirmation Modal */}
-      <ConfirmationModal
+      <ConfirmModal
+        isOpen={showDisable2FAModal}
+        title="Disable Two-Factor Authentication?"
+        message="This will remove the extra verification step from your account. Continue only if you understand the reduced account protection."
+        confirmText="Disable 2FA"
+        type="danger"
+        confirmDisabled={!disable2FAPassword.trim()}
+        confirmLoading={disable2FALoading}
+        onConfirm={disableTwoFactor}
+        onCancel={() => {
+          if (disable2FALoading) return;
+          setShowDisable2FAModal(false);
+          setDisable2FAPassword("");
+          setDisable2FAError("");
+        }}
+      >
+        <Input
+          label="Current Password"
+          type="password"
+          value={disable2FAPassword}
+          onChange={(e) => {
+            setDisable2FAPassword(e.target.value);
+            if (disable2FAError) setDisable2FAError("");
+          }}
+          placeholder="Enter your current password"
+          required
+          error={disable2FAError}
+        />
+      </ConfirmModal>
+
+      <ConfirmModal
         isOpen={showLogoutModal}
         title="Log Out From All Devices?"
         message="Are you sure you want to log out from all devices? This will immediately invalidate all active sessions and refresh tokens. You will be logged out from this device as well."
-        confirmLabel="Confirm Logout"
-        confirmVariant="danger"
+        confirmText="Confirm Logout"
+        type="danger"
         onConfirm={async () => {
           try {
             await axios.post("/auth/logout-all");
@@ -903,11 +1032,10 @@ export default function Settings() {
         </div>
       )}
 
-      {/* Page Header */}
-      <motion.div className="mb-8 px-2 pt-4 md:pt-8" initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl md:text-3xl font-semibold tracking-tight mb-1">Settings</h1>
-        <p className="text-gray-400 text-xs md:text-sm font-medium mt-1">Manage your account, security, and preferences</p>
-      </motion.div>
+      <PageHeader
+        title="Settings"
+        subtitle="Manage your account, security controls, and workspace preferences."
+      />
 
       {/* Tabs */}
       <motion.div className="bg-[#050505] rounded-xl border border-white/10 overflow-hidden" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>

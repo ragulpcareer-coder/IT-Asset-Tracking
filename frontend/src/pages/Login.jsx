@@ -1,10 +1,9 @@
-﻿import React, { useContext, useState } from "react";
+import React, { useContext, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
 import { AuthContext } from "../context/AuthContext";
-import { validateEmail } from "../utils/validation";
-import { QuantumBackground, FutureCard, QuantumButton } from "../components/FuturisticUI";
-import "../modern.css";
+import { Alert, Button, Input } from "../components/UI";
+import AuthShell from "../components/AuthShell";
+import { validateEmailField, validateRequired } from "../utils/formValidation";
 
 export default function Login() {
   const navigate = useNavigate();
@@ -16,29 +15,23 @@ export default function Login() {
   const [error, setError] = useState("");
   const [errors, setErrors] = useState({ email: "", password: "" });
 
-  const validateForm = () => {
-    const nextErrors = { email: "", password: "" };
-    let valid = true;
-
-    if (!email.trim()) {
-      nextErrors.email = "Email is required";
-      valid = false;
-    } else if (!validateEmail(email.trim())) {
-      nextErrors.email = "Please enter a valid email address";
-      valid = false;
-    }
-
-    if (!password.trim()) {
-      nextErrors.password = "Password is required";
-      valid = false;
-    }
-
-    setErrors(nextErrors);
-    return valid;
+  const validateField = (name, value) => {
+    if (name === "email") return validateEmailField(value, "Email");
+    if (name === "password") return validateRequired(value, "Password");
+    return "";
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const validateForm = () => {
+    const nextErrors = {
+      email: validateField("email", email),
+      password: validateField("password", password),
+    };
+    setErrors(nextErrors);
+    return !nextErrors.email && !nextErrors.password;
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     setError("");
 
     if (!validateForm()) return;
@@ -64,113 +57,75 @@ export default function Login() {
       navigate("/dashboard");
     } catch (err) {
       const data = err.response?.data;
-      if (data?.code === "AUTH_401") {
-        setError("Invalid email or password.");
-      } else if (data?.code === "AUTH_423") {
-        setError(data.message || "Your account is temporarily locked due to failed attempts.");
-      } else {
-        setError(data?.message || "Sign in failed. Please try again.");
-      }
+      setError(data?.message || "Sign in failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen w-full overflow-hidden relative bg-[#0a1128]">
-      <QuantumBackground className="z-0" />
-
-      <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-8">
-        <motion.div
-          className="w-full max-w-md"
-          initial={{ opacity: 0, y: 30 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.7 }}
-        >
-          <div className="mb-10 text-center">
-            <h1 className="text-4xl font-black mb-3 bg-gradient-to-r from-[#00d4ff] via-[#6432ff] to-[#00d4ff] bg-clip-text text-transparent">
-              Welcome Back
-            </h1>
-            <p className="text-cyan-300 text-sm font-medium">Sign in to continue to your dashboard</p>
-          </div>
-
-          <FutureCard accentColor="#00d4ff" fullWidth>
-            {error && (
-              <motion.div
-                initial={{ opacity: 0, y: -8 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-5 p-3 rounded-lg bg-red-500/20 border border-red-500/50 text-red-300 text-sm"
-              >
-                {error}
-              </motion.div>
-            )}
-
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="block text-cyan-300 text-sm font-semibold mb-2">Email Address</label>
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => {
-                    setEmail(e.target.value);
-                    if (errors.email) setErrors((prev) => ({ ...prev, email: "" }));
-                  }}
-                  className="w-full px-4 py-3 rounded-lg bg-white/5 backdrop-blur border-2 border-[rgba(100,200,255,0.3)] text-white placeholder-blue-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                  placeholder="Enter your registered email"
-                  autoComplete="email"
-                />
-                {errors.email && <p className="text-red-400 text-xs mt-2">{errors.email}</p>}
-              </div>
-
-              <div>
-                <label className="block text-cyan-300 text-sm font-semibold mb-2">Password</label>
-                <input
-                  type="password"
-                  value={password}
-                  onChange={(e) => {
-                    setPassword(e.target.value);
-                    if (errors.password) setErrors((prev) => ({ ...prev, password: "" }));
-                  }}
-                  className="w-full px-4 py-3 rounded-lg bg-white/5 backdrop-blur border-2 border-[rgba(100,200,255,0.3)] text-white placeholder-blue-300/40 focus:outline-none focus:ring-2 focus:ring-cyan-500/50"
-                  placeholder="Enter your password"
-                  autoComplete="current-password"
-                />
-                {errors.password && <p className="text-red-400 text-xs mt-2">{errors.password}</p>}
-              </div>
-
-              <QuantumButton type="submit" disabled={loading} variant="primary" size="lg" className="w-full disabled:opacity-50">
-                {loading ? "Signing In..." : "Sign In"}
-              </QuantumButton>
-            </form>
-
-            <div className="text-right mt-4">
-              <Link to="/forgot-password" className="text-cyan-400 text-xs font-semibold hover:text-cyan-300 transition hover:underline">
-                Forgot your password?
-              </Link>
-            </div>
-
-            <div className="my-6 flex items-center gap-4">
-              <div className="flex-1 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
-              <span className="text-cyan-300/60 text-xs font-semibold">NEW USER?</span>
-              <div className="flex-1 h-px bg-gradient-to-r from-transparent via-cyan-500/50 to-transparent" />
-            </div>
-
-            <div className="text-center">
-              <p className="text-white/60 text-sm mb-3">Don't have an account?</p>
-              <Link
-                to="/register"
-                className="inline-block px-6 py-2 rounded-lg border-2 border-cyan-400/50 text-cyan-300 font-bold text-sm hover:border-cyan-300 hover:text-cyan-200 transition hover:bg-cyan-500/10"
-              >
-                Create Account
-              </Link>
-            </div>
-          </FutureCard>
-
-          <p className="text-center text-white/40 text-xs mt-8 font-medium">
-            Secure. Private. Professional Asset Management.
+    <AuthShell
+      title="Welcome Back"
+      subtitle="Sign in to continue to your dashboard, approvals, and live asset operations."
+      footer={
+        <div className="space-y-3">
+          <p>
+            Don&apos;t have an account?{" "}
+            <Link to="/register" className="font-semibold text-sky-300 hover:text-sky-200">
+              Create one
+            </Link>
           </p>
-        </motion.div>
-      </div>
-    </div>
+          <p className="text-xs text-slate-500">Secure. Private. Professional asset management.</p>
+        </div>
+      }
+    >
+      {error ? <Alert type="error" message={error} onClose={() => setError("")} className="mb-5" /> : null}
+
+      <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+        <Input
+          id="login-email"
+          label="Email Address"
+          type="email"
+          value={email}
+          onChange={(event) => {
+            const value = event.target.value;
+            setEmail(value);
+            setErrors((prev) => ({ ...prev, email: validateField("email", value) }));
+          }}
+          onBlur={(event) => setErrors((prev) => ({ ...prev, email: validateField("email", event.target.value) }))}
+          placeholder="Enter your registered email"
+          autoComplete="email"
+          error={errors.email}
+          required
+        />
+
+        <Input
+          id="login-password"
+          label="Password"
+          type="password"
+          value={password}
+          onChange={(event) => {
+            const value = event.target.value;
+            setPassword(value);
+            setErrors((prev) => ({ ...prev, password: validateField("password", value) }));
+          }}
+          onBlur={(event) => setErrors((prev) => ({ ...prev, password: validateField("password", event.target.value) }))}
+          placeholder="Enter your password"
+          autoComplete="current-password"
+          error={errors.password}
+          required
+        />
+
+        <div className="flex items-center justify-end">
+          <Link to="/forgot-password" className="text-sm font-semibold text-sky-300 hover:text-sky-200">
+            Forgot your password?
+          </Link>
+        </div>
+
+        <Button type="submit" variant="primary" size="lg" className="w-full" loading={loading} disabled={loading}>
+          {loading ? "Signing In..." : "Sign In"}
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

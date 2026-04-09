@@ -15,6 +15,7 @@ const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const AuditLog = require("../models/AuditLog");
 const TokenManager = require("../utils/tokenManager");
+const { sendError } = require("../utils/apiResponse");
 
 const tokenManager = new TokenManager(
   process.env.JWT_SECRET,
@@ -41,14 +42,14 @@ const protect = async (req, res, next) => {
 
   if (!token) {
     console.log("[AuthMiddleware] Failed: No token found in headers or cookies");
-    return res.status(401).json({ message: "Not authorized, no token" });
+    return sendError(res, 401, "Not authorized, no token", { auth: "missing_token" });
   }
 
   try {
     const verified = tokenManager.verifyAccessToken(token);
     if (!verified.valid) {
       console.log(`[AuthMiddleware] Failed: Token invalid (${verified.error}). Source: ${tokenSource}, Val: ${token.substring(0, 15)}...`);
-      return res.status(401).json({ message: "Not authorized, token invalid", debug: verified.error });
+      return sendError(res, 401, "Not authorized, token invalid", { auth: "invalid_token" });
     }
 
     const decoded = verified.decoded;
@@ -61,7 +62,7 @@ const protect = async (req, res, next) => {
       const diff = Math.abs(now - parseInt(requestTimestamp));
       if (diff > 30000) { // 30 seconds tolerance
         console.log("[AuthMiddleware] Failed: Request expired (Signature Replay)");
-        return res.status(403).json({ message: "Security Violation: API Request Expired (Signature Replay Protection)" });
+        return sendError(res, 403, "Security violation: API request expired");
       }
     }
 
@@ -78,11 +79,13 @@ const protect = async (req, res, next) => {
         ip: ip,
       });
       console.log("[AuthMiddleware] Failed: Malicious query/prompt detected");
-      return res.status(403).json({
-        message: hasPromptInjection
-          ? "Protocol Violation: Adversarial prompt patterns detected. Command execution blocked."
-          : "Security Violation: Malicious request pattern detected."
-      });
+      return sendError(
+        res,
+        403,
+        hasPromptInjection
+          ? "Protocol violation: adversarial prompt patterns detected"
+          : "Security violation: malicious request pattern detected"
+      );
     }
 
     // Zero Trust Optimization: Fetch minimal fields required for authorization
@@ -91,7 +94,7 @@ const protect = async (req, res, next) => {
 
     if (!user) {
       console.log(`[AuthMiddleware] Failed: User not found in database for ID ${decoded.userId}`);
-      return res.status(401).json({ message: "Not authorized, user not found" });
+      return sendError(res, 401, "Not authorized, user not found", { auth: "invalid_user" });
     }
 
     // Zero Trust: Device Fingerprint Binding (Â§3.1)
@@ -110,7 +113,7 @@ const protect = async (req, res, next) => {
     const decodedVersion = decoded.tokenVersion || 0;
     if (userVersion !== decodedVersion) {
       console.log(`[AuthMiddleware] Failed: Token Version Mismatch (Revoked Session). User: ${userVersion}, Token: ${decodedVersion}`);
-      return res.status(401).json({ message: "Session expired due to security credential updates. Please log in again.", code: "SESSION_REVOKED" });
+      return sendError(res, 401, "Session expired due to security credential updates. Please log in again.", { auth: "session_revoked" });
     }
 
     // Session Binding to IP - Legacy IP Shift tracking removed.
@@ -130,34 +133,27 @@ const protect = async (req, res, next) => {
     // Account suspension check
     if (user.isActive === false) {
       console.log(`[AuthMiddleware] Failed: Account is suspended (isActive=false)`);
-      return res.status(403).json({
-        message: "Your account has been suspended by an administrator.",
-      });
+      return sendError(res, 403, "Your account has been suspended by an administrator.", { auth: "account_suspended" });
     }
 
     // Account lock check
     if (user.lockUntil && user.lockUntil > Date.now()) {
       const waitMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
       console.log(`[AuthMiddleware] Failed: Account is locked for ${waitMinutes}m`);
-      return res.status(403).json({
-        message: `Your account is temporarily locked due to failed login attempts. Try again in ${waitMinutes} minute(s).`,
-      });
+      return sendError(res, 403, `Your account is temporarily locked due to failed login attempts. Try again in ${waitMinutes} minute(s).`, { auth: "account_locked" });
     }
 
     // Approval check (Core Admins inherently bypass this check)
     if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
       console.log(`[AuthMiddleware] Failed: Account not approved`);
-      return res.status(403).json({
-        message: "Compliance Pending: Your account is awaiting administrator approval before accessing platform telemetry.",
-        code: "ACCOUNT_PENDING_APPROVAL"
-      });
+      return sendError(res, 403, "Compliance pending: your account is awaiting administrator approval before accessing platform telemetry.", { auth: "account_pending_approval" });
     }
 
     req.user = user;
     return next();
   } catch (error) {
     console.error(`[AuthMiddleware] EXCEPTION: Auth protect error:`, error.message, error.stack);
-    return res.status(401).json({ message: "Not authorized, token failed" });
+    return sendError(res, 401, "Not authorized, token failed", { auth: "token_failed" });
   }
 };
 
@@ -179,7 +175,7 @@ const admin = async (req, res, next) => {
     });
   } catch (_) { /* audit is best-effort */ }
 
-  return res.status(403).json({ message: "Forbidden: Administrator access required." });
+  return sendError(res, 403, "Forbidden: Administrator access required.", { auth: "admin_required" });
 };
 
 const bcrypt = require("bcryptjs");
@@ -198,6 +194,7 @@ const requireReAuth = async (req, res, next) => {
     const { confirmPassword } = req.body;
     if (!confirmPassword) {
       return res.status(403).json({
+        success: false,
         reauthRequired: true,
         code: "STEP_UP_REQUIRED",
         message: "Step-up authentication required. Please confirm your password to continue."
@@ -207,7 +204,7 @@ const requireReAuth = async (req, res, next) => {
     // Since req.user was fetched with .select("-password") in protect(),
     // we need to fetch it including password now.
     const user = await User.findById(req.user._id).select("+password");
-    if (!user) return res.status(404).json({ message: "User session lost" });
+    if (!user) return sendError(res, 401, "User session lost", { auth: "session_lost" });
 
     const isMatch = await bcrypt.compare(confirmPassword, user.password);
     if (!isMatch) {
@@ -219,6 +216,7 @@ const requireReAuth = async (req, res, next) => {
       });
 
       return res.status(403).json({
+        success: false,
         reauthRequired: true,
         code: "STEP_UP_REQUIRED",
         message: "Invalid password for step-up authentication."
@@ -241,7 +239,7 @@ const requireReAuth = async (req, res, next) => {
 
     next();
   } catch (error) {
-    res.status(500).json({ message: "Re-authentication system error" });
+    return sendError(res, 500, "Re-authentication system error");
   }
 };
 module.exports = { protect, admin, requireReAuth };

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import axios from "../utils/axiosConfig";
+import { toast } from "react-toastify";
 
 export default function CommandPalette() {
     const [isOpen, setIsOpen] = useState(false);
@@ -9,6 +10,8 @@ export default function CommandPalette() {
     const [results, setResults] = useState([]);
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const dialogRef = React.useRef(null);
+    const searchInputRef = React.useRef(null);
 
     // Listen for Cmd+K or Ctrl+K and custom event
     useEffect(() => {
@@ -35,24 +38,69 @@ export default function CommandPalette() {
     useEffect(() => {
         if (!search.trim()) {
             setResults([]);
+            setLoading(false);
             return;
         }
+
+        const controller = new AbortController();
+        let isActive = true;
 
         const fetchResults = async () => {
             setLoading(true);
             try {
-                const res = await axios.get(`/assets?search=${encodeURIComponent(search)}&limit=5`);
-                setResults(res.data.assets || []);
+                const res = await axios.get(`/assets?search=${encodeURIComponent(search)}&limit=5`, {
+                    signal: controller.signal,
+                });
+                if (!isActive) return;
+                setResults(Array.isArray(res.data?.assets) ? res.data.assets : []);
             } catch (err) {
-                console.error("Failed to search assets", err);
+                if (err?.name === "CanceledError" || err?.name === "AbortError") return;
+                if (!isActive) return;
+                setResults([]);
+                toast.error("We couldn't load search results right now.", { toastId: "command-palette-search-error" });
             } finally {
-                setLoading(false);
+                if (isActive) setLoading(false);
             }
         };
 
         const debounce = setTimeout(fetchResults, 300);
-        return () => clearTimeout(debounce);
+        return () => {
+            isActive = false;
+            clearTimeout(debounce);
+            controller.abort();
+        };
     }, [search]);
+
+    useEffect(() => {
+        if (!isOpen) return undefined;
+
+        const previousActive = document.activeElement;
+        searchInputRef.current?.focus();
+
+        const handleKeyDown = (event) => {
+            if (event.key !== "Tab" || !dialogRef.current) return;
+            const focusable = Array.from(
+                dialogRef.current.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
+            );
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.removeEventListener("keydown", handleKeyDown);
+            previousActive?.focus?.();
+        };
+    }, [isOpen]);
 
     const handleSelect = (asset) => {
         setIsOpen(false);
@@ -74,11 +122,16 @@ export default function CommandPalette() {
                         transition={{ type: "spring", stiffness: 300, damping: 25 }}
                         onClick={(e) => e.stopPropagation()}
                         className="w-full max-w-2xl bg-[#0a0a0a] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Command palette"
+                        ref={dialogRef}
                     >
                         <div className="flex items-center px-4 py-3 border-b border-white/10 bg-[#111]">
                             <span className="text-xl mr-3 opacity-50">🔍</span>
                             <input
                                 autoFocus
+                                ref={searchInputRef}
                                 type="text"
                                 placeholder="Search assets or commands... (e.g. 'Laptop')"
                                 value={search}

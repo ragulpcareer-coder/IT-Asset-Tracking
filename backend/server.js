@@ -15,6 +15,8 @@ const cookieParser = require("cookie-parser");
 const csurf = require("csurf");
 const logger = require('./utils/logger');
 const ipBlockerMiddleware = require("./middleware/ipBlockerMiddleware");
+const TokenManager = require("./utils/tokenManager");
+const User = require("./models/User");
 
 // 1. Environment Configuration
 const envPath = path.resolve(__dirname, "backend.env");
@@ -54,26 +56,31 @@ const server = http.createServer(app);
 app.set("trust proxy", 1);
 
 // 4. Security Networking (CORS) (§43, §44)
-const FRONTEND_URL = process.env.FRONTEND_URL || "http://localhost:5173";
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:5175",
-  FRONTEND_URL,
-  "https://it-asset-tracking-ragul.vercel.app",
-  "https://it-asset-tracking-ragulpcareer-coders-projects.vercel.app"
-];
+const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
+const configuredOrigins = (process.env.FRONTEND_URLS || process.env.FRONTEND_URL || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+const allowedOrigins = process.env.NODE_ENV === "production"
+  ? configuredOrigins
+  : [...new Set([
+    ...configuredOrigins,
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "http://localhost:5175",
+    "http://127.0.0.1:5173",
+  ])];
 
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  return allowedOrigins.includes(origin);
+};
 
-app.use(cors({
+const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-
-    const isVercelOrigin = origin.endsWith(".vercel.app");
-    const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
-
-    if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
-      callback(null, origin); // MUST return exact origin here, NOT 'true', so ACAO header is echoed back specifically.
+    if (isAllowedOrigin(origin)) {
+      callback(null, origin);
     } else {
       console.warn(`[CORS-Forensic] BLOCKED: ${origin}`);
       callback(new Error('Identity Policy: Cross-origin access denied.'));
@@ -83,20 +90,19 @@ app.use(cors({
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-CSRF-Token", "X-Request-Timestamp", "X-Agent-Signature", "X-Requested-With", "Accept"],
   exposedHeaders: ["X-CSRF-Token", "X-Request-Timestamp"]
-}));
+};
+
+app.use(cors(corsOptions));
 
 // Preflight OPTIONS handler
-app.options("*", cors());
+app.options("*", cors(corsOptions));
 
 // 5. Socket.io Configuration
 const io = new Server(server, {
   cors: {
     origin: function (origin, callback) {
       if (!origin) return callback(null, true);
-      const isVercelOrigin = origin.endsWith(".vercel.app");
-      const isLocalhost = origin.includes("localhost") || origin.includes("127.0.0.1");
-
-      if (allowedOrigins.indexOf(origin) !== -1 || isVercelOrigin || isLocalhost) {
+      if (isAllowedOrigin(origin)) {
         callback(null, origin);
       } else {
         callback(null, false);
@@ -104,18 +110,52 @@ const io = new Server(server, {
     },
     methods: ["GET", "POST"],
     credentials: true,
-    allowedHeaders: ["*"]
+    allowedHeaders: ["Authorization", "Content-Type", "X-Requested-With"]
   },
   allowEIO3: true // Helps with some older connection transports
 });
 app.set("io", io);
 global.io = io; // Set global.io for utils/services to access easily
 
-io.on("connection", (socket) => {
-  const userId = socket.handshake?.auth?.userId || socket.handshake?.query?.userId;
-  if (userId) {
-    socket.join(`user:${userId}`);
+const getCookieValue = (cookieHeader = "", name) => {
+  return cookieHeader
+    .split(";")
+    .map((pair) => pair.trim())
+    .filter(Boolean)
+    .map((pair) => pair.split("="))
+    .find(([key]) => key === name)?.[1];
+};
+
+io.use(async (socket, next) => {
+  try {
+    const cookieToken = getCookieValue(socket.handshake.headers?.cookie || "", "jwt");
+    const authToken = socket.handshake?.auth?.token;
+    const token = cookieToken || authToken;
+
+    if (!token) {
+      return next(new Error("Authentication required"));
+    }
+
+    const verified = tokenManager.verifyAccessToken(decodeURIComponent(token));
+    if (!verified.valid) {
+      return next(new Error("Invalid socket token"));
+    }
+
+    const user = await User.findById(verified.decoded.userId)
+      .select("_id email role isActive isApproved");
+    if (!user || user.isActive === false || (!user.isApproved && !["Super Admin", "Admin"].includes(user.role))) {
+      return next(new Error("Unauthorized socket identity"));
+    }
+
+    socket.user = user;
+    return next();
+  } catch (error) {
+    return next(new Error("Socket authentication failed"));
   }
+});
+
+io.on("connection", (socket) => {
+  socket.join(`user:${socket.user._id.toString()}`);
 });
 
 // 6. Security & Optimization Middlewares
@@ -154,7 +194,11 @@ app.use(ipBlockerMiddleware);
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 100,
-  message: { message: "Too many requests from this IP, please try again later." },
+  message: {
+    success: false,
+    message: "Too many requests from this IP, please try again later.",
+    errors: { rateLimit: "too_many_requests" }
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -168,7 +212,11 @@ const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
   skipSuccessfulRequests: true,   // only count failed/401 attempts, not successful logins
-  message: { message: "Too many failed login attempts. Please wait 15 minutes before trying again." },
+  message: {
+    success: false,
+    message: "Too many failed login attempts. Please wait 15 minutes before trying again.",
+    errors: { auth: "rate_limited" }
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -176,7 +224,22 @@ const authLimiter = rateLimit({
 const forgotPasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
-  message: { message: "Too many password reset requests. Please wait 15 minutes before trying again." },
+  message: {
+    success: false,
+    message: "Too many password reset requests. Please wait 15 minutes before trying again.",
+    errors: { email: "rate_limited" }
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const twoFactorLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: {
+    success: false,
+    message: "Too many two-factor attempts. Please wait 15 minutes before trying again.",
+  },
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -185,6 +248,8 @@ app.use("/api/", globalLimiter);
 app.use("/api/auth/login", authLimiter);
 app.use("/api/auth/register", authLimiter);
 app.use("/api/auth/forgot-password", forgotPasswordLimiter);
+app.use("/api/auth/verify-2fa", twoFactorLimiter);
+app.use("/api/auth/2fa/verify", twoFactorLimiter);
 
 // 8. SIEM & Performance Logging Integration (§47)
 app.use((req, res, next) => {
@@ -328,6 +393,7 @@ try {
   require('./jobs/warrantyJob');
   require('./jobs/backupJob');
   require('./jobs/pingWatchdog');
+  require('./jobs/networkDiscoveryJob');
   require('./jobs/keepAliveJob');
 } catch (err) {
   console.warn('Job Initialization Warning:', err.message);

@@ -1,7 +1,6 @@
 import React, { useContext } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { AuthContext } from "../../context/AuthContext";
-import { ProfessionalIcon } from "../ProfessionalIcons";
 import { motion, AnimatePresence } from "framer-motion";
 
 /**
@@ -44,19 +43,12 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
       </AnimatePresence>
 
       {/* Main Sidebar Shell */}
-      <aside
-        className={`app-sidebar ${collapsed ? 'compact' : ''} ${mobileOpen ? 'mobile-active' : ''}`}
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100vh',
-          boxShadow: '20px 0 50px rgba(0,0,0,0.3)'
-        }}
-      >
+      <aside className={`app-sidebar ${collapsed ? 'compact' : ''} ${mobileOpen ? 'mobile-active' : ''}`}>
+        <div className="sidebar-shell">
         {/* Branding Area */}
-        <div style={{ padding: '32px 24px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div className="flex-center" style={{ width: 36, height: 36, background: '#fff', borderRadius: 8 }}>
-            <img src="/logo.svg" alt="Logo" style={{ width: 20, height: 20 }} />
+        <div className="sidebar-brand">
+          <div className="sidebar-logo">
+            <img src="/logo.svg" alt="AssetTrack logo" style={{ width: 20, height: 20 }} />
           </div>
           {!collapsed && (
             <div style={{ fontWeight: 800, fontSize: '18px', color: '#fff', letterSpacing: '-0.02em', textTransform: 'uppercase' }}>
@@ -66,7 +58,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
         </div>
 
         {/* Navigation Core */}
-        <nav style={{ flex: 1, padding: '0 12px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <nav className="sidebar-nav">
           {(Array.isArray(navItems) ? navItems : []).map((item) => {
             const active = isActive(item.path);
             return (
@@ -75,21 +67,10 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
                 to={item.path}
                 className={`nav-item ${active ? 'active' : ''}`}
                 onClick={() => mobileOpen && onClose()}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 12,
-                  padding: '12px',
-                  borderRadius: '12px',
-                  textDecoration: 'none',
-                  transition: 'all 0.2s ease',
-                  background: active ? 'rgba(59, 130, 246, 0.1)' : 'transparent',
-                  color: active ? '#fff' : '#94a3b8',
-                  fontWeight: active ? 700 : 500
-                }}
+                aria-current={active ? "page" : undefined}
               >
-                <div style={{ fontSize: '18px', opacity: active ? 1 : 0.6 }}>{item.icon}</div>
-                {!collapsed && <span style={{ fontSize: '14px' }}>{item.label}</span>}
+                <div style={{ fontSize: '18px', opacity: active ? 1 : 0.7, width: 20, textAlign: "center" }}>{item.icon}</div>
+                {!collapsed && <span style={{ fontSize: '14px', whiteSpace: "nowrap" }}>{item.label}</span>}
               </Link>
             );
           })}
@@ -113,6 +94,7 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
               </div>
             )}
           </div>
+        </div>
         </div>
       </aside>
     </>

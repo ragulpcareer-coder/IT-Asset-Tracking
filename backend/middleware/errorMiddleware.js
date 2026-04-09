@@ -42,12 +42,17 @@ const errorHandler = (err, req, res, next) => {
     }
 
     // Security: Never leak database driver info, stack traces, or internal paths in production
-    res.status(statusCode).json({
+    const payload = {
         success: false,
         message: statusCode === 500 ? "Internal Enterprise Error. Technical details logged." : message,
-        stack: process.env.NODE_ENV === 'development' ? err.stack : null,
-        errorRaw: statusCode === 500 && process.env.NODE_ENV !== 'production' ? err.message : undefined
-    });
+    };
+
+    if (process.env.NODE_ENV === 'development') {
+        payload.stack = err.stack;
+        if (statusCode === 500) payload.errorRaw = err.message;
+    }
+
+    res.status(statusCode).json(payload);
 };
 
 const notFound = (req, res, next) => {

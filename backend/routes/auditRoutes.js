@@ -12,8 +12,16 @@
 const express = require("express");
 const router = express.Router();
 const AuditLog = require("../models/AuditLog");
+const AuditLogSecurity = require("../utils/auditLogSecurity");
 const { protect, admin } = require("../middleware/authMiddleware");
 const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
+const validate = require("../middleware/validateRequest");
+const {
+  dateRangeQuerySchema,
+  auditCreateSchema,
+  integrityQuerySchema,
+} = require("../validators/routeValidators");
 
 // Lightweight CSV generator (no external deps)
 function toCSV(rows, fields) {
@@ -29,9 +37,11 @@ function toCSV(rows, fields) {
 }
 
 // ── GET /api/audit — List logs with pagination & filters (Admin only) ──
-router.get("/", protect, admin, async (req, res) => {
+router.get("/", protect, admin, validate(dateRangeQuerySchema, "query"), async (req, res) => {
   try {
-    const { page = 1, limit = 50, action, from, to } = req.query;
+    const page = Math.max(parseInt(req.query.page || "1", 10), 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit || "50", 10), 1), 200);
+    const { action, from, to } = req.query;
     const q = {};
     if (action) q.action = action;
     if (from || to) q.createdAt = {};
@@ -41,18 +51,76 @@ router.get("/", protect, admin, async (req, res) => {
     const logs = await AuditLog.find(q)
       .sort({ createdAt: -1 })
       .skip((page - 1) * limit)
-      .limit(parseInt(limit, 10));
+      .limit(limit);
 
     const total = await AuditLog.countDocuments(q);
-    res.json({ data: logs, page: parseInt(page, 10), limit: parseInt(limit, 10), total });
+    return sendSuccess(res, 200, "Audit logs fetched successfully", {
+      data: logs,
+      page,
+      limit,
+      total,
+    });
   } catch (err) {
-    console.error("Audit fetch failed:", err);
-    res.status(500).json({ message: "Failed to fetch audit logs" });
+    return sendError(res, 500, "Failed to fetch audit logs", {
+      audit: "fetch_failed",
+    });
   }
 });
 
 // ── GET /api/audit/export — Export logs as CSV (Admin + 2FA required) ──
-router.get("/export", protect, admin, requireAdmin2FA, async (req, res) => {
+router.get("/integrity", protect, admin, requireAdmin2FA, validate(integrityQuerySchema, "query"), async (req, res) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit || "200", 10), 1000);
+    const logs = await AuditLog.find({})
+      .sort({ createdAt: 1 })
+      .limit(limit)
+      .lean();
+
+    const verification = logs.map((log, index) => {
+      const expectedSignature = AuditLogSecurity.generateSignature({
+        action: log.action,
+        performedBy: log.performedBy,
+        details: log.details || "",
+        ip: log.ip || "",
+        resourceId: log.resourceId || null,
+        meta: log.meta || null,
+        previousHash: log.previousHash || null,
+        hash: log.hash || null,
+      });
+
+      const signatureValid = expectedSignature === log.signature;
+      const previousLog = index > 0 ? logs[index - 1] : null;
+      const chainValid = index === 0
+        ? log.previousHash === "GENESIS_HASH"
+        : previousLog && previousLog.hash === log.previousHash;
+
+      return {
+        id: log._id,
+        action: log.action,
+        createdAt: log.createdAt,
+        signatureValid,
+        chainValid,
+      };
+    });
+
+    const invalidEntries = verification.filter((item) => !item.signatureValid || !item.chainValid);
+
+    return sendSuccess(res, 200, "Audit integrity verified successfully", {
+      summary: {
+        logsChecked: verification.length,
+        invalidEntries: invalidEntries.length,
+        integrityHealthy: invalidEntries.length === 0,
+      },
+      invalidEntries,
+    });
+  } catch (err) {
+    return sendError(res, 500, "Failed to verify audit integrity", {
+      audit: "integrity_verification_failed",
+    });
+  }
+});
+
+router.get("/export", protect, admin, requireAdmin2FA, validate(dateRangeQuerySchema, "query"), async (req, res) => {
   try {
     const { from, to, action } = req.query;
     const q = {};
@@ -79,13 +147,14 @@ router.get("/export", protect, admin, requireAdmin2FA, async (req, res) => {
     res.attachment(`audit-logs-${Date.now()}.csv`);
     return res.send(csv);
   } catch (err) {
-    console.error("Audit export failed:", err);
-    return res.status(500).json({ message: "Export failed" });
+    return sendError(res, 500, "Export failed", {
+      audit: "export_failed",
+    });
   }
 });
 
 // ── POST /api/audit — Create a new audit log (Available to all authenticated users) ──
-router.post("/", protect, async (req, res) => {
+router.post("/", protect, validate(auditCreateSchema), async (req, res) => {
   try {
     const { action, details, resourceId, resourceType, meta } = req.body;
 
@@ -105,10 +174,13 @@ router.post("/", protect, async (req, res) => {
       }
     });
 
-    res.status(201).json({ success: true, logId: log._id });
+    return sendSuccess(res, 201, "Audit event recorded successfully", {
+      logId: log._id,
+    });
   } catch (err) {
-    console.error("Failed to create audit log:", err);
-    res.status(500).json({ message: "Failed to record audit event" });
+    return sendError(res, 500, "Failed to record audit event", {
+      audit: "create_failed",
+    });
   }
 });
 

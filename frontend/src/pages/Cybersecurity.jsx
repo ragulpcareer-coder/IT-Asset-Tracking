@@ -1,4 +1,4 @@
-﻿import React, { useContext, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
 import { socket } from "../services/socket";
@@ -8,6 +8,7 @@ import { ToastContainer, toast } from "react-toastify";
 import AssetNetworkMap from "../components/AssetNetworkMap";
 import { MapContainer, TileLayer, CircleMarker, Popup, Polyline, Marker, Tooltip } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
+import PageHeader from "../components/PageHeader";
 
 const emptyStats = {
   totalAlerts: 0,
@@ -69,7 +70,8 @@ export default function Cybersecurity() {
     user?.preferences?.pushNotifications !== false &&
     user?.preferences?.securityAlerts !== false;
 
-  const fetchData = async (silent = false) => {
+  const fetchData = useCallback(async (silent = false, options = {}) => {
+    const { isMountedRef } = options;
     if (!silent) setLoading(true);
 
     const [assetsRes, alertsRes, statsRes, mapRes] = await Promise.allSettled([
@@ -78,6 +80,8 @@ export default function Cybersecurity() {
       axios.get("/security/stats"),
       axios.get("/security/threat-map"),
     ]);
+
+    if (isMountedRef && !isMountedRef.current) return;
 
     if (assetsRes.status === "fulfilled") {
       const list = toArray(assetsRes.value?.data, ["assets", "data"]);
@@ -106,14 +110,22 @@ export default function Cybersecurity() {
       setThreatPoints([]);
     }
 
+    const failedCount = [assetsRes, alertsRes, statsRes, mapRes].filter((result) => result.status === "rejected").length;
+    if (failedCount === 4 && !silent) {
+      toast.error("Security telemetry is temporarily unavailable.");
+    } else if (failedCount > 0 && !silent) {
+      toast.warn("Some cybersecurity panels are showing partial data.");
+    }
+
     setLastUpdated(new Date());
     if (!silent) setLoading(false);
-  };
+  }, []);
 
   useEffect(() => {
     if (!canAccess) return;
+    const isMountedRef = { current: true };
 
-    fetchData();
+    fetchData(false, { isMountedRef });
     socket.connect();
 
     const onSecurityAlert = (incoming) => {
@@ -139,14 +151,15 @@ export default function Cybersecurity() {
     };
 
     socket.on("security_alert", onSecurityAlert);
-    const intervalId = setInterval(() => fetchData(true), 30000);
+    const intervalId = setInterval(() => fetchData(true, { isMountedRef }), 30000);
 
     return () => {
+      isMountedRef.current = false;
       clearInterval(intervalId);
       socket.off("security_alert", onSecurityAlert);
       if (socket.connected) socket.disconnect();
     };
-  }, [canAccess, allowSecurityPush]);
+  }, [canAccess, allowSecurityPush, fetchData]);
 
   const topRiskAssets = useMemo(
     () => (Array.isArray(assets) ? assets.slice(0, 10) : []),
@@ -208,8 +221,9 @@ export default function Cybersecurity() {
     try {
       const { data } = await axios.get(`/security/incidents/${alert.incidentId}`);
       setSelectedIncident(data?.incident || data?.data || null);
-    } catch {
+    } catch (error) {
       setSelectedIncident(null);
+      toast.error(error?.response?.data?.message || "We couldn't load the linked incident details.");
     }
   };
 
@@ -234,24 +248,18 @@ export default function Cybersecurity() {
 
       {showNetworkMap && <AssetNetworkMap onClose={() => setShowNetworkMap(false)} />}
 
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-8">
-        <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter uppercase">Security Threat Monitoring</h1>
-          <p className="text-slate-500 text-xs uppercase tracking-widest">
-            Real-time SOC telemetry and incident intelligence
-            {lastUpdated ? ` • Updated ${lastUpdated.toLocaleTimeString()}` : ""}
-          </p>
-        </div>
-
-        <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setShowNetworkMap(true)}>Open Network Map</Button>
-          <Button variant="danger" onClick={handleScanNetwork} loading={scanning}>
+            <PageHeader
+        title="Security Threat Monitoring"
+        subtitle={`Real-time SOC telemetry and incident intelligence${lastUpdated ? ` - Updated ${lastUpdated.toLocaleTimeString()}` : ""}`}
+        actions={<>
+          <Button variant="secondary" className="w-full sm:w-auto" onClick={() => setShowNetworkMap(true)}>Open Network Map</Button>
+          <Button variant="danger" className="w-full sm:w-auto" onClick={handleScanNetwork} loading={scanning}>
             {scanning ? "Scanning..." : "Scan Network for Threats"}
           </Button>
-        </div>
-      </div>
+        </>}
+      />
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <Card className="p-4 border-white/10 bg-slate-900/40">
           <div className="text-[10px] uppercase tracking-wider text-slate-400">Active Incidents</div>
           <div className="text-2xl font-black text-white mt-1">{stats.activeIncidents}</div>
@@ -357,7 +365,7 @@ export default function Cybersecurity() {
       </div>
 
       <Card className="p-0 overflow-hidden border-white/10 bg-slate-900/40 mb-8">
-        <div className="p-4 border-b border-white/10 flex items-center justify-between">
+        <div className="flex flex-col gap-3 border-b border-white/10 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <div className="text-sm text-white font-bold uppercase">Unified Threat Feed</div>
             <div className="text-xs text-slate-500">Live alerts with AI analysis support</div>
@@ -397,7 +405,7 @@ export default function Cybersecurity() {
                   <td className="text-[10px] text-slate-300">{Number.isFinite(Number(alert?.metadata?.abuseScore)) ? Number(alert.metadata.abuseScore) : 0}/100</td>
                   <td className="text-xs text-slate-400 max-w-[360px] truncate">{alert.description || "No details"}</td>
                   <td>
-                    <div className="flex gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row">
                       <Button size="sm" variant="ghost" onClick={() => handleOpenAlert(alert)}>Open</Button>
                       <Button size="sm" variant="secondary" onClick={() => handleAnalyzeAlert(alert)} loading={analyzingId === alert._id}>Analyze</Button>
                     </div>
@@ -466,7 +474,7 @@ export default function Cybersecurity() {
             <div>{selectedAlert?.description || "No description"}</div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div>
               <div className="text-slate-500 uppercase mb-1">Source IP</div>
               <div className="font-mono">{selectedAlert?.sourceIp || "Unknown"}</div>
@@ -509,3 +517,5 @@ export default function Cybersecurity() {
     </div>
   );
 }
+
+

@@ -1,35 +1,45 @@
 const PendingAction = require("../models/PendingAction");
 const AuditLog = require("../models/AuditLog");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
 
-/**
- * PENDING ACTION CONTROLLER
- * Implements (§3.1) Dual Authorization / 4-Eyes Principle
- */
-
-// List all pending actions for approval
 exports.getPendingActions = async (req, res) => {
     try {
-        const actions = await PendingAction.find({ status: "PENDING" })
-            .populate("createdBy", "name email");
-        res.json({ success: true, count: actions.length, actions });
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+
+        const [actions, total] = await Promise.all([
+            PendingAction.find({ status: "PENDING" })
+                .populate("createdBy", "name email")
+                .sort({ createdAt: -1 })
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean(),
+            PendingAction.countDocuments({ status: "PENDING" }),
+        ]);
+
+        return sendSuccess(res, 200, "Pending actions fetched successfully", {
+            count: actions.length,
+            total,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+            actions,
+        });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Error fetching pending actions" });
+        return sendError(res, 500, "Error fetching pending actions");
     }
 };
 
-// Approve a pending action
 exports.approveAction = async (req, res) => {
     try {
         const action = await PendingAction.findById(req.params.id);
-        if (!action) return res.status(404).json({ success: false, message: "Pending action not found" });
+        if (!action) return sendError(res, 404, "Pending action not found", { id: "invalid_pending_action" });
 
         if (action.status !== "PENDING") {
-            return res.status(400).json({ success: false, message: "Action is no longer pending." });
+            return sendError(res, 400, "Action is no longer pending.", { status: "not_pending" });
         }
 
-        // 4-Eyes Principle Enforcement (§3.1): Approver cannot be the Creator
         if (action.createdBy.toString() === req.user._id.toString()) {
-            return res.status(403).json({ success: false, message: "Security Violation: You cannot approve your own request (4-Eyes Principle)." });
+            return sendError(res, 403, "Security violation: you cannot approve your own request (4-Eyes Principle).");
         }
 
         action.approvals.push({
@@ -46,17 +56,16 @@ exports.approveAction = async (req, res) => {
             ip: req.ip || req.connection?.remoteAddress
         });
 
-        res.json({ success: true, message: "Action approved. The original requester can now execute the operation.", action });
+        return sendSuccess(res, 200, "Action approved. The original requester can now execute the operation.", { action });
     } catch (error) {
-        res.status(500).json({ success: false, message: "Error approving action" });
+        return sendError(res, 500, "Error approving action");
     }
 };
 
-// Reject a pending action
 exports.rejectAction = async (req, res) => {
     try {
         const action = await PendingAction.findById(req.params.id);
-        if (!action) return res.status(404).json({ success: false, message: "Pending action not found" });
+        if (!action) return sendError(res, 404, "Pending action not found", { id: "invalid_pending_action" });
 
         action.status = "REJECTED";
         await action.save();
@@ -68,8 +77,8 @@ exports.rejectAction = async (req, res) => {
             ip: req.ip || req.connection?.remoteAddress
         });
 
-        res.json({ success: true, message: "Action rejected." });
+        return sendSuccess(res, 200, "Action rejected.");
     } catch (error) {
-        res.status(500).json({ success: false, message: "Error rejecting action" });
+        return sendError(res, 500, "Error rejecting action");
     }
 };

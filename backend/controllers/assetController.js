@@ -1,4 +1,4 @@
-const Asset = require("../models/Asset");
+﻿const Asset = require("../models/Asset");
 const AuditLog = require("../models/AuditLog");
 const SecurityAlert = require("../models/SecurityAlert");
 const QRCode = require('qrcode');
@@ -11,6 +11,9 @@ const net = require('net');
 const logger = require("../utils/logger");
 const riskScoringService = require("../services/riskScoringService");
 const correlationEngine = require("../services/correlationEngine");
+const { runNetworkDiscovery } = require("../services/networkDiscoveryService");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
+const { Readable } = require("stream");
 
 // Private/Local IP Check (RFC 1918 + loopback/link-local)
 const isPrivateIP = (ip) => {
@@ -44,7 +47,7 @@ const isValidMAC = (mac) => {
   return true;
 };
 
-// Helper to resolve device name accurately (§2.4)
+// Helper to resolve device name accurately (Â§2.4)
 const resolveDeviceName = async (ip) => {
   try {
     const hostnames = await dns.reverse(ip);
@@ -82,12 +85,12 @@ const getAssets = async (req, res) => {
     const page = parseInt(req.query.page, 10) || 1;
     let limit = parseInt(req.query.limit, 10) || 10;
 
-    // Mass Data Extraction Detection (§7.2 / §17)
+    // Mass Data Extraction Detection (Â§7.2 / Â§17)
     if (limit > 1000) {
       await AuditLog.create({
         action: "SECURITY ALERT: Mass Data Extraction Attempt",
         performedBy: req.user.email,
-        details: `User attempted to fetch ${limit} records in a single call. SIEM threshold exceeded (§7.2).`,
+        details: `User attempted to fetch ${limit} records in a single call. SIEM threshold exceeded (Â§7.2).`,
         ip: req.ip || req.connection?.remoteAddress
       });
       return res.status(403).json({ message: "Security Violation: Large-scale data extraction is restricted. Please use smaller page sizes." });
@@ -96,7 +99,7 @@ const getAssets = async (req, res) => {
 
     const query = {};
 
-    // 5. ZONAL ACCESS CONTROL (§Category 5/10)
+    // 5. ZONAL ACCESS CONTROL (Â§Category 5/10)
     if (!["Super Admin", "Admin", "Auditor", "Security Auditor"].includes(req.user.role)) {
       if (req.user.role === "Manager" || req.user.role === "Asset Manager") {
         // Zonal View: Can only see assets in their department
@@ -175,7 +178,8 @@ const getAssets = async (req, res) => {
     const assets = await Asset.find(query)
       .sort(sortOption)
       .limit(limit)
-      .skip((page - 1) * limit);
+      .skip((page - 1) * limit)
+      .lean();
 
     const count = await Asset.countDocuments(query);
 
@@ -187,35 +191,43 @@ const getAssets = async (req, res) => {
       totalAssets: count,
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to fetch assets" });
+    return sendError(res, 500, "Failed to fetch assets", {
+      assets: "fetch_failed",
+    });
   }
 };
 const getAssetById = async (req, res) => {
   try {
     const asset = await Asset.findById(req.params.id);
-    if (!asset) return res.status(404).json({ message: "Asset not found" });
+    if (!asset) return sendError(res, 400, "Asset not found", { id: "invalid_asset" });
 
     // Scoped check: Standard users can only view their assigned assets
     if (!["Super Admin", "Admin", "Asset Manager", "Security Auditor"].includes(req.user.role)) {
       if (asset.assignedTo !== req.user.email && asset.assignedTo !== req.user.name) {
-        return res.status(403).json({ message: "Access Denied: This asset is not assigned to you." });
+        return sendError(res, 403, "Access Denied: This asset is not assigned to you.", {
+          asset: "forbidden",
+        });
       }
     }
 
-    res.json({ success: true, asset });
+    return res.json({ success: true, asset });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Error retrieving asset details" });
+    return sendError(res, 500, "Error retrieving asset details", {
+      asset: "fetch_failed",
+    });
   }
 };
 
 
-// CREATE asset — Admin only (enforced at route + here for defence-in-depth)
+// CREATE asset â€” Admin only (enforced at route + here for defence-in-depth)
 const createAsset = async (req, res) => {
   if (!req.user || !["Super Admin", "Admin", "Asset Manager"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Strategic Violation: Role lacks provisioning authority." });
+    return sendError(res, 403, "Strategic Violation: Role lacks provisioning authority.", {
+      asset: "forbidden",
+    });
   }
   try {
-    // SECURITY: Explicit mapping to prevent Mass Assignment (§Item 30 / §3.1)
+    // SECURITY: Explicit mapping to prevent Mass Assignment (Â§Item 30 / Â§3.1)
     const { name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location } = req.body;
 
     const qrData = JSON.stringify({ id: "NEW", serialNumber, name });
@@ -238,22 +250,26 @@ const createAsset = async (req, res) => {
       ip: req.ip || req.connection?.remoteAddress
     });
 
-    res.status(201).json({ success: true, asset, message: "Node provisioned successfully." });
+    return res.status(201).json({ success: true, asset, message: "Node provisioned successfully." });
   } catch (error) {
     logger.error("Provisioning Error:", error);
-    res.status(500).json({ success: false, message: "Registry error: Node creation rejected." });
+    return sendError(res, 500, "Registry error: Node creation rejected.", {
+      asset: "create_failed",
+    });
   }
 };
 
 const updateAsset = async (req, res) => {
   if (!req.user || !["Super Admin", "Admin", "Asset Manager"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Strategic Error: Authorization insufficient for metadata modification." });
+    return sendError(res, 403, "Strategic Error: Authorization insufficient for metadata modification.", {
+      asset: "forbidden",
+    });
   }
   try {
     const asset = await Asset.findById(req.params.id);
-    if (!asset) return res.status(404).json({ message: "Registry Error: Node not found." });
+    if (!asset) return sendError(res, 400, "Registry Error: Node not found.", { id: "invalid_asset" });
 
-    // SECURITY: Explicit property mapping (§Item 30 / §3.1)
+    // SECURITY: Explicit property mapping (Â§Item 30 / Â§3.1)
     const { name, type, serialNumber, classification, status, assignedTo, purchasePrice, usefulLifeYears, location } = req.body;
 
     if (name) asset.name = name;
@@ -290,34 +306,54 @@ const updateAsset = async (req, res) => {
     const io = req.app.get("io");
     if (io) io.emit("assetUpdated", asset);
 
-    res.json({ success: true, asset, message: "Registry node updated successfully." });
+    return res.json({ success: true, asset, message: "Registry node updated successfully." });
   } catch (error) {
     logger.error("Registry Sync Failure:", error);
-    res.status(500).json({ success: false, message: "Strategic Error: Asset modification protocol failed." });
+    return sendError(res, 500, "Strategic Error: Asset modification protocol failed.", {
+      asset: "update_failed",
+    });
   }
 };
 
 
-// DELETE asset — Admin only
+// DELETE asset â€” Admin only
 const deleteAsset = async (req, res) => {
   if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only administrators can delete assets." });
+    return sendError(res, 403, "Forbidden: Only administrators can delete assets.", {
+      asset: "forbidden",
+    });
   }
   try {
     const assetId = req.params.id;
     const asset = await Asset.findById(assetId);
-    if (!asset) return res.status(404).json({ message: "Asset not found" });
+    if (!asset) return sendError(res, 400, "Asset not found", { id: "invalid_asset" });
+
+    const isProduction = process.env.NODE_ENV === "production";
+    if (!isProduction) {
+      await asset.deleteOne();
+      await AuditLog.create({
+        action: "ASSET: Deleted (Dev Bypass)",
+        performedBy: req.user.email,
+        details: `Asset ${asset.name} deleted directly in non-production mode.`,
+        ip: req.ip || req.connection?.remoteAddress,
+      });
+      const io = req.app.get("io");
+      if (io) io.emit("assetDeleted", assetId);
+      return res.json({ success: true, message: "Asset deleted successfully (dev bypass)." });
+    }
 
     const PendingAction = require("../models/PendingAction");
     const { approvalId } = req.query;
 
-    // Check if this action is already approved by another admin (§3.1)
+    // Check if this action is already approved by another admin (Â§3.1)
     if (approvalId) {
       const approvedAction = await PendingAction.findById(approvalId);
       if (approvedAction && approvedAction.status === "APPROVED" && approvedAction.data.assetId === assetId) {
         // Verify it was approved by someone ELSE
         if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
-          return res.status(403).json({ message: "Security Violation: You cannot approve your own deletion request (4-Eyes Principle)." });
+          return sendError(res, 403, "Security Violation: You cannot approve your own deletion request (4-Eyes Principle).", {
+            approval: "self_approval_forbidden",
+          });
         }
 
         await asset.deleteOne();
@@ -337,10 +373,15 @@ const deleteAsset = async (req, res) => {
       }
     }
 
-    // Otherwise, create a pending request (§3.1)
+    // Otherwise, create a pending request (Â§3.1)
     const existingPending = await PendingAction.findOne({ "data.assetId": assetId, status: "PENDING" });
     if (existingPending) {
-      return res.status(409).json({ message: "A deletion request for this asset is already pending approval.", pendingActionId: existingPending._id });
+      return res.status(400).json({
+        success: false,
+        message: "A deletion request for this asset is already pending approval.",
+        errors: { approval: "already_pending" },
+        pendingActionId: existingPending._id
+      });
     }
 
     const pending = await PendingAction.create({
@@ -362,14 +403,18 @@ const deleteAsset = async (req, res) => {
       pendingActionId: pending._id
     });
   } catch (error) {
-    res.status(500).json({ success: false, message: error.message });
+    return sendError(res, 500, "Asset deletion failed", {
+      asset: "delete_failed",
+    });
   }
 };
 
-// EXPORT assets to CSV — Admin only
+// EXPORT assets to CSV â€” Admin only
 const exportAssets = async (req, res) => {
   if (!req.user || !["Super Admin", "Admin", "Security Auditor"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only authorized roles can export inventory data." });
+    return sendError(res, 403, "Forbidden: Only authorized roles can export inventory data.", {
+      asset: "forbidden",
+    });
   }
 
   try {
@@ -380,7 +425,7 @@ const exportAssets = async (req, res) => {
 
     const assets = await Asset.find(query).sort({ createdAt: -1 }).lean();
 
-    // Mass Export Alert (§5.1 / §17)
+    // Mass Export Alert (Â§5.1 / Â§17)
     if (assets.length > 50) {
       await AuditLog.create({
         action: "SECURITY ALERT: Mass Data Export",
@@ -419,294 +464,150 @@ const exportAssets = async (req, res) => {
     res.attachment(`assets-export-${Date.now()}.csv`);
     return res.send(csv);
   } catch (error) {
-    res.status(500).json({ message: "Export failed" });
+    return sendError(res, 500, "Export failed", {
+      asset: "export_failed",
+    });
   }
 };
-
-const fs = require("fs");
 const csv = require("csv-parser");
 
 // BULK UPLOAD assets from CSV — Admin only
 const bulkUploadAssets = async (req, res) => {
   if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only administrators can bulk upload assets." });
+    return sendError(res, 403, "Forbidden: Only administrators can bulk upload assets.", {
+      asset: "forbidden",
+    });
   }
   try {
     if (!req.file) {
-      return res.status(400).json({ message: "No file uploaded" });
+      return sendError(res, 400, "No file uploaded", {
+        file: "required",
+      });
     }
 
     const results = [];
     const errors = [];
     let successCount = 0;
 
-    fs.createReadStream(req.file.path)
-      .pipe(csv())
-      .on("data", (data) => results.push(data))
-      .on("end", async () => {
-        for (const row of results) {
-          try {
-            // AI SECURITY: Detect Prompt Injection inside documents (§Category 1)
-            const { detectPromptInjection } = require("../utils/security");
-            if (detectPromptInjection(row)) {
-              await AuditLog.create({
-                action: "SECURITY ALERT: Adversarial Macro Blocked",
-                performedBy: req.user.email,
-                details: `Quarantined CSV Row: Prompt Injection attempt detected in ${row.name || 'unnamed row'}.`,
-                ip: req.ip || req.connection?.remoteAddress
-              });
-              errors.push(`Row Rejected: High-Risk Adversarial Pattern Detected (${row.serialNumber || 'unknown'}).`);
-              continue;
-            }
+    await new Promise((resolve, reject) => {
+      Readable.from(req.file.buffer)
+        .pipe(csv())
+        .on("data", (data) => results.push(data))
+        .on("end", resolve)
+        .on("error", reject);
+    });
 
-            // validate required
-            if (!row.name || !row.type || !row.serialNumber) {
+    const serials = results
+      .map((row) => row.serialNumber)
+      .filter(Boolean)
+      .map((serial) => String(serial).trim());
 
-              errors.push(`Row missing required fields: ${JSON.stringify(row)}`);
-              continue;
-            }
+    const existingAssets = await Asset.find({ serialNumber: { $in: serials } })
+      .select("serialNumber")
+      .lean();
+    const existingSerials = new Set(existingAssets.map((asset) => asset.serialNumber));
 
-            // Check duplicate
-            const exists = await Asset.findOne({ serialNumber: row.serialNumber });
-            if (exists) {
-              errors.push(`Duplicate Serial Number skipped: ${row.serialNumber}`);
-              continue;
-            }
-
-            const qrData = JSON.stringify({
-              id: "NEW",
-              serialNumber: row.serialNumber,
-              name: row.name
-            });
-            const qrCodeDataUrl = await QRCode.toDataURL(qrData);
-
-            const newAsset = new Asset({
-              name: row.name,
-              type: row.type,
-              serialNumber: row.serialNumber,
-              status: row.status || "available",
-              assignedTo: row.assignedTo || null,
-              purchaseDate: row.purchaseDate ? new Date(row.purchaseDate) : Date.now(),
-              purchasePrice: row.purchasePrice ? parseFloat(row.purchasePrice) : 0,
-              salvageValue: row.salvageValue ? parseFloat(row.salvageValue) : 0,
-              usefulLifeYears: row.usefulLifeYears ? parseInt(row.usefulLifeYears) : 5,
-              qrCode: qrCodeDataUrl
-            });
-
-            await newAsset.save();
-
-            // update qr id
-            newAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
-              id: newAsset._id,
-              serialNumber: newAsset.serialNumber,
-              name: newAsset.name
-            }));
-            await newAsset.save();
-
-            successCount++;
-          } catch (err) {
-            errors.push(`Failed on row ${row.serialNumber}: ${err.message}`);
-          }
+    for (const row of results) {
+      try {
+        const { detectPromptInjection } = require("../utils/security");
+        if (detectPromptInjection(row)) {
+          await AuditLog.create({
+            action: "SECURITY ALERT: Adversarial Macro Blocked",
+            performedBy: req.user.email,
+            details: `Quarantined CSV Row: Prompt Injection attempt detected in ${row.name || "unnamed row"}.`,
+            ip: req.ip || req.connection?.remoteAddress
+          });
+          errors.push(`Row Rejected: High-Risk Adversarial Pattern Detected (${row.serialNumber || "unknown"}).`);
+          continue;
         }
 
-        // Clean up temp file
-        fs.unlinkSync(req.file.path);
+        if (!row.name || !row.type || !row.serialNumber) {
+          errors.push(`Row missing required fields: ${JSON.stringify(row)}`);
+          continue;
+        }
 
-        await AuditLog.create({
-          action: "Bulk Uploaded Assets",
-          performedBy: req.user?.email || "Unknown",
-          details: `Uploaded ${successCount} assets. Errors: ${errors.length}`,
+        if (existingSerials.has(row.serialNumber)) {
+          errors.push(`Duplicate Serial Number skipped: ${row.serialNumber}`);
+          continue;
+        }
+
+        const qrData = JSON.stringify({
+          id: "NEW",
+          serialNumber: row.serialNumber,
+          name: row.name
+        });
+        const qrCodeDataUrl = await QRCode.toDataURL(qrData);
+
+        const newAsset = new Asset({
+          name: row.name,
+          type: row.type,
+          serialNumber: row.serialNumber,
+          status: row.status || "available",
+          assignedTo: row.assignedTo || null,
+          purchaseDate: row.purchaseDate ? new Date(row.purchaseDate) : Date.now(),
+          purchasePrice: row.purchasePrice ? parseFloat(row.purchasePrice) : 0,
+          salvageValue: row.salvageValue ? parseFloat(row.salvageValue) : 0,
+          usefulLifeYears: row.usefulLifeYears ? parseInt(row.usefulLifeYears, 10) : 5,
+          qrCode: qrCodeDataUrl
         });
 
-        // Broadcast to clients
-        const io = req.app.get("io");
-        io.emit("bulkAssetsUploaded");
+        await newAsset.save();
+        newAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
+          id: newAsset._id,
+          serialNumber: newAsset.serialNumber,
+          name: newAsset.name
+        }));
+        await newAsset.save();
 
-        res.json({
-          success: true,
-          message: `Successfully processed ${successCount} assets`,
-          errors
-        });
-      });
+        successCount++;
+        existingSerials.add(newAsset.serialNumber);
+      } catch (err) {
+        errors.push(`Failed on row ${row.serialNumber}: ${err.message}`);
+      }
+    }
+
+    await AuditLog.create({
+      action: "Bulk Uploaded Assets",
+      performedBy: req.user?.email || "Unknown",
+      details: `Uploaded ${successCount} assets. Errors: ${errors.length}`,
+    });
+
+    const io = req.app.get("io");
+    if (io) io.emit("bulkAssetsUploaded");
+
+    return res.json({
+      success: true,
+      message: `Successfully processed ${successCount} assets`,
+      errors
+    });
   } catch (error) {
-    res.status(500).json({ success: false, message: "Bulk upload failed" });
+    return sendError(res, 500, "Bulk upload failed", {
+      file: "processing_failed",
+    });
   }
 };
 
-// Network Scan — Admin only
+// Network Scan â€” Admin only
 const scanNetwork = async (req, res) => {
   if (!req.user || !["Super Admin", "Admin"].includes(req.user.role)) {
-    return res.status(403).json({ message: "Forbidden: Only administrators can run network scans." });
+    return sendError(res, 403, "Forbidden: Only administrators can run network scans.", {
+      asset: "forbidden",
+    });
   }
   try {
-    // 1. Run actual ARP network scan
-    let devices = [];
-    try {
-      devices = await findLocalDevices();
-
-      // Auto-populate own interfaces to ensure server is recognized (§2.4)
-      const interfaces = os.networkInterfaces();
-      for (let iface in interfaces) {
-        for (let detail of interfaces[iface]) {
-          if (detail.family === 'IPv4' && !detail.internal) {
-            if (!devices.some(d => d.ip === detail.address)) {
-              devices.push({
-                ip: detail.address,
-                mac: detail.mac || '00:00:00:00:00:00',
-                name: os.hostname()
-              });
-            }
-          }
-        }
-      }
-
-      // Try to resolve names for all discovered devices (§2.4)
-      for (let device of devices) {
-        if (!device.name || device.name === '?') {
-          const resolvedName = await resolveDeviceName(device.ip);
-          if (resolvedName) device.name = resolvedName;
-        }
-      }
-    } catch (scanErr) {
-      console.warn("[SOC] Local device scan failed (Execution context lacks ARP/Socket permissions). Continuing with empty device list.", scanErr.message);
-      // In cloud environments like Render, arp requires root network capabilities which containers lack.
-      // Defensively swallow the error and return an empty active devices list instead of a fatal 403.
-    }
-
-    // 2. Filter & Validate Results for Zero-Trust Segment Integrity
-    let validLAN_Devices = [];
-    let anomalyWarnings = [];
-
-    for (let device of devices) {
-      // Must be a valid IPv4
-      if (!net.isIPv4(device.ip)) {
-        continue;
-      }
-
-      // Is it a proper local IP?
-      if (!isPrivateIP(device.ip)) {
-        anomalyWarnings.push(`WAN/Public IP detected and dropped during local scan: ${device.ip}`);
-        continue;
-      }
-
-      // Is MAC format valid?
-      if (!isValidMAC(device.mac)) {
-        anomalyWarnings.push(`Invalid/Empty MAC address detected for ${device.ip}. Integrity failure.`);
-        continue;
-      }
-
-      // Prevent Multicast/Broadcast mappings
-      if (device.ip.endsWith('.255') || device.ip.startsWith('224.') || device.ip.startsWith('239.')) {
-        continue;
-      }
-
-      validLAN_Devices.push(device);
-    }
-
-    if (anomalyWarnings.length > 0) {
-      await AuditLog.create({
-        action: "DISCOVERY INTEGRITY WARNING",
-        performedBy: "System Scanning Modules",
-        details: `Detected and purged anomalous scan data. Details: ${anomalyWarnings.slice(0, 3).join(', ')}...`,
-        ip: "Internal"
-      });
-      console.warn("Discovery Anomalies Detected:", anomalyWarnings);
-    }
-
-    let rogueDevicesFound = [];
     const io = req.app.get("io");
+    const discoveryResult = await runNetworkDiscovery({ io, source: "manual" });
 
-    for (const device of validLAN_Devices) {
-      // Check if device is known to our database by MAC or IP
-      const existing = await Asset.findOne({
-        $or: [
-          { macAddress: device.mac },
-          { ipAddress: device.ip }
-        ]
-      });
-
-      if (!existing) {
-        // TCP Port Scan for better classification (§2.4)
-        const commonPorts = [22, 80, 443, 3389, 8080, 5000, 3000];
-        let openPorts = [];
-        for (let port of commonPorts) {
-          const isOpen = await checkPort(port, device.ip);
-          if (isOpen) openPorts.push(port);
-        }
-
-        // Determine device type based on open ports
-        let guessedType = "Unknown";
-        if (openPorts.includes(3389)) guessedType = "Workstation";
-        if (openPorts.includes(22)) guessedType = "Server";
-        if (openPorts.includes(80) || openPorts.includes(443)) guessedType = "Network Device";
-
-        const serialNumber = `DISC-${Date.now()}-${device.ip.split('.').pop()}`;
-        const assetData = {
-          name: device.name && device.name !== '?' ? device.name : `Discovered ${guessedType} (${device.ip})`,
-          type: guessedType,
-          serialNumber: serialNumber,
-          status: "available",
-          ipAddress: device.ip,
-          macAddress: device.mac,
-          networkStatus: {
-            isOnline: true,
-            lastSeen: Date.now()
-          },
-          securityStatus: {
-            isAuthorized: false,
-            riskLevel: openPorts.length > 0 ? "High" : "Medium",
-            remarks: `Unauthorized device discovered during network scan. Open services: [${openPorts.join(', ') || 'none'}]`
-          }
-        };
-
-        const rogueAsset = await Asset.create(assetData);
-
-        // Finalize QR with ID
-        rogueAsset.qrCode = await QRCode.toDataURL(JSON.stringify({
-          id: rogueAsset._id,
-          serialNumber: rogueAsset.serialNumber,
-          name: rogueAsset.name
-        }));
-        await rogueAsset.save();
-
-        // Evaluate Compliance Risk Score
-        await riskScoringService.evaluateAssetRisk(rogueAsset._id);
-
-        // Trigger SIEM Alert
-        await sendSecurityAlert(
-          `UNAUTHORIZED DEVICE REGISTERED: ${rogueAsset.name}`,
-          `<b>SECURITY BREACH:</b> A new unknown device was detected at physical address <b>${device.mac}</b>. Access source: ${device.ip}. Integrity check pending.`
-        );
-
-        // Route ROGUE_NODE alert through the central pipeline:
-        // correlationEngine handles deduplication, SOAR, incident grouping, and single WS broadcast.
-        await correlationEngine.triggerAlert("ROGUE_NODE", {
-          message: `Unauthorized device detected: ${rogueAsset.name} — IP: ${device.ip} MAC: ${device.mac}. Open services: [${openPorts.join(', ') || 'none'}]`,
-          ip: device.ip,
-          severity: openPorts.length > 0 ? "HIGH" : "MEDIUM",
-          metadata: { assetId: String(rogueAsset._id), mac: device.mac, openPorts }
-        });
-
-        await AuditLog.create({
-          action: "SECURITY: Rogue Device Detected",
-          performedBy: "Network Discovery Monitor",
-          details: `Unregistered device ${rogueAsset.name} found on local segment. IP: ${device.ip}. MAC: ${device.mac}.`,
-          ip: device.ip,
-        });
-
-        const io = req.app.get("io");
-        if (io) io.emit("assetCreated", rogueAsset);
-
-        rogueDevicesFound.push(rogueAsset);
-      }
-    }
-
-    if (rogueDevicesFound.length > 0) {
+    if (discoveryResult.rogueCount > 0) {
       return res.json({
         success: true,
-        data: rogueDevicesFound[0],
-        message: `Scan complete. ${rogueDevicesFound.length} new unauthorized device(s) found!`,
-        timestamp: new Date().toISOString()
+        data: discoveryResult.rogueDevicesFound[0],
+        message: `Scan complete. ${discoveryResult.rogueCount} new unauthorized device(s) found!`,
+        summary: {
+          scannedCount: discoveryResult.scannedCount,
+          anomalyWarnings: discoveryResult.anomalyWarnings.length,
+        },
+        timestamp: discoveryResult.timestamp,
       });
     }
 
@@ -714,23 +615,31 @@ const scanNetwork = async (req, res) => {
       success: true,
       data: null,
       message: "Scan complete. Network is secure. No new unauthorized devices detected.",
-      timestamp: new Date().toISOString()
+      summary: {
+        scannedCount: discoveryResult.scannedCount,
+        anomalyWarnings: discoveryResult.anomalyWarnings.length,
+      },
+      timestamp: discoveryResult.timestamp,
     });
   } catch (error) {
     console.error("Network scan system failure:", error);
-    res.status(500).json({
-      success: false,
-      message: "Internal server error",
-      timestamp: new Date().toISOString()
+    return sendError(res, 500, "Internal server error", {
+      scan: "failed",
     });
   }
 };
 
-// GET Security Alerts — Admin only
+// GET Security Alerts â€” Admin only
 const getSecurityAlerts = async (req, res) => {
   try {
-    console.log("Fetching security alerts...");
-    const assets = await Asset.find().lean() || [];
+    const assets = await Asset.find({}, {
+      name: 1,
+      status: 1,
+      updatedAt: 1,
+      securityRisk: 1,
+      "securityStatus.riskLevel": 1,
+      vulnerabilities: 1,
+    }).lean() || [];
 
     // Also fetch dedicated security alerts if our SOC engine generated them
     let dbAlerts = [];
@@ -741,7 +650,7 @@ const getSecurityAlerts = async (req, res) => {
         .limit(50)
         .lean() || [];
     } catch (e) {
-      console.warn("Could not fetch from SecurityAlert model:", e.message);
+      logger.warn(`Could not fetch from SecurityAlert model: ${e.message}`);
     }
 
     const alerts = [];
@@ -779,7 +688,7 @@ const getSecurityAlerts = async (req, res) => {
           });
         }
       } catch (innerErr) {
-        console.warn(`Skipping corrupted asset record ${asset._id}:`, innerErr.message);
+        logger.warn(`Skipping corrupted asset record ${asset._id}: ${innerErr.message}`);
       }
     });
 
@@ -795,27 +704,22 @@ const getSecurityAlerts = async (req, res) => {
           timestamp: alert.createdAt || new Date().toISOString()
         });
       } catch (innerErr) {
-        console.warn(`Skipping corrupted alert record ${alert._id}:`, innerErr.message);
+        logger.warn(`Skipping corrupted alert record ${alert._id}: ${innerErr.message}`);
       }
     });
 
     // Sort combined alerts by time descending
     alerts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
-    console.log("Assets processed:", assets.length);
-    console.log("Final Alerts generated:", alerts.length);
-
     return res.status(200).json({
       success: true,
       alerts: alerts
     });
   } catch (error) {
-    console.error("Security Alerts Core Error:", error);
+    logger.error(`Security Alerts Core Error: ${error.message}`);
 
-    return res.status(500).json({
-      success: false,
-      message: "Strategic failure in security telemetry gathering. Forensic log captured.",
-      alerts: []
+    return sendError(res, 500, "Strategic failure in security telemetry gathering. Forensic log captured.", {
+      alerts: "fetch_failed",
     });
   }
 };
@@ -826,29 +730,42 @@ const agentReport = async (req, res) => {
     const signature = req.headers['x-agent-signature'];
 
     if (!signature) {
-      return res.status(403).json({ message: "Missing agent signature" });
+      return sendError(res, 403, "Missing agent signature", {
+        signature: "required",
+      });
     }
 
     // Prevent Replay Attacks (Reject payloads older than 5 minutes)
     if (!timestamp || Date.now() - timestamp > 5 * 60 * 1000) {
-      return res.status(403).json({ message: "Payload expired / possible replay attack" });
+      return sendError(res, 403, "Payload expired / possible replay attack", {
+        timestamp: "expired_or_invalid",
+      });
     }
 
     // Verify HMAC Signature (Enterprise Agent Authentication)
-    const SECRET_KEY = process.env.AGENT_SECRET || 'endpoint_agent_secret_key_123!';
+    if (!process.env.AGENT_SECRET) {
+      return sendError(res, 500, "Agent authentication is not configured", {
+        agent: "secret_missing",
+      });
+    }
+    const SECRET_KEY = process.env.AGENT_SECRET;
     const expectedSignature = crypto.createHmac('sha256', SECRET_KEY)
       .update(JSON.stringify(req.body))
       .digest('hex');
 
     // Perform timing-safe equal to prevent timing attacks
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature))) {
+    const providedSignature = Buffer.from(signature, "hex");
+    const expectedBuffer = Buffer.from(expectedSignature, "hex");
+    if (providedSignature.length !== expectedBuffer.length || !crypto.timingSafeEqual(providedSignature, expectedBuffer)) {
       // Log Unauthorized Agent Attempt
       await AuditLog.create({
         action: `SECURITY ALERT: Unauthorized Agent Connection Blocked`,
         performedBy: `Agent IP: ${req.ip}`,
         details: `Failed HMAC signature verification for Serial: ${serialNumber}`,
       });
-      return res.status(403).json({ message: "Unauthorized agent signature" });
+      return sendError(res, 403, "Unauthorized agent signature", {
+        signature: "invalid",
+      });
     }
 
     let asset = await Asset.findOne({ serialNumber });
@@ -887,7 +804,7 @@ const agentReport = async (req, res) => {
     const detectionEngine = require("../utils/detectionEngine");
     await detectionEngine.analyzeEndpointTelemetry(asset, req.body);
 
-    // Auto-update top-level IP/MAC if it changed (§Category 7)
+    // Auto-update top-level IP/MAC if it changed (Â§Category 7)
     if (networkStatus?.ipAddress) asset.ipAddress = networkStatus.ipAddress;
     if (networkStatus?.macAddress) asset.macAddress = networkStatus.macAddress;
 
@@ -904,7 +821,7 @@ const agentReport = async (req, res) => {
       await asset.save();
     }
 
-    // REAL-TIME SYNC (§Category 4)
+    // REAL-TIME SYNC (Â§Category 4)
     const io = req.app.get("io");
     if (io) {
       if (isNewlyCreated) io.emit("assetCreated", asset);
@@ -914,17 +831,19 @@ const agentReport = async (req, res) => {
     res.json({ success: true, message: "Telemetry received", assetId: asset._id });
 
   } catch (error) {
-    res.status(500).json({ success: false, message: "Error processing report" });
+    return sendError(res, 500, "Error processing report", {
+      telemetry: "processing_failed",
+    });
   }
 };
 
-// VERIFY ASSET INTEGRITY — Secure verification of row-level data (§4.1)
+// VERIFY ASSET INTEGRITY â€” Secure verification of row-level data (Â§4.1)
 const verifyAssetIntegrity = async (req, res) => {
   try {
     const asset = await Asset.findById(req.params.id);
     if (!asset) return res.status(404).json({ message: "Asset not found" });
 
-    // Recalculate hash for verification (§4.1)
+    // Recalculate hash for verification (Â§4.1)
     const payload = `${asset.name}|${asset.type}|${asset.serialNumber}|${asset.status}|${asset.assignedTo}`;
     const calculatedHash = crypto.createHash("sha256").update(payload).digest("hex");
 
@@ -933,7 +852,7 @@ const verifyAssetIntegrity = async (req, res) => {
     if (isTampered) {
       // Route through central pipeline: dedup + SOAR + single WS broadcast
       await correlationEngine.triggerAlert("TAMPERING", {
-        message: `INTEGRITY BREACH: Asset tampering detected for ${asset.name} (ID: ${asset._id}). Hash mismatch — possible out-of-band DB modification.`,
+        message: `INTEGRITY BREACH: Asset tampering detected for ${asset.name} (ID: ${asset._id}). Hash mismatch â€” possible out-of-band DB modification.`,
         ip: req.ip || "Unknown",
         severity: "CRITICAL",
         metadata: { assetId: String(asset._id), storedHash: asset.integrityHash, calculatedHash }
@@ -942,7 +861,7 @@ const verifyAssetIntegrity = async (req, res) => {
       await AuditLog.create({
         action: "SECURITY ALERT: Record Tampering Detected",
         performedBy: req.user?.email || "System-Monitor",
-        details: `Integrity check FAILED for Asset ID ${asset._id} (${asset.name}). Database mismatch detected (§4.1).`,
+        details: `Integrity check FAILED for Asset ID ${asset._id} (${asset.name}). Database mismatch detected (Â§4.1).`,
         ip: req.ip || req.connection?.remoteAddress
       });
     }
@@ -973,3 +892,8 @@ module.exports = {
   agentReport,
   verifyAssetIntegrity,
 };
+
+
+
+
+

@@ -4,6 +4,7 @@ import { ToastContainer, toast } from "react-toastify";
 import { AuthContext } from "../context/AuthContext";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { Button, Card, Badge, Input } from "../components/UI";
+import PageHeader from "../components/PageHeader";
 
 /**
  * Enterprise Audit Ledger
@@ -14,43 +15,58 @@ export default function AuditLogs() {
   const { user } = useContext(AuthContext);
   const [logs, setLogs] = useState([]);
   const [filteredLogs, setFilteredLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [actionFilter, setActionFilter] = useState("All");
 
   useEffect(() => {
-    if (["Super Admin", "Admin"].includes(user?.role)) {
-      fetchLogs();
-    }
+    let isMounted = true;
+
+    const loadLogs = async () => {
+      if (!["Super Admin", "Admin"].includes(user?.role)) {
+        if (isMounted) setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        const res = await axios.get("/audit");
+        if (!isMounted) return;
+        const nextLogs = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+        setLogs(nextLogs);
+      } catch (error) {
+        if (!isMounted) return;
+        toast.error("Failed to load audit logs. Please try again.");
+        setLogs([]);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    loadLogs();
+
+    return () => {
+      isMounted = false;
+    };
   }, [user]);
 
   useEffect(() => {
     filterLogs();
   }, [logs, search, actionFilter]);
 
-  const fetchLogs = async () => {
-    try {
-      setLoading(true);
-      const res = await axios.get("/audit");
-      setLogs(res.data?.data || res.data || []);
-    } catch (error) {
-      toast.error("Failed to load audit logs. Please try again.");
-      setLogs([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const filterLogs = () => {
-    let filtered = [...logs];
+    const safeLogs = Array.isArray(logs) ? logs : [];
+    let filtered = [...safeLogs];
     if (search) {
+      const searchTerm = search.toLowerCase();
       filtered = filtered.filter(l =>
-        l.action.toLowerCase().includes(search.toLowerCase()) ||
-        l.performedBy.toLowerCase().includes(search.toLowerCase())
+        String(l?.action || "").toLowerCase().includes(searchTerm) ||
+        String(l?.performedBy || "").toLowerCase().includes(searchTerm) ||
+        String(l?.ip || "").toLowerCase().includes(searchTerm)
       );
     }
     if (actionFilter !== "All") {
-      filtered = filtered.filter(l => l.action.includes(actionFilter));
+      filtered = filtered.filter(l => String(l?.action || "").includes(actionFilter));
     }
     setFilteredLogs(filtered);
   };
@@ -73,9 +89,10 @@ export default function AuditLogs() {
   };
 
   const getActionVariant = (action) => {
-    if (action.includes("Security") || action.includes("ALERT") || action.includes("Violation")) return "danger";
-    if (action.includes("Updated")) return "info";
-    if (action.includes("Created")) return "success";
+    const safeAction = String(action || "");
+    if (safeAction.includes("Security") || safeAction.includes("ALERT") || safeAction.includes("Violation")) return "danger";
+    if (safeAction.includes("Updated")) return "info";
+    if (safeAction.includes("Created")) return "success";
     return "neutral";
   };
 
@@ -96,18 +113,11 @@ export default function AuditLogs() {
     <div className="fade-in pb-12">
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
-      {/* Header Area */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Security Audit Logs</h1>
-          <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest italic">
-            Full compliance monitoring active (§4.2)
-          </p>
-        </div>
-        <Button variant="primary" onClick={handleExport} disabled={filteredLogs.length === 0}>
-          Export Logs (CSV)
-        </Button>
-      </div>
+            <PageHeader
+        title="Security Audit Logs"
+        subtitle="Full compliance monitoring, forensic export, and privileged activity review."
+        actions={<Button variant="primary" onClick={handleExport} disabled={filteredLogs.length === 0}>Export Logs (CSV)</Button>}
+      />
 
       {/* Live Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
@@ -121,7 +131,7 @@ export default function AuditLogs() {
         </Card>
         <Card className="flex flex-col border-white/5 bg-slate-900/40">
           <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest mb-1">Unique Users</span>
-          <span className="text-3xl font-black text-white">{new Set((Array.isArray(logs) ? logs : []).map(l => l.performedBy)).size}</span>
+          <span className="text-3xl font-black text-white">{new Set((Array.isArray(logs) ? logs : []).map((l) => String(l?.performedBy || "Unknown"))).size}</span>
         </Card>
       </div>
 
@@ -165,20 +175,20 @@ export default function AuditLogs() {
               </tr>
             </thead>
             <tbody>
-              {Array.isArray(filteredLogs) && filteredLogs.map((log, idx) => (
-                <tr key={log._id || idx}>
+              {Array.isArray(filteredLogs) && filteredLogs.map((log) => (
+                <tr key={log?._id || `${log?.action || "audit"}-${log?.createdAt || "unknown"}`}>
                   <td>
-                    <Badge variant={getActionVariant(log.action)} className="font-bold">
-                      {log.action}
+                    <Badge variant={getActionVariant(log?.action)} className="font-bold">
+                      {log?.action || "Unknown Action"}
                     </Badge>
                   </td>
-                  <td className="font-bold text-slate-300">{log.performedBy}</td>
+                  <td className="font-bold text-slate-300">{log?.performedBy || "Unknown User"}</td>
                   <td className="font-mono text-[11px] text-slate-500 font-bold uppercase">
-                    {log.ip || 'Internal'}
+                    {log?.ip || 'Internal'}
                   </td>
                   <td className="text-right">
-                    <div className="text-slate-100 font-bold text-xs">{new Date(log.createdAt).toLocaleDateString()}</div>
-                    <div className="text-slate-500 text-[10px] uppercase font-bold mt-1">{new Date(log.createdAt).toLocaleTimeString()}</div>
+                    <div className="text-slate-100 font-bold text-xs">{log?.createdAt ? new Date(log.createdAt).toLocaleDateString() : "Unknown"}</div>
+                    <div className="text-slate-500 text-[10px] uppercase font-bold mt-1">{log?.createdAt ? new Date(log.createdAt).toLocaleTimeString() : "--"}</div>
                   </td>
                 </tr>
               ))}

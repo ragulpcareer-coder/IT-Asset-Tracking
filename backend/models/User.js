@@ -1,29 +1,37 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 const mongooseFieldEncryption = require("mongoose-field-encryption").fieldEncryption;
 
 const userSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  email: { type: String, unique: true, required: true, lowercase: true },
+  name: { type: String, required: true, trim: true, minlength: 3, maxlength: 100 },
+  email: {
+    type: String,
+    unique: true,
+    required: true,
+    lowercase: true,
+    trim: true,
+    match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  },
   password: { type: String, required: true },
   role: {
     type: String,
     enum: ["Super Admin", "Admin", "Asset Manager", "Security Auditor", "Manager", "Employee", "Guest"],
     default: "Employee"
   },
-  department: { type: String, default: "General" },
-  phone: { type: String, default: "" },
-  location: { type: String, default: "Headquarters" },
-
+  department: { type: String, default: "General", trim: true, maxlength: 120 },
+  phone: { type: String, default: "", trim: true, maxlength: 20 },
+  location: { type: String, default: "Headquarters", trim: true, maxlength: 120 },
   devices: [{
-    ip: String,
-    userAgent: String,
+    ip: { type: String },
+    userAgent: { type: String },
     fingerprint: mongoose.Schema.Types.Mixed,
-    lastLogin: Date
-
+    lastLogin: { type: Date }
   }],
   twoFactorEnabled: { type: Boolean, default: false },
   twoFactorSecret: { type: String },
   twoFactorBackupCodes: [{ type: String }],
+  failedTwoFactorAttempts: { type: Number, default: 0 },
+  twoFactorLockUntil: { type: Date },
   isEmailVerified: { type: Boolean, default: false },
   isApproved: { type: Boolean, default: false },
   emailVerificationToken: { type: String },
@@ -35,23 +43,18 @@ const userSchema = new mongoose.Schema({
   lastLogin: { type: Date },
   isActive: { type: Boolean, default: true },
   lastLoginIp: { type: String },
-  lastLoginGeo: { type: mongoose.Schema.Types.Mixed }, // { country, city, coordinates }
+  lastLoginGeo: { type: mongoose.Schema.Types.Mixed },
   privilegeToken: { type: String },
   privilegeTokenExpires: { type: Date },
-  tokenVersion: { type: Number, default: 0 }, // Used to invalidate all JWTs upon password change
-
-
-  // ─── BEHAVIORAL & SECURITY PROFILING (§Category 11) ─────────────
+  tokenVersion: { type: Number, default: 0 },
   behavioralMetadata: {
-    typicalLoginHours: { type: [Number], default: [] }, // Array of hours (0-23)
-    commonIps: { type: [String], default: [] },        // Array of frequently used IPs
-    trustedDevices: { type: [String], default: [] },   // Array of device fingerprint hashes
-    riskScore: { type: Number, default: 0 },           // 0-100 dynamic risk score
+    typicalLoginHours: { type: [Number], default: [] },
+    commonIps: { type: [String], default: [] },
+    trustedDevices: { type: [String], default: [] },
+    riskScore: { type: Number, default: 0, min: 0, max: 100 },
     threatLevel: { type: String, enum: ["LOW", "MEDIUM", "HIGH", "CRITICAL"], default: "LOW" },
     lastSecurityAuditAt: { type: Date }
   },
-
-  // ─── SETTINGS & PREFERENCES (§Category 10) ──────────────────────────
   preferences: {
     emailNotifications: { type: Boolean, default: true },
     pushNotifications: { type: Boolean, default: true },
@@ -60,41 +63,38 @@ const userSchema = new mongoose.Schema({
     trackLocation: { type: Boolean, default: true },
     trackIP: { type: Boolean, default: true },
   },
-
-  // ─── ACTIVITY TRACKING (§Category 4) ────────────────────────────────
   activityTimestamps: {
     passwordChangedAt: { type: Date },
     profileUpdatedAt: { type: Date },
     tfaEnabledAt: { type: Date },
+    tfaDisabledAt: { type: Date },
+    tfaRecoveryCodesRotatedAt: { type: Date },
     lastSettingsUpdateAt: { type: Date },
   },
 }, { timestamps: true });
 
-// Optimized Indexes for Performance (§3.3)
+userSchema.index({ email: 1 }, { unique: true });
 userSchema.index({ phone: 1 });
 userSchema.index({ isActive: 1 });
 userSchema.index({ isApproved: 1 });
 userSchema.index({ role: 1 });
-userSchema.index({ "devices.ip": 1 }); // Index for device recognition
-userSchema.index({ lastLogin: -1 }); // Index for activity monitoring
+userSchema.index({ "devices.ip": 1 });
+userSchema.index({ lastLogin: -1 });
+userSchema.index({ twoFactorEnabled: 1 });
+userSchema.index({ twoFactorLockUntil: 1 });
+userSchema.index({ createdAt: -1 });
+userSchema.index({ isActive: 1, isApproved: 1, role: 1, createdAt: -1 });
+userSchema.index({ "behavioralMetadata.threatLevel": 1, "behavioralMetadata.riskScore": -1 });
 
-
-const bcrypt = require("bcryptjs");
-
-// REMOVED: Automatic pre-save hashing hook.
-// Passwords MUST now be hashed manually in controllers before calling save() or create().
-
-// Secure Password Verification (§1.1)
 userSchema.methods.matchPassword = async function (enteredPassword) {
-  return await bcrypt.compare(enteredPassword, this.password);
+  return bcrypt.compare(enteredPassword, this.password);
 };
 
-// DB ENCRYPTION FIX: Encrypt highly sensitive secrets at the database layer
 userSchema.plugin(mongooseFieldEncryption, {
   fields: ["twoFactorSecret", "twoFactorBackupCodes", "emailVerificationToken", "passwordResetToken"],
   secret: process.env.DB_ENCRYPTION_SECRET || process.env.JWT_SECRET || "fallback_dev_encryption_secret_must_change_in_prod",
   saltGenerator: function (secret) {
-    return require('crypto').createHash('sha256').update(secret).digest('hex').substring(0, 16);
+    return require("crypto").createHash("sha256").update(secret).digest("hex").substring(0, 16);
   },
 });
 

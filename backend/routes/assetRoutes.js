@@ -18,7 +18,39 @@
 const express = require("express");
 const router = express.Router();
 const multer = require("multer");
-const upload = multer({ dest: "uploads/" });
+const validate = require("../middleware/validateRequest");
+const {
+  assetBodySchema,
+  assetUpdateSchema,
+  assetIdParamsSchema,
+  exportQuerySchema,
+  assetListQuerySchema,
+  agentReportSchema,
+} = require("../validators/assetValidators");
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ["text/csv", "application/vnd.ms-excel", "text/plain"];
+    if (!allowed.includes(file.mimetype)) {
+      return cb(new Error("Only CSV files are allowed"));
+    }
+    cb(null, true);
+  }
+});
+const uploadSingleCsv = (req, res, next) => {
+  upload.single("file")(req, res, (err) => {
+    if (err) {
+      return res.status(400).json({
+        success: false,
+        message: err.message || "Invalid upload",
+        errors: { file: "invalid_upload" },
+      });
+    }
+    next();
+  });
+};
 
 const { protect, admin, requireReAuth } = require("../middleware/authMiddleware");
 const { requireAdmin2FA, verifyABAC } = require("../middleware/rbacMiddleware");
@@ -37,25 +69,25 @@ const {
 } = require("../controllers/assetController");
 
 // â”€â”€ Standard User + Admin (Scoped by ABAC) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.get("/", protect, getAssets);
+router.get("/", protect, validate(assetListQuerySchema, "query"), getAssets);
 
 // â”€â”€ Admin Only (protect + admin + 2FA / admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.get("/export", protect, admin, requireAdmin2FA, exportAssets);
-router.get("/security-alerts", protect, admin, getSecurityAlerts);
+router.get("/export", protect, admin, requireAdmin2FA, validate(exportQuerySchema, "query"), exportAssets);
+router.get("/security-alerts", protect, admin, requireAdmin2FA, getSecurityAlerts);
 
 // Dynamic Parameter Routes (MUST BE LAST to prevent intercepting static paths)
-router.get("/:id", protect, verifyABAC, getAssetById);
+router.get("/:id", protect, validate(assetIdParamsSchema, "params"), verifyABAC, getAssetById);
 
 router.post("/scan-network", protect, admin, requireAdmin2FA, scanNetwork);
-router.post("/bulk-upload", protect, admin, requireAdmin2FA, upload.single("file"), bulkUploadAssets);
-router.post("/", protect, admin, requireAdmin2FA, createAsset);
-router.put("/:id", protect, admin, requireAdmin2FA, updateAsset);
+router.post("/bulk-upload", protect, admin, requireAdmin2FA, uploadSingleCsv, bulkUploadAssets);
+router.post("/", protect, admin, requireAdmin2FA, validate(assetBodySchema), createAsset);
+router.put("/:id", protect, admin, requireAdmin2FA, validate(assetIdParamsSchema, "params"), validate(assetUpdateSchema), updateAsset);
 
 // STEP-UP AUTH REQUIRED FOR DELETE (Â§3.4)
-router.delete("/:id", protect, admin, requireAdmin2FA, deleteAsset);
+router.delete("/:id", protect, admin, requireAdmin2FA, validate(assetIdParamsSchema, "params"), requireReAuth, deleteAsset);
 
 
 // â”€â”€ Agent (HMAC-signed, no user session) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-router.post("/agent-report", agentReport);
+router.post("/agent-report", validate(agentReportSchema), agentReport);
 
 module.exports = router;

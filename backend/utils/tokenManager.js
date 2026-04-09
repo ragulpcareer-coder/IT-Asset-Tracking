@@ -14,8 +14,11 @@ class TokenManager {
   constructor(accessSecret, refreshSecret) {
     this._explicitAccessSecret = accessSecret;
     this._explicitRefreshSecret = refreshSecret;
-    this.accessTokenExpiry = "2h"; // Short-lived access token
+    this.accessTokenExpiry = "15m"; // Short-lived access token
     this.refreshTokenExpiry = "7d"; // Long-lived refresh token
+    this.algorithm = "HS256";
+    this.issuer = "it-asset-tracker";
+    this.audience = "it-asset-tracker-client";
   }
 
   get accessSecret() {
@@ -26,14 +29,27 @@ class TokenManager {
     return this._explicitRefreshSecret || process.env.REFRESH_SECRET;
   }
 
+  assertSecretsPresent() {
+    if (!this.accessSecret || !this.refreshSecret) {
+      throw new Error("JWT secrets are not configured");
+    }
+  }
+
   /**
    * Generate access token (Short-lived, 15 minutes)
    */
   generateAccessToken(userId, role, tokenVersion = 0) {
+    this.assertSecretsPresent();
     return jwt.sign(
       { userId, role, type: "access", tokenVersion },
       this.accessSecret,
-      { expiresIn: this.accessTokenExpiry }
+      {
+        expiresIn: this.accessTokenExpiry,
+        algorithm: this.algorithm,
+        issuer: this.issuer,
+        audience: this.audience,
+        subject: String(userId),
+      }
     );
   }
 
@@ -42,6 +58,7 @@ class TokenManager {
    * Includes family ID for rotation tracking
    */
   generateRefreshToken(userId, role, familyId = null) {
+    this.assertSecretsPresent();
     const tokenId = crypto.randomBytes(16).toString("hex");
     const family = familyId || tokenId; // Track token family for rotation
 
@@ -55,7 +72,13 @@ class TokenManager {
           family,
         },
         this.refreshSecret,
-        { expiresIn: this.refreshTokenExpiry }
+        {
+          expiresIn: this.refreshTokenExpiry,
+          algorithm: this.algorithm,
+          issuer: this.issuer,
+          audience: this.audience,
+          subject: String(userId),
+        }
       ),
       tokenId,
       family,
@@ -110,7 +133,12 @@ class TokenManager {
    */
   verifyAccessToken(token) {
     try {
-      const decoded = jwt.verify(token, this.accessSecret);
+      this.assertSecretsPresent();
+      const decoded = jwt.verify(token, this.accessSecret, {
+        algorithms: [this.algorithm],
+        issuer: this.issuer,
+        audience: this.audience,
+      });
       if (decoded.type !== "access") {
         throw new Error("Invalid token type");
       }
@@ -125,7 +153,12 @@ class TokenManager {
    */
   verifyRefreshToken(token) {
     try {
-      const decoded = jwt.verify(token, this.refreshSecret);
+      this.assertSecretsPresent();
+      const decoded = jwt.verify(token, this.refreshSecret, {
+        algorithms: [this.algorithm],
+        issuer: this.issuer,
+        audience: this.audience,
+      });
       if (decoded.type !== "refresh") {
         throw new Error("Invalid token type");
       }

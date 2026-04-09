@@ -1,10 +1,11 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 
 const UserSessionSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "User",
-        required: true
+        required: true,
+        index: true
     },
     ipAddress: {
         type: String,
@@ -24,12 +25,12 @@ const UserSessionSchema = new mongoose.Schema({
     },
     loginTime: {
         type: Date,
-        default: Date.now
+        default: Date.now,
+        index: { expireAfterSeconds: 60 * 60 * 24 * 90 }
     }
 }, { timestamps: true });
 
-// Indexing for faster searching
 UserSessionSchema.index({ userId: 1, loginTime: -1 });
-UserSessionSchema.index({ ipAddress: 1 });
+UserSessionSchema.index({ ipAddress: 1, loginTime: -1 });
 
 module.exports = mongoose.model("UserSession", UserSessionSchema);

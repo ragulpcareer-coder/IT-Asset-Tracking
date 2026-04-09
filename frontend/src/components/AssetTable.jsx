@@ -7,9 +7,59 @@ import { Badge, Button, ConfirmModal, PermissionGuard } from "./UI";
  * Features: Role-based filtering, Action protection (Dual-Auth), Inline QR preview.
  */
 
-export default function AssetTable({ assets, onEdit, onDelete, user }) {
+export default function AssetTable({ assets, onEdit, onDelete, user, loading = false }) {
     const [selectedQr, setSelectedQr] = useState(null);
     const [deleteId, setDeleteId] = useState(null);
+    const qrDialogRef = React.useRef(null);
+
+    React.useEffect(() => {
+        if (!selectedQr) return undefined;
+
+        const previousActive = document.activeElement;
+        const handleKeyDown = (event) => {
+            if (event.key === "Escape") {
+                setSelectedQr(null);
+                return;
+            }
+
+            if (event.key !== "Tab" || !qrDialogRef.current) return;
+            const focusable = Array.from(
+                qrDialogRef.current.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])')
+            );
+            if (!focusable.length) return;
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+
+            if (event.shiftKey && document.activeElement === first) {
+                event.preventDefault();
+                last.focus();
+            } else if (!event.shiftKey && document.activeElement === last) {
+                event.preventDefault();
+                first.focus();
+            }
+        };
+
+        const focusable = qrDialogRef.current?.querySelector('button:not([disabled]), [href], input:not([disabled]), [tabindex]:not([tabindex="-1"])');
+        focusable?.focus();
+        document.addEventListener("keydown", handleKeyDown);
+        return () => {
+            document.removeEventListener("keydown", handleKeyDown);
+            previousActive?.focus?.();
+        };
+    }, [selectedQr]);
+
+    if (loading && (!assets || assets.length === 0)) {
+        return (
+            <div className="table-container fade-in">
+                <div className="p-6 space-y-4">
+                    <div className="h-4 w-48 bg-white/5 rounded animate-pulse" />
+                    {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className="h-10 bg-white/5 rounded animate-pulse" />
+                    ))}
+                </div>
+            </div>
+        );
+    }
 
     if (!assets || assets.length === 0) {
         return (
@@ -31,11 +81,10 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
 
     const getRiskBadge = (asset) => {
         const score = asset.riskScore ?? 0;
-        const level = asset.securityStatus?.riskLevel || 'Low';
-        if (score <= 30) return { label: `🟢 Low (${score})`, style: 'bg-green-500/10 text-green-400 border-green-500/20' };
-        if (score <= 60) return { label: `🟡 Medium (${score})`, style: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' };
-        if (score <= 80) return { label: `🔴 High (${score})`, style: 'bg-red-500/10 text-red-400 border-red-500/20' };
-        return { label: `🚨 Critical (${score})`, style: 'bg-red-700/20 text-red-300 border-red-700/30' };
+        if (score <= 30) return { label: `Low (${score})`, style: "bg-green-500/10 text-green-400 border-green-500/20" };
+        if (score <= 60) return { label: `Medium (${score})`, style: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20" };
+        if (score <= 80) return { label: `High (${score})`, style: "bg-red-500/10 text-red-400 border-red-500/20" };
+        return { label: `Critical (${score})`, style: "bg-red-700/20 text-red-300 border-red-700/30" };
     };
 
     return (
@@ -55,8 +104,8 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                     </tr>
                 </thead>
                 <tbody>
-                    {Array.isArray(assets) && assets.map((asset, idx) => (
-                        <tr key={asset._id || idx}>
+                    {Array.isArray(assets) && assets.map((asset) => (
+                        <tr key={asset._id || `${asset.serialNumber}-${asset.name}`}>
                             <td>
                                 <div className="font-bold text-slate-100">{asset.name}</div>
                                 <div className="text-[10px] text-slate-500 uppercase tracking-widest mt-1 font-mono">
@@ -86,11 +135,11 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                             </td>
                             <td>
                                 <Badge variant={getStatusVariant(asset.status)}>
-                                    {asset.status === 'retired' ? 'Archived' : asset.status.charAt(0).toUpperCase() + asset.status.slice(1)}
+                                    {asset.status === "retired" ? "Archived" : asset.status.charAt(0).toUpperCase() + asset.status.slice(1)}
                                 </Badge>
                             </td>
                             <td className="text-slate-400 font-medium">
-                                {asset.assignedTo || "—"}
+                                {asset.assignedTo || "-"}
                             </td>
                             <td className="text-center">
                                 {asset.qrCode ? (
@@ -99,8 +148,12 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                                         src={asset.qrCode}
                                         alt="Asset QR"
                                         className="w-10 h-10 inline-block cursor-pointer rounded bg-white p-1 opacity-80 hover:opacity-100 hover:scale-110 transition-all shadow-lg"
+                                        loading="lazy"
+                                        decoding="async"
+                                        width={40}
+                                        height={40}
                                     />
-                                ) : <span className="text-slate-600">—</span>}
+                                ) : <span className="text-slate-600">-</span>}
                             </td>
                             <td className="text-right">
                                 <div className="flex justify-end gap-2">
@@ -129,7 +182,6 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                 </tbody>
             </table>
 
-            {/* QR Modal Preview */}
             <AnimatePresence>
                 {selectedQr && (
                     <div
@@ -137,14 +189,28 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                         onClick={() => setSelectedQr(null)}
                     >
                         <motion.div
-                            initial={{ scale: 0.95, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
+                            initial={{ opacity: 0, y: 14 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 14 }}
+                            transition={{ duration: 0.18, ease: "easeOut" }}
                             className="card w-full max-w-sm text-center bg-slate-900 border-white/10"
-                            onClick={e => e.stopPropagation()}
+                            role="dialog"
+                            aria-modal="true"
+                            aria-label={`QR code for ${selectedQr.name}`}
+                            ref={qrDialogRef}
+                            onClick={(e) => e.stopPropagation()}
                         >
                             <h3 className="text-white font-bold text-lg mb-6">{selectedQr.name}</h3>
                             <div className="bg-white p-6 rounded-xl inline-block mb-6 shadow-2xl">
-                                <img src={selectedQr.qrCode} alt="Large QR" className="w-56 h-56" />
+                                <img
+                                    src={selectedQr.qrCode}
+                                    alt="Large QR"
+                                    className="w-56 h-56"
+                                    loading="lazy"
+                                    decoding="async"
+                                    width={224}
+                                    height={224}
+                                />
                             </div>
                             <div className="mb-8">
                                 <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-1">Serial Authority</div>
@@ -158,7 +224,6 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
                 )}
             </AnimatePresence>
 
-            {/* Confirmation Modal (UX Requirement) */}
             <ConfirmModal
                 isOpen={!!deleteId}
                 title="Delete Asset?"
@@ -173,3 +238,5 @@ export default function AssetTable({ assets, onEdit, onDelete, user }) {
         </div>
     );
 }
+
+

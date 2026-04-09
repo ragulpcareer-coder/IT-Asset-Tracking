@@ -14,7 +14,9 @@ export default function Layout({ children }) {
 
       <div className="app-content">
         <Topbar toggleSidebar={() => setCollapsed(!collapsed)} openMobile={() => setMobileOpen(true)} />
-        <div className="fade-in max-w-7xl mx-auto">{children}</div>
+        <main className="app-main fade-in" aria-live="polite">
+          {children}
+        </main>
       </div>
     </div>
   );

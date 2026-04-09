@@ -14,12 +14,19 @@ const router = express.Router();
 const { getTickets, createTicket, updateTicket } = require("../controllers/ticketController");
 const { protect, admin } = require("../middleware/authMiddleware");
 const { requireAdmin2FA } = require("../middleware/rbacMiddleware");
+const validate = require("../middleware/validateRequest");
+const {
+  paginationQuerySchema,
+  ticketCreateSchema,
+  ticketUpdateSchema,
+  idParamsSchema,
+} = require("../validators/routeValidators");
 
 // Any authenticated user can view and submit tickets
-router.get("/", protect, getTickets);
-router.post("/", protect, createTicket);
+router.get("/", protect, validate(paginationQuerySchema, "query"), getTickets);
+router.post("/", protect, validate(ticketCreateSchema), createTicket);
 
 // Only Admin (with 2FA enforced) can update/resolve tickets
-router.put("/:id", protect, admin, requireAdmin2FA, updateTicket);
+router.put("/:id", protect, admin, requireAdmin2FA, validate(idParamsSchema, "params"), validate(ticketUpdateSchema), updateTicket);
 
 module.exports = router;

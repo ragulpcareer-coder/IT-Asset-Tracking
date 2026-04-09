@@ -104,9 +104,7 @@ export const SpectrumTextExample = () => {
 // ========================== EXAMPLE 4: QUANTUM BUTTON ==========================
 // Use for primary actions with particle burst effects
 export const QuantumButtonExample = () => {
-  const handleClick = () => {
-    console.log("Button clicked!");
-  };
+  const handleClick = () => {};
 
   return (
     <div className="p-12 space-y-8 bg-gradient-to-b from-[#0a1128] to-[#1a0f2e] min-h-screen">

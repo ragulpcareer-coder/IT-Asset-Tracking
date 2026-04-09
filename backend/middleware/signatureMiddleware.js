@@ -1,5 +1,6 @@
 const { verifyRequestSignature } = require("../utils/security");
 const AuditLog = require("../models/AuditLog");
+const { sendError } = require("../utils/apiResponse");
 
 /**
  * SIGNATURE VERIFICATION MIDDLEWARE (§6.1)
@@ -9,7 +10,10 @@ const AuditLog = require("../models/AuditLog");
 
 const verifySignature = (req, res, next) => {
     try {
-        const secret = process.env.API_SIGNATURE_SECRET || "fallback_operational_secret";
+        const secret = process.env.API_SIGNATURE_SECRET;
+        if (!secret) {
+            return sendError(res, 500, "Signature verification is not configured");
+        }
 
         // If GET request, sometimes we skip depending on policy §1.1 (Everything must be verified).
         // Let's enforce for all POST/PUT/DELETE for now as per enterprise standard for integrity.
@@ -24,14 +28,12 @@ const verifySignature = (req, res, next) => {
                     ip: req.ip || req.connection?.remoteAddress
                 });
 
-                return res.status(403).json({
-                    message: "Security Violation: Cryptographic signature mismatch. Possible API replay or data tampering attempt (§6.1)."
-                });
+                return sendError(res, 403, "Security violation: cryptographic signature mismatch");
             }
         }
         next();
     } catch (error) {
-        res.status(500).json({ message: "Signature verification system error." });
+        return sendError(res, 500, "Signature verification system error");
     }
 };
 

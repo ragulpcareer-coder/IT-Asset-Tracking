@@ -1,14 +1,17 @@
-import React, { useEffect, useState, useContext, useCallback } from "react";
+import React, { useEffect, useState, useContext, useCallback, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import axios from "../utils/axiosConfig";
 import { AuthContext } from "../context/AuthContext";
 import { socket } from "../services/socket";
+import jsPDF from "jspdf";
+import autoTable from "jspdf-autotable";
 import LoadingSpinner from "../components/common/LoadingSpinner";
 import { Card, PermissionGuard } from "../components/UI";
+import PageHeader from "../components/PageHeader";
 import {
   PieChart, Pie, Cell, Tooltip, ResponsiveContainer,
-  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  AreaChart, Area, XAxis, YAxis, CartesianGrid, Legend, LabelList,
 } from "recharts";
 import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
@@ -33,6 +36,12 @@ function KpiSkeleton() {
   );
 }
 
+const DATE_RANGE_OPTIONS = [
+  { value: "7d", label: "Last 7 days", days: 7 },
+  { value: "30d", label: "Last 30 days", days: 30 },
+  { value: "90d", label: "Last 90 days", days: 90 },
+];
+
 // ─── Individual KPI Card ──────────────────────────────────────────────────────
 function KpiCard({ label, value, sub, accent, icon, loading }) {
   if (loading) return <KpiSkeleton />;
@@ -42,7 +51,7 @@ function KpiCard({ label, value, sub, accent, icon, loading }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
     >
-      <Card className={`border-l-4 ${accent} relative overflow-hidden`}>
+      <Card className={`border-l-4 ${accent} relative overflow-hidden`} style={{ minHeight: 128 }}>
         <div className="flex items-start justify-between">
           <div>
             <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">
@@ -72,7 +81,7 @@ function PostureCard({ score, meta, loading }) {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3, delay: 0.05 }}
     >
-      <Card className="border-l-4 border-l-blue-500">
+      <Card className="border-l-4 border-l-blue-500" style={{ minHeight: 128 }}>
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <div className="text-slate-500 text-xs font-bold uppercase tracking-widest mb-1">
@@ -114,11 +123,16 @@ export default function Dashboard() {
   // Metrics from /api/dashboard/metrics
   const [metrics, setMetrics] = useState(null);
   const [metricsError, setMetricsError] = useState(false);
+  const [chartError, setChartError] = useState(false);
+  const [dateRange, setDateRange] = useState("30d");
 
   // Asset + audit log data for charts
   const [assets, setAssets] = useState([]);
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
+  const m = metrics || {};
+  const safeAssets = useMemo(() => (Array.isArray(assets) ? assets : []), [assets]);
+  const safeLogs = useMemo(() => (Array.isArray(logs) ? logs : []), [logs]);
 
   const fetchMetrics = useCallback(async () => {
     // SECURITY: Only Admins/Super Admins/Auditors should fetch system-wide metrics
@@ -135,10 +149,9 @@ export default function Dashboard() {
 
     try {
       const res = await axios.get("/dashboard/metrics");
-      setMetrics(res.data);
+      setMetrics(res.data && typeof res.data === "object" ? res.data : {});
       setMetricsError(false);
     } catch (err) {
-      console.error("[Dashboard] Metrics fetch error:", err.message);
       // Logic for 403 handling (e.g. if role was changed mid-session)
       if (err.response?.status === 403) {
         setMetricsError(false); // Don't show error banner for expected RBAC block
@@ -160,31 +173,46 @@ export default function Dashboard() {
   const fetchChartData = useCallback(async () => {
     try {
       const [assetsRes, logsRes] = await Promise.all([
-        axios.get("/assets"),
+        axios.get("/assets?limit=1000&sort=updatedAt:desc"),
         ["Super Admin", "Admin"].includes(user?.role)
-          ? axios.get("/audit")
+          ? axios.get("/audit?limit=1000")
           : Promise.resolve({ data: { data: [] } }),
       ]);
-      setAssets(assetsRes.data.assets || assetsRes.data || []);
-      setLogs(logsRes.data?.data || logsRes.data || []);
+      setAssets(Array.isArray(assetsRes.data?.assets) ? assetsRes.data.assets : Array.isArray(assetsRes.data) ? assetsRes.data : []);
+      setLogs(Array.isArray(logsRes.data?.data) ? logsRes.data.data : Array.isArray(logsRes.data) ? logsRes.data : []);
+      setChartError(false);
     } catch (err) {
-      console.error("[Dashboard] Chart data fetch error:", err.message);
+      setChartError(true);
+      setAssets([]);
+      setLogs([]);
       toast.error("Telemetry link degraded. Charts may be incomplete.");
     }
   }, [user?.role]);
 
   useEffect(() => {
+    let isMounted = true;
     const init = async () => {
       setLoading(true);
       await Promise.all([fetchMetrics(), fetchChartData()]);
-      setLoading(false);
+      if (isMounted) setLoading(false);
     };
     init();
     socket.connect();
 
-    socket.on("assetCreated", (a) => { setAssets(p => [a, ...p]); fetchMetrics(); });
-    socket.on("assetUpdated", (a) => { setAssets(p => p.map(x => x._id === a._id ? a : x)); fetchMetrics(); });
-    socket.on("assetDeleted", (id) => { setAssets(p => p.filter(x => x._id !== id)); fetchMetrics(); });
+    socket.on("assetCreated", (a) => {
+      if (!a || typeof a !== "object") return;
+      setAssets((p) => [a, ...(Array.isArray(p) ? p : [])]);
+      fetchMetrics();
+    });
+    socket.on("assetUpdated", (a) => {
+      if (!a?._id) return;
+      setAssets((p) => (Array.isArray(p) ? p.map((x) => (x?._id === a._id ? a : x)) : []));
+      fetchMetrics();
+    });
+    socket.on("assetDeleted", (id) => {
+      setAssets((p) => (Array.isArray(p) ? p.filter((x) => x?._id !== id) : []));
+      fetchMetrics();
+    });
 
     // Refresh metrics every 60 seconds (only if document is visible)
     const interval = setInterval(() => {
@@ -192,6 +220,7 @@ export default function Dashboard() {
     }, 60_000);
 
     return () => {
+      isMounted = false;
       socket.off("assetCreated");
       socket.off("assetUpdated");
       socket.off("assetDeleted");
@@ -201,51 +230,192 @@ export default function Dashboard() {
   }, [fetchMetrics, fetchChartData]);
 
   // Chart data
-  const statusData = [
-    { name: "Active", value: assets.filter(a => ["available", "assigned"].includes(a.status)).length, color: "#3b82f6" },
-    { name: "Maintenance", value: assets.filter(a => a.status === "maintenance").length, color: "#f59e0b" },
-    { name: "Retired", value: assets.filter(a => a.status === "retired").length, color: "#ef4444" },
-  ];
+  const browserTimeZone = useMemo(
+    () => Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+    []
+  );
 
-  const auditAreaData = Array.from({ length: 7 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() - (6 - i));
-    const dateStr = d.toLocaleDateString();
-    return {
-      name: d.toLocaleDateString(undefined, { weekday: 'short' }),
-      events: logs.filter(log => new Date(log.createdAt).toLocaleDateString() === dateStr).length,
-    };
-  });
+  const selectedRangeDays = useMemo(
+    () => DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.days || 30,
+    [dateRange]
+  );
 
-  if (loading) return <LoadingSpinner fullScreen message="Loading dashboard data..." />;
+  const filteredLogs = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - (selectedRangeDays - 1));
+    cutoff.setHours(0, 0, 0, 0);
+    return safeLogs.filter((log) => {
+      const createdAt = new Date(log?.createdAt);
+      return !Number.isNaN(createdAt.getTime()) && createdAt >= cutoff;
+    });
+  }, [safeLogs, selectedRangeDays]);
 
-  const m = metrics || {};
+  const statusData = useMemo(() => {
+    const summary = { Active: 0, Maintenance: 0, Retired: 0 };
+    for (const asset of safeAssets) {
+      if (["available", "assigned"].includes(asset?.status)) summary.Active += 1;
+      else if (asset?.status === "maintenance") summary.Maintenance += 1;
+      else if (asset?.status === "retired") summary.Retired += 1;
+    }
+    return [
+      { name: "Active", value: summary.Active, color: "#3b82f6" },
+      { name: "Maintenance", value: summary.Maintenance, color: "#f59e0b" },
+      { name: "Retired", value: summary.Retired, color: "#ef4444" },
+    ];
+  }, [safeAssets]);
+
+  const auditAreaData = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      timeZone: browserTimeZone,
+    });
+    const bucketMap = new Map();
+
+    for (let index = selectedRangeDays - 1; index >= 0; index -= 1) {
+      const date = new Date();
+      date.setDate(date.getDate() - index);
+      date.setHours(0, 0, 0, 0);
+      bucketMap.set(date.toISOString().slice(0, 10), {
+        name: formatter.format(date),
+        events: 0,
+      });
+    }
+
+    for (const log of filteredLogs) {
+      const createdAt = new Date(log?.createdAt);
+      if (Number.isNaN(createdAt.getTime())) continue;
+      const key = new Date(createdAt.getFullYear(), createdAt.getMonth(), createdAt.getDate())
+        .toISOString()
+        .slice(0, 10);
+      const bucket = bucketMap.get(key);
+      if (bucket) bucket.events += 1;
+    }
+
+    return Array.from(bucketMap.values());
+  }, [filteredLogs, selectedRangeDays, browserTimeZone]);
+
+  const safeStatusData = statusData.some((item) => item.value > 0)
+    ? statusData
+    : [{ name: "No inventory data", value: 1, color: "#475569" }];
+  const safeAuditAreaData = auditAreaData.length > 0
+    ? auditAreaData
+    : [{ name: "No activity", events: 0 }];
+
+  const handleExportCsv = useCallback(() => {
+    const rows = [
+      ["Metric", "Value"],
+      ["Role", user?.role || "Unknown"],
+      ["Time Zone", browserTimeZone],
+      ["Date Range", DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.label || dateRange],
+      ["Active Assets Online", m.activeAssets?.online ?? 0],
+      ["Active Assets Total", m.activeAssets?.total ?? 0],
+      ["Security Posture Score", m.securityPostureScore ?? 0],
+      ["Active Incidents", m.activeIncidents ?? 0],
+      ["Audit Events (24h)", m.auditEvents24h ?? 0],
+      [],
+      ["Inventory Status", "Count"],
+      ...safeStatusData.map((item) => [item.name, item.value]),
+      [],
+      ["Audit Trend", "Events"],
+      ...safeAuditAreaData.map((item) => [item.name, item.events]),
+    ];
+
+    const csv = rows.map((row) => row.map((cell) => `"${String(cell ?? "").replace(/"/g, '""')}"`).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dashboard-summary-${dateRange}.csv`;
+    link.click();
+    window.URL.revokeObjectURL(url);
+    toast.success("Dashboard summary exported as CSV.");
+  }, [browserTimeZone, dateRange, m.activeAssets?.online, m.activeAssets?.total, m.activeIncidents, m.auditEvents24h, m.securityPostureScore, safeAuditAreaData, safeStatusData, user?.role]);
+
+  const handleExportPdf = useCallback(() => {
+    const doc = new jsPDF("landscape");
+    doc.setFontSize(18);
+    doc.text("IT Asset Tracking Dashboard Summary", 14, 16);
+    doc.setFontSize(10);
+    doc.text(`Time zone: ${browserTimeZone}`, 14, 24);
+    doc.text(`Date range: ${DATE_RANGE_OPTIONS.find((option) => option.value === dateRange)?.label || dateRange}`, 14, 30);
+
+    autoTable(doc, {
+      startY: 36,
+      head: [["Metric", "Value"]],
+      body: [
+        ["Active Assets Online", m.activeAssets?.online ?? 0],
+        ["Active Assets Total", m.activeAssets?.total ?? 0],
+        ["Security Posture Score", m.securityPostureScore ?? 0],
+        ["Active Incidents", m.activeIncidents ?? 0],
+        ["Audit Events (24h)", m.auditEvents24h ?? 0],
+      ],
+    });
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [["Inventory Status", "Count"]],
+      body: safeStatusData.map((item) => [item.name, item.value]),
+    });
+
+    autoTable(doc, {
+      startY: doc.lastAutoTable.finalY + 10,
+      head: [["Audit Trend", "Events"]],
+      body: safeAuditAreaData.map((item) => [item.name, item.events]),
+    });
+
+    doc.save(`dashboard-summary-${dateRange}.pdf`);
+    toast.success("Dashboard summary exported as PDF.");
+  }, [browserTimeZone, dateRange, m.activeAssets?.online, m.activeAssets?.total, m.activeIncidents, m.auditEvents24h, m.securityPostureScore, safeAuditAreaData, safeStatusData]);
 
   return (
     <div className="fade-in pb-12">
       <ToastContainer position="top-right" autoClose={3000} theme="dark" />
 
       {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
-        <div>
-          <h1 className="text-3xl font-extrabold text-white tracking-tighter">Security Operations Overview</h1>
-          <p className="text-slate-500 font-medium mt-1 uppercase text-xs tracking-widest">
-            Role: {user?.role} &nbsp;|&nbsp; System Status: Operational
-          </p>
-        </div>
-        <div className="flex gap-3">
-          <Link to="/assets" className="btn btn-secondary">View Asset Inventory</Link>
+      <PageHeader
+        title="Security Operations Overview"
+        subtitle={`Role: ${user?.role || "Unknown"} | System Status: Operational | Time Zone: ${browserTimeZone}`}
+        actions={
+          <>
+          <label className="flex min-h-11 w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-slate-900/60 px-3 text-sm text-slate-300 sm:w-auto">
+            <span className="whitespace-nowrap">Analytics Range</span>
+            <select
+              value={dateRange}
+              onChange={(event) => setDateRange(event.target.value)}
+              className="bg-transparent outline-none"
+              aria-label="Analytics date range"
+            >
+              {DATE_RANGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value} className="bg-slate-900">
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button type="button" onClick={handleExportCsv} className="btn btn-secondary w-full sm:w-auto">Export CSV</button>
+          <button type="button" onClick={handleExportPdf} className="btn btn-secondary w-full sm:w-auto">Export PDF</button>
+          <Link to="/assets" className="btn btn-secondary w-full sm:w-auto">View Asset Inventory</Link>
           <PermissionGuard roles={["Super Admin", "Admin"]} userRole={user?.role}>
-            <Link to="/security" className="btn btn-primary">Security Monitoring</Link>
+            <Link to="/security" className="btn btn-primary w-full sm:w-auto">Security Monitoring</Link>
           </PermissionGuard>
-        </div>
-      </div>
+          </>
+        }
+      />
 
-      {metricsError && (
-        <div className="mb-6 px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium">
-          ⚠ Metrics endpoint unavailable — displaying last known values. Verify backend connectivity.
-        </div>
-      )}
+      <div className="mb-6" style={{ minHeight: 48 }}>
+        {metricsError && (
+          <div className="px-4 py-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm font-medium">
+            ⚠ Warning: metrics endpoint unavailable. Displaying the last known values while connectivity recovers.
+          </div>
+        )}
+        {!metricsError && chartError ? (
+          <div className="mt-3 px-4 py-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-sm font-medium">
+            Chart detail is partially unavailable. Summary cards are still using the latest successful responses.
+          </div>
+        ) : null}
+      </div>
 
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
@@ -258,14 +428,14 @@ export default function Dashboard() {
               sub="Endpoints reporting within 5 minutes"
               accent="border-l-blue-500"
               icon="🖥"
-              loading={false}
+              loading={loading}
             />
 
             {/* 2 — Security Posture Score */}
             <PostureCard
               score={m.securityPostureScore ?? 0}
               meta={m._meta?.posture}
-              loading={false}
+              loading={loading}
             />
 
             {/* 3 — Active Incidents */}
@@ -281,7 +451,7 @@ export default function Dashboard() {
                     : "border-l-red-500"
               }
               icon="🎫"
-              loading={false}
+              loading={loading}
             />
 
             {/* 4 — Audit Events 24h */}
@@ -291,7 +461,7 @@ export default function Dashboard() {
               sub="Audit log entries in the last 24 hours"
               accent="border-l-purple-500"
               icon="📋"
-              loading={false}
+              loading={loading}
             />
           </>
         ) : (
@@ -303,7 +473,7 @@ export default function Dashboard() {
               sub="Nodes currently provisioned to you"
               accent="border-l-emerald-500"
               icon="💻"
-              loading={false}
+              loading={loading}
             />
             <KpiCard
               label="Open Requests"
@@ -311,7 +481,7 @@ export default function Dashboard() {
               sub="Support tickets pending resolution"
               accent="border-l-blue-500"
               icon="📥"
-              loading={false}
+              loading={loading}
             />
             <KpiCard
               label="Account Integrity"
@@ -319,7 +489,7 @@ export default function Dashboard() {
               sub={user?.twoFactorEnabled ? "2FA Protection Active" : "Enable 2FA in Settings"}
               accent={user?.twoFactorEnabled ? "border-l-emerald-500" : "border-l-red-500"}
               icon="🔐"
-              loading={false}
+              loading={loading}
             />
             <KpiCard
               label="Last Login"
@@ -327,37 +497,61 @@ export default function Dashboard() {
               sub="Session tracking active"
               accent="border-l-purple-500"
               icon="🕒"
-              loading={false}
+              loading={loading}
             />
           </>
         )}
       </div>
 
       {/* Charts Section */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-10">
+      <div className="grid grid-cols-1 gap-8 mb-10 lg:grid-cols-3">
 
         {/* Inventory Health Pie */}
         <Card className="lg:col-span-1">
           <h3 className="text-lg font-bold text-white mb-6">Inventory Status</h3>
-          <div style={{ height: 300 }}>
+          <div style={{ height: 300 }} className="relative min-w-0">
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Loading chart...</div>
+            )}
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={statusData}
+                  data={safeStatusData}
                   cx="50%" cy="50%"
                   innerRadius={60} outerRadius={100}
                   paddingAngle={8} dataKey="value"
                 >
-                  {statusData.map((entry, i) => (
-                    <Cell key={i} fill={entry.color} strokeWidth={0} />
+                  {safeStatusData.map((entry) => (
+                    <Cell key={entry.name} fill={entry.color} strokeWidth={0} />
                   ))}
+                  <LabelList dataKey="value" position="outside" fill="#cbd5e1" fontSize={12} />
                 </Pie>
+                <Legend wrapperStyle={{ fontSize: "12px" }} />
                 <Tooltip
                   contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
                   itemStyle={{ color: "#fff", fontSize: 12, fontWeight: 700 }}
                 />
               </PieChart>
             </ResponsiveContainer>
+          </div>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-xs text-slate-300">
+              <caption className="sr-only">Inventory status data table</caption>
+              <thead>
+                <tr className="text-slate-500">
+                  <th className="pb-2 text-left">Status</th>
+                  <th className="pb-2 text-right">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {safeStatusData.map((item) => (
+                  <tr key={item.name} className="border-t border-white/5">
+                    <td className="py-2">{item.name}</td>
+                    <td className="py-2 text-right tabular-nums">{item.value}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </Card>
 
@@ -377,9 +571,12 @@ export default function Dashboard() {
         >
           <Card className="lg:col-span-2">
             <h3 className="text-lg font-bold text-white mb-6">Audit Event Frequency</h3>
-            <div style={{ height: 300 }}>
+            <div style={{ height: 300 }} className="relative min-w-0">
+            {loading && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-400">Loading chart...</div>
+            )}
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={auditAreaData}>
+                <AreaChart data={safeAuditAreaData}>
                   <defs>
                     <linearGradient id="auditGrad" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -387,8 +584,9 @@ export default function Dashboard() {
                     </linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="name" stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                  <XAxis dataKey="name" stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} minTickGap={24} />
                   <YAxis stroke="#64748b" fontSize={11} axisLine={false} tickLine={false} />
+                  <Legend wrapperStyle={{ fontSize: "12px" }} />
                   <Tooltip
                     contentStyle={{ background: "#0f172a", border: "1px solid #1e293b", borderRadius: 8 }}
                     itemStyle={{ color: "#fff" }}
@@ -400,6 +598,25 @@ export default function Dashboard() {
                   />
                 </AreaChart>
               </ResponsiveContainer>
+            </div>
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-xs text-slate-300">
+                <caption className="sr-only">Audit event frequency data table</caption>
+                <thead>
+                  <tr className="text-slate-500">
+                    <th className="pb-2 text-left">Day</th>
+                    <th className="pb-2 text-right">Events</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {safeAuditAreaData.map((item) => (
+                    <tr key={item.name} className="border-t border-white/5">
+                      <td className="py-2">{item.name}</td>
+                      <td className="py-2 text-right tabular-nums">{item.events}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </Card>
         </PermissionGuard>
@@ -418,12 +635,12 @@ export default function Dashboard() {
             </Link>
           </div>
           <div className="space-y-4">
-            {Array.isArray(logs) && logs.slice(0, 3).map((log, i) => (
-              <div
-                key={log._id || i}
-                className="flex flex-col md:flex-row md:items-center justify-between gap-2 p-3 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 cursor-pointer transition-colors"
-                onClick={() => window.location.href = '/audit-logs'}
-                title="Click to view full audit log"
+            {Array.isArray(filteredLogs) && filteredLogs.slice(0, 3).map((log) => (
+              <Link
+                key={log._id}
+                to="/audit-logs"
+                className="flex flex-col justify-between gap-2 rounded-lg border border-white/5 bg-white/5 p-3 transition-colors hover:bg-white/10 md:flex-row md:items-center"
+                title="Open full audit log"
               >
                 <div className="flex items-center gap-4">
                   <div className={`w-8 h-8 rounded-full flex-center text-xs font-bold ${log.action.includes("ALERT") ? "bg-red-500/10 text-red-500" : "bg-blue-500/10 text-blue-500"
@@ -438,11 +655,11 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div className="text-xs font-mono text-slate-500">
-                  {new Date(log.createdAt).toLocaleString()}
+                  {new Date(log.createdAt).toLocaleString(undefined, { timeZone: browserTimeZone })}
                 </div>
-              </div>
+              </Link>
             ))}
-            {logs.length === 0 && (
+            {filteredLogs.length === 0 && (
               <p className="text-slate-500 text-sm text-center py-4">No security events recorded yet. Events will appear here as users interact with the system.</p>
             )}
           </div>
@@ -451,3 +668,11 @@ export default function Dashboard() {
     </div>
   );
 }
+
+
+
+
+
+
+
+

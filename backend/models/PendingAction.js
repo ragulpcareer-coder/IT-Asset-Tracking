@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+﻿const mongoose = require("mongoose");
 
 const pendingActionSchema = new mongoose.Schema({
     actionType: {
@@ -26,8 +26,14 @@ const pendingActionSchema = new mongoose.Schema({
     },
     expiresAt: {
         type: Date,
-        default: () => new Date(Date.now() + 60 * 60 * 1000) // 1 hour validity
+        default: () => new Date(Date.now() + 60 * 60 * 1000),
+        index: { expireAfterSeconds: 0 }
     }
 }, { timestamps: true });
+
+pendingActionSchema.index({ status: 1, createdAt: -1 });
+pendingActionSchema.index({ createdBy: 1, status: 1, createdAt: -1 });
+pendingActionSchema.index({ "data.targetUserId": 1, status: 1 });
+pendingActionSchema.index({ "data.assetId": 1, status: 1 });
 
 module.exports = mongoose.model("PendingAction", pendingActionSchema);

@@ -1,15 +1,11 @@
 const { GoogleGenerativeAI } = require("@google/generative-ai");
 const SecurityAlert = require("../models/SecurityAlert");
 const SecurityEvent = require("../models/SecurityEvent");
-const AuditLog = require("../models/AuditLog");
 const securityEventService = require("../services/securityEventService");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
+const genAI = process.env.GEMINI_API_KEY ? new GoogleGenerativeAI(process.env.GEMINI_API_KEY) : null;
 
-/**
- * AI Security Analyst Controller
- * Provides intelligent insights into security alerts and logs.
- */
 const analyzeAlert = async (req, res) => {
     try {
         const { alertId } = req.params;
@@ -22,19 +18,17 @@ const analyzeAlert = async (req, res) => {
         }
 
         if (!alert) {
-            return res.status(404).json({ message: "Security alert not found." });
+            return sendError(res, 404, "Security alert not found.", { alertId: "invalid_alert" });
         }
 
-        // If already analyzed recently, return existing analysis
         if (alert.aiAnalysis && alert.aiAnalysis.explanation && (Date.now() - new Date(alert.aiAnalysis.analyzedAt).getTime() < 24 * 60 * 60 * 1000)) {
-            return res.json({ success: true, analysis: alert.aiAnalysis });
+            return sendSuccess(res, 200, "Cached AI analysis returned", { analysis: alert.aiAnalysis });
         }
 
-        if (!process.env.GEMINI_API_KEY) {
-            // Mock fallback if no API key
+        if (!genAI) {
             const mockAnalysis = {
-                explanation: "Gemini API key not configured. This is a placeholder analysis for " + alert.type + ". The pattern suggests unusual activity from IP " + alert.sourceIp + ".",
-                recommendation: "Please configure GEMINI_API_KEY in the environment. Recommended manual action: Investigate the source IP and user activity.",
+                explanation: `Gemini API key not configured. Placeholder analysis for ${alert.type}. The pattern suggests unusual activity from IP ${alert.sourceIp}.`,
+                recommendation: "Configure GEMINI_API_KEY in the environment. Recommended manual action: investigate the source IP and related user activity.",
                 confidence: 0.5,
                 analyzedAt: new Date()
             };
@@ -43,35 +37,32 @@ const analyzeAlert = async (req, res) => {
             if (sourceModel === "SecurityAlert") {
                 await securityEventService.ingestFromAlert(alert);
             }
-            return res.json({ success: true, analysis: mockAnalysis });
+            return sendSuccess(res, 200, "Fallback AI analysis generated", { analysis: mockAnalysis });
         }
 
         const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
-
         const prompt = `
-      You are a Senior SOC (Security Operations Center) Analyst. 
+      You are a Senior SOC (Security Operations Center) Analyst.
       Analyze the following security alert from an IT Asset Tracking system:
-      
+
       Alert Type: ${alert.type}
       Severity: ${alert.severity}
       Description: ${alert.description}
       Source IP: ${alert.sourceIp}
       User Affected: ${alert.userId ? alert.userId.email : "Unknown"}
       Metadata: ${JSON.stringify(alert.metadata)}
-      
+
       Provide your analysis in the following JSON format:
       {
         "explanation": "A clear explanation of why this is a threat and what the attacker might be trying to do.",
         "recommendation": "Specific, actionable steps for the administrator to take.",
-        "confidence": 0.85 (a number between 0 and 1)
+        "confidence": 0.85
       }
     `;
 
         const result = await model.generateContent(prompt);
         const response = await result.response;
         const text = response.text();
-
-        // Extract JSON from the response text (handling potential markdown blocks)
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (!jsonMatch) throw new Error("AI failed to return valid JSON analysis.");
 
@@ -84,21 +75,17 @@ const analyzeAlert = async (req, res) => {
             await securityEventService.ingestFromAlert(alert);
         }
 
-        res.json({ success: true, analysis });
+        return sendSuccess(res, 200, "AI analysis generated successfully", { analysis });
     } catch (error) {
         console.error("[AI-Analysis] Error:", error);
-        res.status(500).json({ success: false, message: "AI Analysis failed to complete.", error: error.message });
+        return sendError(res, 500, "AI analysis failed to complete.");
     }
 };
 
-/**
- * Get all security alerts for the SOC dashboard
- */
 const getSecurityAlerts = async (req, res) => {
     try {
         let events = await securityEventService.listRecentEvents(120);
 
-        // Migration-safe fallback: backfill from legacy alerts if events store is still empty.
         if (events.length === 0) {
             const legacyAlerts = await SecurityAlert.find()
                 .populate("userId", "name email role")
@@ -137,10 +124,10 @@ const getSecurityAlerts = async (req, res) => {
             createdAt: event.occurredAt || event.createdAt
         }));
 
-        return res.status(200).json({ success: true, alerts: alerts || [] });
+        return sendSuccess(res, 200, "Security alerts fetched successfully", { alerts: alerts || [] });
     } catch (error) {
         console.error("AI Controller Security Alerts Error:", error);
-        return res.status(500).json({ success: false, alerts: [] });
+        return sendError(res, 500, "Failed to fetch security alerts", { alerts: "fetch_failed" });
     }
 };
 

@@ -3,11 +3,21 @@ const si = require('systeminformation');
 const os = require('os');
 const crypto = require('crypto');
 
-// Server URL where the agent will report
-const SERVER_URL = process.env.SERVER_URL || 'https://it-asset-tracking.onrender.com/api';
+const SERVER_URL = (
+    process.env.SERVER_URL ||
+    (process.env.NODE_ENV === "development" ? "http://localhost:5000/api" : "")
+).trim().replace(/\/+$/, "");
 // Identifier for this specific device
 const SERIAL_NUMBER = process.env.SERIAL_NUMBER || os.hostname();
-const SECRET_KEY = process.env.AGENT_SECRET || 'endpoint_agent_secret_key_123!';
+const SECRET_KEY = (process.env.AGENT_SECRET || "").trim();
+
+if (!SERVER_URL) {
+    throw new Error("SERVER_URL must be configured for the endpoint agent.");
+}
+
+if (!SECRET_KEY) {
+    throw new Error("AGENT_SECRET must be configured for the endpoint agent.");
+}
 
 async function gatherAndReport() {
     try {
@@ -82,7 +92,8 @@ async function gatherAndReport() {
             .digest('hex');
 
         const response = await axios.post(`${SERVER_URL}/assets/agent-report`, payload, {
-            headers: { 'x-agent-signature': signature }
+            headers: { 'x-agent-signature': signature },
+            timeout: 15000,
         });
         console.log(`[Agent] Report sent successfully. Status: ${response.status}`);
     } catch (error) {
@@ -91,6 +102,8 @@ async function gatherAndReport() {
 }
 
 // Run immediately, then every 60 seconds
-gatherAndReport();
-setInterval(gatherAndReport, 60000);
+void gatherAndReport();
+setInterval(() => {
+    void gatherAndReport();
+}, 60000);
 console.log(`[Agent] Started monitoring. Reporting to ${SERVER_URL} every 60s.`);

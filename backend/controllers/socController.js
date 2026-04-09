@@ -1,20 +1,19 @@
-﻿const Incident = require("../models/Incident");
-const SecurityAlert = require("../models/SecurityAlert");
+const Incident = require("../models/Incident");
 const SecurityEvent = require("../models/SecurityEvent");
 const User = require("../models/User");
 const BlockedIp = require("../models/BlockedIp");
 const attackSimulator = require("../services/attackSimulator");
 const { getGeoLocation } = require("../utils/geoIpService");
 const securityEventService = require("../services/securityEventService");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
 
 const simulateBruteForce = async (req, res) => {
     try {
         const { email, ip } = req.body;
-        if (!email) return res.status(400).json({ success: false, message: "Target email required for simulation." });
         const result = await attackSimulator.simulateBruteForce(email, ip);
-        return res.json({ success: true, ...result });
+        return sendSuccess(res, 200, "Brute-force simulation completed", result);
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return sendError(res, 500, "Simulation failed.");
     }
 };
 
@@ -22,9 +21,9 @@ const simulateInsiderThreat = async (req, res) => {
     try {
         const { userId, ip } = req.body;
         const result = await attackSimulator.simulateInsiderThreat(userId || req.user._id, ip);
-        return res.json({ success: true, ...result });
+        return sendSuccess(res, 200, "Insider threat simulation completed", result);
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return sendError(res, 500, "Simulation failed.");
     }
 };
 
@@ -32,9 +31,9 @@ const simulateZeroTrustViolation = async (req, res) => {
     try {
         const { userId, ip } = req.body;
         const result = await attackSimulator.simulateZeroTrustViolation(userId || req.user._id, ip);
-        return res.json({ success: true, ...result });
+        return sendSuccess(res, 200, "Zero-trust simulation completed", result);
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return sendError(res, 500, "Simulation failed.");
     }
 };
 
@@ -42,18 +41,35 @@ const simulateExploitPattern = async (req, res) => {
     try {
         const { userId, ip } = req.body;
         const result = await attackSimulator.simulateExploitPattern(userId || req.user._id, ip);
-        return res.json({ success: true, ...result });
+        return sendSuccess(res, 200, "Exploit simulation completed", result);
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Simulation failed.", error: error.message });
+        return sendError(res, 500, "Simulation failed.");
     }
 };
 
 const getIncidents = async (req, res) => {
     try {
-        const incidents = await Incident.find().sort({ createdAt: -1 }).populate("userId", "email role");
-        return res.json({ success: true, incidents });
+        const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+        const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+
+        const [incidents, total] = await Promise.all([
+            Incident.find()
+                .sort({ createdAt: -1 })
+                .populate("userId", "email role")
+                .skip((page - 1) * limit)
+                .limit(limit)
+                .lean(),
+            Incident.countDocuments(),
+        ]);
+
+        return sendSuccess(res, 200, "Incidents fetched successfully", {
+            incidents,
+            total,
+            totalPages: Math.ceil(total / limit),
+            currentPage: page,
+        });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to fetch incidents.", error: error.message });
+        return sendError(res, 500, "Failed to fetch incidents.");
     }
 };
 
@@ -62,26 +78,37 @@ const getIncidentById = async (req, res) => {
         const incident = await Incident.findById(req.params.id)
             .populate("userId", "email role")
             .populate("alerts")
-            .populate("assetId");
+            .populate("assetId")
+            .lean();
 
-        if (!incident) return res.status(404).json({ success: false, message: "Incident not found." });
-        return res.json({ success: true, incident });
+        if (!incident) return sendError(res, 404, "Incident not found.", { id: "invalid_incident" });
+        return sendSuccess(res, 200, "Incident fetched successfully", { incident });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to fetch incident.", error: error.message });
+        return sendError(res, 500, "Failed to fetch incident.");
     }
 };
 
 const getSocStats = async (req, res) => {
     try {
-        const [
-            totalAlerts,
-            activeIncidents,
-            lockedAccounts,
-            blockedIps,
-            highRiskUsers,
-            geoTelemetry
-        ] = await Promise.all([
-            SecurityEvent.countDocuments(),
+        const [stats] = await SecurityEvent.aggregate([
+            {
+                $facet: {
+                    totalAlerts: [{ $count: "count" }],
+                    geoTelemetry: [
+                        {
+                            $match: {
+                                country: { $exists: true, $nin: ["Unknown", "Internal/Local", "Localhost"] }
+                            }
+                        },
+                        { $group: { _id: "$country", count: { $sum: 1 } } },
+                        { $sort: { count: -1 } },
+                        { $limit: 8 }
+                    ]
+                }
+            }
+        ]);
+
+        const [activeIncidents, lockedAccounts, blockedIps, highRiskUsers] = await Promise.all([
             Incident.countDocuments({ status: { $in: ["OPEN", "INVESTIGATING"] } }),
             User.countDocuments({ lockUntil: { $gt: new Date() } }),
             BlockedIp.countDocuments({ $or: [{ expiresAt: null }, { expiresAt: { $gt: new Date() } }] }),
@@ -90,30 +117,19 @@ const getSocStats = async (req, res) => {
                 .sort({ "behavioralMetadata.riskScore": -1 })
                 .limit(10)
                 .lean(),
-            SecurityEvent.aggregate([
-                {
-                    $match: {
-                        country: { $exists: true, $nin: ["Unknown", "Internal/Local", "Localhost"] }
-                    }
-                },
-                { $group: { _id: "$country", count: { $sum: 1 } } },
-                { $sort: { count: -1 } },
-                { $limit: 8 }
-            ])
         ]);
 
-        return res.json({
-            success: true,
-            totalAlerts,
+        return sendSuccess(res, 200, "SOC stats fetched successfully", {
+            totalAlerts: stats?.totalAlerts?.[0]?.count || 0,
             activeIncidents,
             lockedAccounts,
             blockedIps,
             highRiskUsers,
-            geoTelemetry,
+            geoTelemetry: stats?.geoTelemetry || [],
             lastUpdated: new Date().toISOString()
         });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to fetch SOC stats.", error: error.message });
+        return sendError(res, 500, "Failed to fetch SOC stats.");
     }
 };
 
@@ -145,9 +161,9 @@ const getThreatMapPoints = async (req, res) => {
             };
         }));
 
-        return res.json({ success: true, points });
+        return sendSuccess(res, 200, "Threat map points fetched successfully", { points });
     } catch (error) {
-        return res.status(500).json({ success: false, message: "Failed to fetch threat map points." });
+        return sendError(res, 500, "Failed to fetch threat map points.");
     }
 };
 

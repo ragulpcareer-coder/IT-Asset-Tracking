@@ -10,7 +10,6 @@ const SecurityAlert = require("../models/SecurityAlert");
 const { getGeoLocation } = require("../utils/geoIpService");
 const riskScoringService = require("../services/riskScoringService");
 const incidentResponseService = require("../services/incidentResponseService");
-const speakeasy = require("speakeasy");
 const qrcode = require("qrcode");
 const {
   validatePasswordStrength,
@@ -22,9 +21,26 @@ const geoip = require("geoip-lite");
 const crypto = require("crypto");
 const logger = require("../utils/logger");
 const PasswordResetToken = require("../models/PasswordResetToken");
-const { sendSecurityAlert, sendApprovalRequest, sendPasswordResetEmail, resend } = require("../utils/emailService");
+const {
+  sendSecurityAlert,
+  sendApprovalRequest,
+  sendPasswordResetEmail,
+  sendEmailVerificationEmail,
+  resend
+} = require("../utils/emailService");
 const correlationEngine = require("../services/correlationEngine");
 const { extractClientIp } = require("../utils/clientIp");
+const { sendError, sendSuccess } = require("../utils/apiResponse");
+const {
+  TWO_FACTOR_ISSUER,
+  TOTP_STEP_SECONDS,
+  generateBackupCodes,
+  generateEnrollmentSecret,
+  verifyTotpToken,
+  consumeBackupCode,
+  registerTwoFactorFailure,
+  resetTwoFactorFailures,
+} = require("../services/twoFactorService");
 
 // Token manager instance (uses env secrets)
 const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRESH_SECRET);
@@ -33,24 +49,71 @@ const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRES
 if (!process.env.JWT_SECRET) console.error('[BOOT] FATAL: JWT_SECRET is missing!');
 if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set â€” encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
 
-const getCookieOptions = () => {
-  // Default to secure production settings unless explicitly in local development
+const getAccessCookieOptions = () => {
   const isDev = process.env.NODE_ENV === 'development';
   return {
     httpOnly: true,
     secure: !isDev,
     sameSite: !isDev ? 'none' : 'strict',
-    maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+    maxAge: 15 * 60 * 1000,
+    path: "/",
   };
 };
+
+const getRefreshCookieOptions = () => {
+  const isDev = process.env.NODE_ENV === 'development';
+  return {
+    httpOnly: true,
+    secure: !isDev,
+    sameSite: !isDev ? 'none' : 'strict',
+    maxAge: 7 * 24 * 60 * 60 * 1000,
+    path: "/api/auth/refresh",
+  };
+};
+
 const BCRYPT_ROUNDS = 12;
+const APPROVAL_LINK_SECRET = process.env.APPROVAL_LINK_SECRET || process.env.JWT_SECRET;
 
 const getClientIp = (req) => extractClientIp(req);
+
+const verifyApprovalActionToken = (userId, token) =>
+  jwt.verify(token, APPROVAL_LINK_SECRET, {
+    algorithms: ["HS256"],
+    issuer: "it-asset-tracker",
+    audience: "admin-approval",
+    subject: String(userId),
+  });
 
 const isValidBase32Secret = (secret) => {
   if (!secret || typeof secret !== "string") return false;
   const normalized = secret.trim().replace(/=+$/, "");
   return /^[A-Z2-7]+$/i.test(normalized) && normalized.length >= 16;
+};
+
+const createEmailVerificationToken = () => {
+  const rawToken = crypto.randomBytes(32).toString("hex");
+  return {
+    rawToken,
+    tokenHash: crypto.createHash("sha256").update(rawToken).digest("hex"),
+    expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+  };
+};
+
+const setAuthCookies = (res, tokenPair) => {
+  res.cookie("jwt", tokenPair.accessToken, getAccessCookieOptions());
+  res.cookie("refreshToken", tokenPair.refreshToken, getRefreshCookieOptions());
+};
+
+const clearAuthCookies = (res) => {
+  res.clearCookie("jwt", getAccessCookieOptions());
+  res.clearCookie("refreshToken", getRefreshCookieOptions());
+  res.clearCookie("token", getAccessCookieOptions());
+};
+
+const getRefreshTokenFromRequest = (req) => {
+  const cookieToken = req.cookies?.refreshToken;
+  if (cookieToken) return cookieToken;
+  return req.body?.refreshToken || null;
 };
 
 // Helper for professional activity logging (Â§Category 4)
@@ -88,40 +151,46 @@ const register = async (req, res) => {
     const ip = getClientIp(req);
 
     if (registerLimiter.isLimited(ip)) {
-      return res.status(429).json({
-        success: false,
-        message: "Too many registration attempts. Please try again later.",
+      return sendError(res, 403, "Too many registration attempts. Please try again later.", {
+        auth: "rate_limited",
       });
     }
 
     if (!name || !email || !password) {
-      return res.status(400).json({ success: false, message: "Please provide all required fields" });
+      return sendError(res, 400, "Please provide all required fields", {
+        name: "required",
+        email: "required",
+        password: "required",
+      });
     }
 
     const sanitizedName = sanitizeInput(name);
     const sanitizedEmail = sanitizeInput(email).toLowerCase();
 
     if (!isValidEmail(sanitizedEmail)) {
-      return res.status(400).json({ success: false, message: "Invalid email format" });
+      return sendError(res, 400, "Invalid email format", {
+        email: "must_be_valid_email",
+      });
     }
 
     const passwordStrength = validatePasswordStrength(password);
     if (!passwordStrength.isStrong) {
-      return res.status(400).json({
-        success: false,
-        message: "Password must contain uppercase, lowercase, number, and special character.",
-        feedback: passwordStrength.feedback,
-        score: passwordStrength.score,
+      return sendError(res, 400, "Password must contain uppercase, lowercase, number, and special character.", {
+        password: passwordStrength.feedback.join(", "),
       });
     }
 
     const userExists = await User.findOne({ email: sanitizedEmail }).select("_id").lean();
     if (userExists) {
-      return res.status(409).json({ success: false, message: "Email already registered" });
+      return sendError(res, 400, "Email already registered", {
+        email: "already_registered",
+      });
     }
 
     if (sanitizedName.length < 3 || sanitizedName.length > 100) {
-      return res.status(400).json({ success: false, message: "Full name must be between 3 and 100 characters" });
+      return sendError(res, 400, "Full name must be between 3 and 100 characters", {
+        name: "length_out_of_range",
+      });
     }
 
     const hasUsers = await User.exists({});
@@ -129,6 +198,7 @@ const register = async (req, res) => {
     const isApproved = !hasUsers;
 
     const hashedPassword = await bcrypt.hash(password, BCRYPT_ROUNDS);
+    const emailVerification = createEmailVerificationToken();
 
     const user = await User.create({
       name: sanitizedName,
@@ -138,7 +208,15 @@ const register = async (req, res) => {
       createdAt: new Date(),
       lastLogin: null,
       isEmailVerified: false,
+      emailVerificationToken: emailVerification.tokenHash,
+      emailVerificationExpires: emailVerification.expiresAt,
       isApproved
+    });
+
+    setImmediate(() => {
+      sendEmailVerificationEmail(user, emailVerification.rawToken).catch((emailErr) => {
+        logger.error(`[Registration] Verification email failed for ${sanitizedEmail}:`, emailErr.message);
+      });
     });
 
     if (!isApproved) {
@@ -181,25 +259,24 @@ const register = async (req, res) => {
       });
     }
 
-    res.cookie('jwt', pair.accessToken, getCookieOptions());
+    setAuthCookies(res, pair);
 
-    return res.status(201).json({
-      success: true,
+    return sendSuccess(res, 201, "Node Provisioned: Registration successful.", {
       user: {
         id: user._id,
         name: user.name,
         email: user.email,
         role: user.role,
+        isEmailVerified: user.isEmailVerified,
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps,
       },
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
-      message: "Node Provisioned: Registration successful.",
     });
   } catch (error) {
     logger.error("Registration Core Error:", error);
-    return res.status(500).json({ success: false, message: "Strategic registration failure. Forensic log captured." });
+    return sendError(res, 500, "Strategic registration failure. Forensic log captured.", {
+      registration: "unexpected_error",
+    });
   }
 };
 
@@ -207,7 +284,9 @@ const checkEmailAvailability = async (req, res) => {
   try {
     const email = sanitizeInput(req.body?.email || "").toLowerCase();
     if (!email || !isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: "Invalid email format" });
+      return sendError(res, 400, "Invalid email format", {
+        email: "must_be_valid_email",
+      });
     }
 
     const exists = await User.exists({ email });
@@ -217,7 +296,9 @@ const checkEmailAvailability = async (req, res) => {
       message: exists ? "Email is already registered" : "Email is available"
     });
   } catch (error) {
-    return res.status(500).json({ success: false, message: "Unable to validate email right now" });
+    return sendError(res, 500, "Unable to validate email right now", {
+      email: "validation_unavailable",
+    });
   }
 };
 
@@ -228,22 +309,21 @@ const login = async (req, res) => {
     const fingerprint = req.body?.fingerprint;
 
     if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-        code: "AUTH_400"
+      return sendError(res, 400, "Email and password are required", {
+        email: "required",
+        password: "required",
       });
     }
 
     if (!isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: "Please provide a valid email address", code: "AUTH_400" });
+      return sendError(res, 400, "Please provide a valid email address", {
+        email: "must_be_valid_email",
+      });
     }
 
     if (!process.env.DB_ENCRYPTION_SECRET) {
-      return res.status(500).json({
-        success: false,
-        message: "Strategic platform failure: Encryption services unavailable. Contact SOC security.",
-        code: "ENCRYPTION_ERROR"
+      return sendError(res, 500, "Strategic platform failure: Encryption services unavailable. Contact SOC security.", {
+        encryption: "service_unavailable",
       });
     }
 
@@ -255,27 +335,27 @@ const login = async (req, res) => {
     const user = rawDoc ? await User.findOne({ _id: rawDoc._id }).select("-password") : null;
 
     if (!rawDoc || !user || !rawDoc.password) {
-      return res.status(401).json({ success: false, message: "Invalid email or password", code: "AUTH_401" });
+      return sendError(res, 401, "Invalid email or password", {
+        auth: "invalid_credentials",
+      });
     }
 
     if (user.lockUntil && user.lockUntil > Date.now()) {
       const waitMinutes = Math.ceil((user.lockUntil - Date.now()) / 60000);
-      return res.status(423).json({
-        success: false,
-        message: `Account temporarily locked due to failed attempts. Try again in ${waitMinutes} minutes.`,
-        code: "AUTH_423"
+      return sendError(res, 403, `Account temporarily locked due to failed attempts. Try again in ${waitMinutes} minutes.`, {
+        auth: "account_locked",
       });
     }
 
     if (user.isActive === false) {
-      return res.status(403).json({ success: false, message: "Account is suspended.", code: "AUTH_403" });
+      return sendError(res, 403, "Account is suspended.", {
+        auth: "account_suspended",
+      });
     }
 
     if (!user.isApproved && !["Super Admin", "Admin"].includes(user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: "Your account is awaiting administrator approval.",
-        code: "ACCOUNT_PENDING_APPROVAL"
+      return sendError(res, 403, "Your account is awaiting administrator approval.", {
+        auth: "account_pending_approval",
       });
     }
 
@@ -294,7 +374,9 @@ const login = async (req, res) => {
         device: req.body?.fingerprint || "unknown"
       });
 
-      return res.status(401).json({ success: false, message: "Invalid email or password", code: "AUTH_401" });
+      return sendError(res, 401, "Invalid email or password", {
+        auth: "invalid_credentials",
+      });
     }
 
     const ip = getClientIp(req);
@@ -350,10 +432,8 @@ const login = async (req, res) => {
 
     if (user.twoFactorEnabled) {
       if (!isValidBase32Secret(user.twoFactorSecret)) {
-        return res.status(500).json({
-          success: false,
-          message: "Two-Factor Authentication is misconfigured. Please contact your administrator.",
-          code: "2FA_SECRET_CORRUPT"
+        return sendError(res, 500, "Two-Factor Authentication is misconfigured. Please contact your administrator.", {
+          twoFactor: "secret_corrupt",
         });
       }
 
@@ -413,32 +493,25 @@ const login = async (req, res) => {
       }
     });
 
-    res.clearCookie("token");
-    res.clearCookie("jwt");
-    res.cookie("jwt", pair.accessToken, getCookieOptions());
+    clearAuthCookies(res);
+    setAuthCookies(res, pair);
 
-    return res.json({
-      success: true,
-      token: pair.accessToken,
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
+    return sendSuccess(res, 200, "Sign in successful", {
       user: {
         id: user._id,
         email: user.email,
         role: user.role,
         name: user.name,
         twoFactorEnabled: user.twoFactorEnabled,
+        isEmailVerified: user.isEmailVerified,
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
-      },
-      message: "Sign in successful"
+      }
     });
   } catch (err) {
     console.error("LOGIN ERROR:", err);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error during login",
-      code: "AUTH_500"
+    return sendError(res, 500, "Internal server error during login", {
+      auth: "unexpected_error",
     });
   }
 };
@@ -452,71 +525,101 @@ const verify2FALogin = async (req, res) => {
     const ip = getClientIp(req);
 
     if (loginLimiter.isLimited(ip)) {
-      return res.status(429).json({
-        success: false,
-        message: "Too many attempts. Please try again later.",
-        code: "AUTH_429"
+      return sendError(res, 403, "Too many attempts. Please try again later.", {
+        auth: "rate_limited",
       });
     }
 
     if (!userId || !token) {
-      return res.status(400).json({ success: false, message: "User ID and token are required" });
+      return sendError(res, 400, "User ID and token are required", {
+        userId: "required",
+        token: "required",
+      });
     }
 
     const user = await User.findById(userId);
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return sendError(res, 401, "User not found", {
+        userId: "invalid_user",
+      });
+    }
+
+    if (user.twoFactorLockUntil && user.twoFactorLockUntil > Date.now()) {
+      const waitMinutes = Math.ceil((user.twoFactorLockUntil - Date.now()) / 60000);
+      return res.status(403).json({
+        success: false,
+        requires2FA: true,
+        userId: user._id,
+        message: `Two-factor authentication is temporarily locked. Try again in ${waitMinutes} minute(s).`,
+        errors: { twoFactor: "locked" }
+      });
     }
 
     if (!user.twoFactorEnabled) {
-      return res.status(400).json({ success: false, message: "Two-factor authentication is not enabled for this account." });
+      return sendError(res, 400, "Two-factor authentication is not enabled for this account.", {
+        twoFactor: "not_enabled",
+      });
     }
 
     const rawSecret = user.twoFactorSecret;
     if (!isValidBase32Secret(rawSecret)) {
       console.error(`[2FA] CORRUPT SECRET for user ${userId}`);
-      return res.status(500).json({
-        success: false,
-        message: "Two-Factor Authentication is misconfigured. Please contact your administrator.",
-        code: "2FA_SECRET_CORRUPT"
+      return sendError(res, 500, "Two-Factor Authentication is misconfigured. Please contact your administrator.", {
+        twoFactor: "secret_corrupt",
       });
     }
 
     let isVerified = false;
+    let usedBackupCode = false;
     try {
-      isVerified = speakeasy.totp.verify({
-        secret: rawSecret,
-        encoding: "base32",
-        token: token.trim(),
-        window: 2
-      });
+      isVerified = verifyTotpToken(rawSecret, token);
     } catch (totpErr) {
-      console.error("[2FA] speakeasy.totp.verify error:", totpErr.message);
-      return res.status(500).json({ success: false, message: "Verification error" });
+      console.error("[2FA] token verify error:", totpErr.message);
+      return sendError(res, 500, "Verification error", {
+        twoFactor: "verification_failed",
+      });
     }
 
     if (!isVerified && user.twoFactorBackupCodes?.length > 0) {
-      const matchedCode = user.twoFactorBackupCodes.find((code) => code === token.trim());
-      if (matchedCode) {
+      const recoveryResult = consumeBackupCode(user.twoFactorBackupCodes, token);
+      if (recoveryResult.matched) {
         isVerified = true;
-        await User.updateOne({ _id: user._id }, { $pull: { twoFactorBackupCodes: matchedCode } });
+        usedBackupCode = true;
+        user.twoFactorBackupCodes = recoveryResult.remainingCodes;
+        user.markModified("twoFactorBackupCodes");
       }
     }
 
     if (!isVerified) {
+      const failureState = registerTwoFactorFailure(user);
+      await user.save();
+
       correlationEngine.checkBruteForce(ip, user.email, {
         userAgent: req.headers["user-agent"] || "unknown",
         device: req.body?.fingerprint || "unknown"
       });
       riskScoringService.evaluateUserRisk(user._id, "FAILED_LOGIN");
+      await AuditLog.create({
+        action: failureState.isLocked ? "2FA_LOGIN_LOCKED" : "2FA_LOGIN_FAILED",
+        performedBy: user.email,
+        details: failureState.isLocked
+          ? `2FA locked after ${failureState.failures} failed attempts.`
+          : `Invalid 2FA token attempt ${failureState.failures}/${5}.`,
+        ip,
+      });
       return res.status(401).json({
         success: false,
         requires2FA: true,
         userId: user._id,
-        message: "Invalid 2FA token. Please try again.",
-        code: "2FA_INVALID"
+        message: failureState.isLocked
+          ? "Too many invalid 2FA attempts. Two-factor authentication has been temporarily locked."
+          : "Invalid 2FA token. Please try again.",
+        errors: { twoFactor: failureState.isLocked ? "locked" : "invalid_token" }
       });
     }
+
+    resetTwoFactorFailures(user);
+    await user.save();
 
     const userAgent = req.headers["user-agent"] || "unknown";
     const geoData = await getGeoLocation(ip);
@@ -590,6 +693,14 @@ const verify2FALogin = async (req, res) => {
             expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           }),
           logUserActivity(user._id, "LOGIN", "Successful 2FA authentication.", req),
+          AuditLog.create({
+            action: usedBackupCode ? "2FA_BACKUP_CODE_USED" : "2FA_LOGIN_SUCCESS",
+            performedBy: user.email,
+            details: usedBackupCode
+              ? "Two-factor challenge completed using a single-use backup code."
+              : "Two-factor challenge completed successfully.",
+            ip,
+          }),
           correlationEngine.checkAnomalies(user._id, ip, {
             fingerprint: req.body?.fingerprint || "unknown",
             isNewDevice: true
@@ -600,27 +711,25 @@ const verify2FALogin = async (req, res) => {
       }
     });
 
-    res.cookie("jwt", pair.accessToken, getCookieOptions());
+    setAuthCookies(res, pair);
 
-    return res.json({
-      success: true,
-      token: pair.accessToken,
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
+    return sendSuccess(res, 200, "Two-factor verification successful", {
       user: {
         id: user._id,
         email: user.email,
         role: user.role,
         name: user.name,
         twoFactorEnabled: true,
+        isEmailVerified: user.isEmailVerified,
         preferences: user.preferences,
         activityTimestamps: user.activityTimestamps
-      },
-      message: "Two-factor verification successful"
+      }
     });
   } catch (err) {
     console.error("2FA VERIFY ERR:", err);
-    return res.status(500).json({ success: false, message: "Unable to verify two-factor code." });
+    return sendError(res, 500, "Unable to verify two-factor code.", {
+      twoFactor: "verification_failed",
+    });
   }
 };
 
@@ -743,20 +852,32 @@ const updateProfile = async (req, res) => {
 // @access  Private
 const logout = async (req, res) => {
   try {
-    const opts = getCookieOptions();
-    // Aggressively clear both possible token names and bypass the timeout issue
-    res.clearCookie('jwt', opts);
-    res.clearCookie('token', opts);
+    const refreshToken = getRefreshTokenFromRequest(req);
+    if (refreshToken) {
+      const verified = tokenManager.verifyRefreshToken(refreshToken);
+      if (verified.valid) {
+        await RefreshToken.updateOne(
+          {
+            tokenId: verified.decoded.tokenId,
+            family: verified.decoded.family,
+            user: verified.decoded.userId,
+          },
+          { revoked: true }
+        );
+      }
+    }
+
+    clearAuthCookies(res);
 
     // Attempt to log if user is present but don't crash
     if (req.user && req.user._id) {
       await logUserActivity(req.user._id, "LOGOUT", "User logged out successfully.", req).catch(() => { });
     }
 
-    res.status(200).json({ success: true, message: "Logout successful" });
+    return sendSuccess(res, 200, "Logout successful");
   } catch (err) {
     console.error("Logout Error:", err);
-    res.status(500).json({ success: false, message: "Logout processing error" });
+    return sendError(res, 500, "Logout processing error", { auth: "logout_failed" });
   }
 };
 
@@ -768,8 +889,7 @@ const logoutAll = async (req, res) => {
     // Revoke all refresh tokens for this user
     await RefreshToken.updateMany({ user: req.user._id }, { revoked: true });
 
-    const opts = getCookieOptions();
-    res.cookie('jwt', '', { ...opts, maxAge: 0, expires: new Date(0) });
+    clearAuthCookies(res);
 
     // Log audit
     await AuditLog.create({
@@ -779,9 +899,9 @@ const logoutAll = async (req, res) => {
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.json({ message: "Logged out from all sessions successfully" });
+    return sendSuccess(res, 200, "Logged out from all sessions successfully");
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    return sendError(res, 500, "Failed to log out from all sessions", { auth: "logout_all_failed" });
   }
 };
 
@@ -790,11 +910,11 @@ const logoutAll = async (req, res) => {
 // @access Public (requires valid refresh token)
 const refresh = async (req, res) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) return res.status(400).json({ message: 'Refresh token required' });
+    const refreshToken = getRefreshTokenFromRequest(req);
+    if (!refreshToken) return sendError(res, 400, "Refresh token required", { refreshToken: "required" });
 
     const verified = tokenManager.verifyRefreshToken(refreshToken);
-    if (!verified.valid) return res.status(401).json({ message: 'Invalid refresh token' });
+    if (!verified.valid) return sendError(res, 401, "Invalid refresh token", { refreshToken: "invalid" });
 
     const decoded = verified.decoded;
 
@@ -810,11 +930,7 @@ const refresh = async (req, res) => {
         await RefreshToken.updateMany({ family: decoded.family }, { revoked: true });
         console.warn(`[RefreshSecurity] TOKEN REUSE DETECTED: Family ${decoded.family} revoked.`);
       }
-      return res.status(401).json({
-        success: false,
-        message: 'Security Alert: Session integrity compromise detected. All related sessions revoked.',
-        code: 'TOKEN_REUSE_DETECTED'
-      });
+      return sendError(res, 403, "Security Alert: Session integrity compromise detected. All related sessions revoked.", { refreshToken: "token_reuse_detected" });
     }
 
     // Rotate: revoke old token and issue new pair with same family
@@ -830,20 +946,15 @@ const refresh = async (req, res) => {
       expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     });
 
-    res.cookie('jwt', pair.accessToken, getCookieOptions());
+    setAuthCookies(res, pair);
 
-    return res.json({ accessToken: pair.accessToken, refreshToken: pair.refreshToken });
+    return sendSuccess(res, 200, "Token refreshed successfully");
   } catch (error) {
     console.error('Refresh token error', error);
-    return res.status(500).json({ message: 'Token refresh failed' });
+    return sendError(res, 500, "Token refresh failed", {
+      refreshToken: "refresh_failed",
+    });
   }
-};
-
-// Generate JWT
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, {
-    expiresIn: "30d",
-  });
 };
 
 // @desc    Generate 2FA secret
@@ -854,16 +965,31 @@ const generate2FA = async (req, res) => {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    const secret = speakeasy.generateSecret({
-      name: `AssetTracker (${user.email})`
-    });
+    const secret = generateEnrollmentSecret(user.email);
 
     user.twoFactorSecret = secret.base32;
+    user.twoFactorEnabled = false;
+    user.twoFactorBackupCodes = [];
+    user.failedTwoFactorAttempts = 0;
+    user.twoFactorLockUntil = undefined;
     await user.save();
+    await AuditLog.create({
+      action: "2FA_SECRET_GENERATED",
+      performedBy: user.email,
+      details: "A new TOTP enrollment secret was generated for the user.",
+      ip: getClientIp(req),
+    });
 
-    qrcode.toDataURL(secret.otpauth_url, (err, data_url) => {
-      if (err) throw err;
-      res.json({ success: true, secret: secret.base32, qrCode: data_url });
+    const dataUrl = await qrcode.toDataURL(secret.otpauthUrl);
+    return res.json({
+      success: true,
+      secret: secret.base32,
+      qrCode: dataUrl,
+      issuer: TWO_FACTOR_ISSUER,
+      algorithm: "SHA1",
+      digits: 6,
+      period: TOTP_STEP_SECONDS,
+      serverTime: new Date().toISOString(),
     });
   } catch (error) {
     res.status(500).json({ success: false, message: "Error generating 2FA secret" });
@@ -877,33 +1003,42 @@ const verify2FA = async (req, res) => {
   try {
     const { token } = req.body;
     const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!user.twoFactorSecret) {
+      return res.status(400).json({ success: false, message: "Generate a 2FA secret before verification." });
+    }
 
-    const isVerified = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
-      encoding: 'base32',
-      token,
-      window: 2
-    });
+    const isVerified = verifyTotpToken(user.twoFactorSecret, token);
 
     if (isVerified) {
       user.twoFactorEnabled = true;
-      // Generate 10 random hex backup codes
-      const crypto = require('crypto');
-      const backupCodes = Array.from({ length: 10 }, () => crypto.randomBytes(4).toString('hex'));
+      const backupCodes = generateBackupCodes();
       user.twoFactorBackupCodes = backupCodes;
+      resetTwoFactorFailures(user);
 
       if (!user.activityTimestamps) user.activityTimestamps = {};
       user.activityTimestamps.tfaEnabledAt = Date.now();
       user.markModified("activityTimestamps");
       await user.save();
       await logUserActivity(user._id, "2FA_ENABLE", "User enabled Two-Factor Authentication", req);
+      await AuditLog.create({
+        action: "2FA_ENABLED",
+        performedBy: user.email,
+        details: "Two-factor authentication enabled and backup codes generated.",
+        ip: getClientIp(req),
+      });
 
-      res.json({ message: "Two-Factor authentication successfully enabled", backupCodes });
+      res.json({
+        success: true,
+        message: "Two-Factor authentication successfully enabled",
+        backupCodes,
+        serverTime: new Date().toISOString(),
+      });
     } else {
-      res.status(400).json({ message: "Invalid authentication code" });
+      res.status(400).json({ success: false, message: "Invalid authentication code" });
     }
   } catch (error) {
-    res.status(500).json({ message: "Error verifying 2FA" });
+    res.status(500).json({ success: false, message: "Error verifying 2FA" });
   }
 };
 
@@ -913,18 +1048,60 @@ const verify2FA = async (req, res) => {
 const disable2FA = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
     user.twoFactorEnabled = false;
     user.twoFactorSecret = undefined;
+    user.twoFactorBackupCodes = [];
+    resetTwoFactorFailures(user);
     if (!user.activityTimestamps) user.activityTimestamps = {};
     user.activityTimestamps.tfaEnabledAt = undefined;
+    user.activityTimestamps.tfaDisabledAt = Date.now();
     user.markModified("activityTimestamps");
     await user.save();
     await logUserActivity(user._id, "2FA_DISABLE", "User disabled Two-Factor Authentication", req);
+    await AuditLog.create({
+      action: "2FA_DISABLED",
+      performedBy: user.email,
+      details: "Two-factor authentication disabled after step-up authentication.",
+      ip: getClientIp(req),
+    });
 
-
-    res.json({ message: "Two-Factor authentication disabled" });
+    res.json({ success: true, message: "Two-Factor authentication disabled" });
   } catch (error) {
-    res.status(500).json({ message: "Error disabling 2FA" });
+    res.status(500).json({ success: false, message: "Error disabling 2FA" });
+  }
+};
+
+const regenerate2FARecoveryCodes = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+    if (!user.twoFactorEnabled || !user.twoFactorSecret) {
+      return res.status(400).json({ success: false, message: "Two-Factor authentication must be enabled before rotating recovery codes." });
+    }
+
+    const backupCodes = generateBackupCodes();
+    user.twoFactorBackupCodes = backupCodes;
+    if (!user.activityTimestamps) user.activityTimestamps = {};
+    user.activityTimestamps.tfaRecoveryCodesRotatedAt = Date.now();
+    user.markModified("activityTimestamps");
+    await user.save();
+
+    await logUserActivity(user._id, "2FA_ENABLE", "User rotated 2FA recovery codes", req);
+    await AuditLog.create({
+      action: "2FA_RECOVERY_CODES_ROTATED",
+      performedBy: user.email,
+      details: "User regenerated single-use 2FA recovery codes.",
+      ip: getClientIp(req),
+    });
+
+    return res.json({
+      success: true,
+      message: "Recovery codes regenerated successfully",
+      backupCodes,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Error rotating recovery codes" });
   }
 };
 
@@ -958,7 +1135,7 @@ const getAllUsers = async (req, res) => {
     });
   } catch (error) {
     logger.error("IAM Fetch Registry Error:", error);
-    res.status(500).json({ success: false, message: "Strategic Error: Failed to synchronize identity registry." });
+    return sendError(res, 500, "Strategic Error: Failed to synchronize identity registry.", { users: "fetch_failed" });
   }
 };
 
@@ -1114,16 +1291,28 @@ const suspendUser = async (req, res) => {
 const adminResetPassword = async (req, res) => {
   try {
     const { newPassword } = req.body;
-    if (!newPassword) return res.status(400).json({ message: "Provide a new password" });
-
-    const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
-    if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
-      return res.status(403).json({ message: "Cannot reset password for a Super Admin" });
+    if (!newPassword) {
+      return sendError(res, 400, "Provide a new password", {
+        newPassword: "required",
+      });
     }
 
-    const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
+    const passwordStrength = validatePasswordStrength(newPassword);
+    if (!passwordStrength.isStrong) {
+      return sendError(res, 400, "Password does not meet security requirements", {
+        newPassword: passwordStrength.feedback.join(", "),
+      });
+    }
+
+    const user = await User.findById(req.params.id);
+    if (!user) return sendError(res, 400, "User not found", { id: "invalid_user" });
+    if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
+      return sendError(res, 403, "Cannot reset password for a Super Admin", {
+        role: "forbidden_target",
+      });
+    }
+
+    user.password = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
     user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all active JWT sessions
     await user.save();
 
@@ -1134,9 +1323,11 @@ const adminResetPassword = async (req, res) => {
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.json({ message: "Password reset successfully" });
+    return sendSuccess(res, 200, "Password reset successfully");
   } catch (error) {
-    res.status(500).json({ message: "Error resetting password" });
+    return sendError(res, 500, "Error resetting password", {
+      password: "reset_failed",
+    });
   }
 };
 
@@ -1146,10 +1337,12 @@ const adminResetPassword = async (req, res) => {
 const adminDisable2FA = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: "User not found" });
+    if (!user) return sendError(res, 400, "User not found", { id: "invalid_user" });
 
     if (user.role === "Super Admin" && req.user.role !== "Super Admin") {
-      return res.status(403).json({ message: "Cannot disable 2FA for a Super Admin" });
+      return sendError(res, 403, "Cannot disable 2FA for a Super Admin", {
+        role: "forbidden_target",
+      });
     }
 
     user.twoFactorEnabled = false;
@@ -1164,9 +1357,11 @@ const adminDisable2FA = async (req, res) => {
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.json({ message: "2FA successfully disabled for the user" });
+    return sendSuccess(res, 200, "2FA successfully disabled for the user");
   } catch (error) {
-    res.status(500).json({ message: "Error disabling 2FA" });
+    return sendError(res, 500, "Error disabling 2FA", {
+      twoFactor: "disable_failed",
+    });
   }
 };
 
@@ -1257,12 +1452,13 @@ const deleteUser = async (req, res) => {
       ip: req.ip || req.connection?.remoteAddress,
     });
 
-    res.status(202).json({
-      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (Â§3.1).",
+    return res.status(202).json({
+      success: true,
+      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (§3.1).",
       pendingActionId: pending._id
     });
   } catch (error) {
-    res.status(500).json({ message: "High-assurance deletion system error: " + error.message });
+    return sendError(res, 500, "High-assurance deletion system error.", { user: "delete_failed" });
   }
 };
 
@@ -1271,16 +1467,18 @@ const deleteUser = async (req, res) => {
 // @access  Public (via secure link in email)
 const approveUser = async (req, res) => {
   try {
-    const mongoose = require("mongoose");
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).send("<h1>Invalid ID</h1><p>The provided ID is not a valid user identifier.</p>");
+    const approvalPayload = verifyApprovalActionToken(req.params.id, req.params.token);
+    if (approvalPayload.action !== "approve") {
+      return sendError(res, 403, "Invalid approval link", {
+        token: "invalid_or_expired",
+      });
     }
 
     const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).send("<h1>User Not Found</h1><p>The user you are trying to approve does not exist.</p>");
+    if (!user) return sendError(res, 400, "User not found", { id: "invalid_user" });
 
     if (user.isApproved) {
-      return res.send("<h1>Already Approved</h1><p>This user account has already been approved.</p>");
+      return sendSuccess(res, 200, "This user account has already been approved.");
     }
 
     user.isApproved = true;
@@ -1293,15 +1491,13 @@ const approveUser = async (req, res) => {
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.send(`
-      <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-        <h1 style="color: #28a745;">Success!</h1>
-        <p>Account for <strong>${user.email}</strong> has been successfully approved.</p>
-        <p>The user can now log in to the system.</p>
-      </div>
-    `);
+    return sendSuccess(res, 200, "Account approved successfully", {
+      data: { email: user.email }
+    });
   } catch (error) {
-    res.status(500).send("<h1>Error</h1><p>An error occurred while approving the user.</p>");
+    return sendError(res, 403, "Invalid approval link", {
+      token: "invalid_or_expired",
+    });
   }
 };
 
@@ -1310,13 +1506,15 @@ const approveUser = async (req, res) => {
 // @access  Public (via secure link in email)
 const rejectUser = async (req, res) => {
   try {
-    const mongoose = require("mongoose");
-    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
-      return res.status(400).send("<h1>Invalid ID</h1><p>The provided ID is not a valid user identifier.</p>");
+    const approvalPayload = verifyApprovalActionToken(req.params.id, req.params.token);
+    if (approvalPayload.action !== "reject") {
+      return sendError(res, 403, "Invalid approval link", {
+        token: "invalid_or_expired",
+      });
     }
 
     const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).send("<h1>User Not Found</h1><p>The user you are trying to reject does not exist.</p>");
+    if (!user) return sendError(res, 400, "User not found", { id: "invalid_user" });
 
     const userEmail = user.email;
     await User.findByIdAndDelete(req.params.id);
@@ -1328,14 +1526,13 @@ const rejectUser = async (req, res) => {
       ip: req.ip || req.connection.remoteAddress,
     });
 
-    res.send(`
-      <div style="font-family: Arial, sans-serif; text-align: center; padding: 50px;">
-        <h1 style="color: #dc3545;">Account Rejected</h1>
-        <p>The account request for <strong>${userEmail}</strong> has been rejected and the record has been removed.</p>
-      </div>
-    `);
+    return sendSuccess(res, 200, "Account request rejected successfully", {
+      data: { email: userEmail }
+    });
   } catch (error) {
-    res.status(500).send("<h1>Error</h1><p>An error occurred while rejecting the user.</p>");
+    return sendError(res, 403, "Invalid approval link", {
+      token: "invalid_or_expired",
+    });
   }
 };
 
@@ -1343,7 +1540,9 @@ const diagEmailTest = async (req, res) => {
   try {
     const to = String(req.query.to || process.env.ADMIN_EMAIL || req.user?.email || "").trim();
     if (!to) {
-      return res.status(400).json({ success: false, message: "Provide recipient via ?to=email@example.com" });
+      return sendError(res, 400, "Provide recipient via ?to=email@example.com", {
+        to: "required",
+      });
     }
 
     const testUser = {
@@ -1356,9 +1555,7 @@ const diagEmailTest = async (req, res) => {
     const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
 
     const dispatch = await sendPasswordResetEmail(testUser, "diagnostic-token");
-    res.json({
-      success: true,
-      message: "Diagnostic reset email triggered!",
+    return sendSuccess(res, 200, "Diagnostic reset email triggered!", {
       sentTo: adminEmail,
       provider: dispatch?.provider || "unknown",
       diag: {
@@ -1370,7 +1567,9 @@ const diagEmailTest = async (req, res) => {
       }
     });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return sendError(res, 500, "Diagnostic email dispatch failed", {
+      email: "dispatch_failed",
+    });
   }
 };
 
@@ -1382,9 +1581,60 @@ const getUserActivity = async (req, res) => {
     const logs = await UserActivity.find({ userId: req.user._id })
       .sort({ createdAt: -1 })
       .limit(20);
-    res.json(logs);
+    return sendSuccess(res, 200, "Activity logs fetched successfully", {
+      data: { logs }
+    });
   } catch (err) {
-    res.status(500).json({ message: "Failed to fetch activity logs" });
+    return sendError(res, 500, "Failed to fetch activity logs", {
+      activity: "fetch_failed",
+    });
+  }
+};
+
+/**
+ * @desc    Verify email ownership
+ * @route   GET /api/auth/verify-email/:token
+ * @access  Public
+ */
+const verifyEmail = async (req, res) => {
+  try {
+    const tokenHash = crypto.createHash("sha256").update(req.params.token).digest("hex");
+
+    const user = await User.findOne({
+      emailVerificationToken: tokenHash,
+      emailVerificationExpires: { $gt: Date.now() },
+    });
+
+    if (!user) {
+      return sendError(res, 400, "Email verification link is invalid or expired.", {
+        token: "invalid_or_expired",
+      });
+    }
+
+    if (user.isEmailVerified) {
+      return sendSuccess(res, 200, "Email address has already been verified.");
+    }
+
+    user.isEmailVerified = true;
+    user.emailVerificationToken = undefined;
+    user.emailVerificationExpires = undefined;
+    await user.save();
+
+    await AuditLog.create({
+      action: "EMAIL_VERIFIED",
+      performedBy: user.email,
+      details: `Email ownership verified for ${user.email}`,
+      ip: getClientIp(req),
+    });
+
+    return sendSuccess(res, 200, "Email verified successfully.", {
+      data: { email: user.email }
+    });
+  } catch (error) {
+    logger.error("[Auth] Email verification error:", error.message);
+    return sendError(res, 500, "Email verification failed", {
+      token: "verification_failed",
+    });
   }
 };
 
@@ -1398,7 +1648,9 @@ const forgotPassword = async (req, res) => {
 
   try {
     if (!email || !isValidEmail(email)) {
-      return res.status(400).json({ success: false, message: "Invalid email format" });
+      return sendError(res, 400, "Invalid email format", {
+        email: "must_be_valid_email",
+      });
     }
 
     const sanitizedEmail = email.trim().toLowerCase();
@@ -1428,10 +1680,8 @@ const forgotPassword = async (req, res) => {
     const hasSystemMail = (!!process.env.EMAIL_USER && !!process.env.EMAIL_PASS) || !!process.env.RESEND_API_KEY;
     if (!hasSystemMail) {
       await PasswordResetToken.deleteOne({ _id: resetRecord._id });
-      return res.status(503).json({
-        success: false,
-        message: "Email service is unavailable. Please try again later.",
-        code: "EMAIL_SERVICE_MISSING"
+      return sendError(res, 500, "Email service is unavailable. Please try again later.", {
+        email: "service_unavailable",
       });
     }
 
@@ -1442,10 +1692,8 @@ const forgotPassword = async (req, res) => {
     } catch (emailErr) {
       logger.error(`[Auth] Reset email dispatch failed for ${user.email}: ${emailErr.message}`);
       await PasswordResetToken.deleteOne({ _id: resetRecord._id });
-      return res.status(503).json({
-        success: false,
-        message: "Failed to send reset link. Please try again in a few minutes.",
-        code: "EMAIL_DISPATCH_FAILURE"
+      return sendError(res, 500, "Failed to send reset link. Please try again in a few minutes.", {
+        email: "dispatch_failed",
       });
     }
 
@@ -1465,7 +1713,9 @@ const forgotPassword = async (req, res) => {
     return res.status(200).json(genericResponse);
   } catch (error) {
     logger.error("[Auth] Forgot password error:", error.message);
-    return res.status(500).json({ success: false, message: "Internal server error" });
+    return sendError(res, 500, "Internal server error", {
+      email: "forgot_password_failed",
+    });
   }
 };
 
@@ -1485,7 +1735,9 @@ const validateResetToken = async (req, res) => {
     }).populate("userId");
 
     if (!resetTokenRecord || !resetTokenRecord.userId) {
-      return res.status(400).json({ success: false, message: "Reset link is invalid or expired." });
+      return sendError(res, 400, "Reset link is invalid or expired.", {
+        token: "invalid_or_expired",
+      });
     }
 
     return res.json({
@@ -1497,7 +1749,9 @@ const validateResetToken = async (req, res) => {
     });
   } catch (error) {
     logger.error("[Auth] Token validation error:", error.message);
-    return res.status(500).json({ success: false, message: "Token validation internal error." });
+    return sendError(res, 500, "Token validation internal error.", {
+      token: "validation_failed",
+    });
   }
 };
 
@@ -1510,16 +1764,15 @@ const resetPassword = async (req, res) => {
   try {
     const { password } = req.body;
     if (!password) {
-      return res.status(400).json({ success: false, message: "New password is required" });
+      return sendError(res, 400, "New password is required", {
+        password: "required",
+      });
     }
 
     const strength = validatePasswordStrength(password);
     if (!strength.isStrong) {
-      return res.status(400).json({
-        success: false,
-        message: "Password does not meet security requirements",
-        feedback: strength.feedback,
-        score: strength.score
+      return sendError(res, 400, "Password does not meet security requirements", {
+        password: strength.feedback.join(", "),
       });
     }
 
@@ -1532,7 +1785,9 @@ const resetPassword = async (req, res) => {
     }).populate("userId");
 
     if (!resetTokenRecord || !resetTokenRecord.userId) {
-      return res.status(400).json({ success: false, message: "Reset link is invalid or expired." });
+      return sendError(res, 400, "Reset link is invalid or expired.", {
+        token: "invalid_or_expired",
+      });
     }
 
     const user = resetTokenRecord.userId;
@@ -1560,7 +1815,9 @@ const resetPassword = async (req, res) => {
     return res.json({ success: true, message: "Credentials updated successfully. Please sign in." });
   } catch (error) {
     logger.error("[Auth] Reset Commit Failure:", error.message);
-    return res.status(500).json({ success: false, message: "Credential rotation system failure." });
+    return sendError(res, 500, "Credential rotation system failure.", {
+      password: "reset_failed",
+    });
   }
 };
 
@@ -1572,10 +1829,10 @@ const resetPassword = async (req, res) => {
 const approveUserByAdmin = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
-    if (!user) return res.status(404).json({ message: "Identity not found in registry." });
+    if (!user) return sendError(res, 400, "Identity not found in registry.", { id: "invalid_user" });
 
     if (user.isApproved) {
-      return res.status(400).json({ message: "This account is already in a compliant approved state." });
+      return sendError(res, 400, "This account is already in a compliant approved state.", { user: "already_approved" });
     }
 
     user.isApproved = true;
@@ -1591,7 +1848,7 @@ const approveUserByAdmin = async (req, res) => {
     res.json({ success: true, message: `Account for ${user.email} has been white-listed and approved.` });
   } catch (error) {
     console.error("IAM Approval Error:", error);
-    res.status(500).json({ message: "Strategic Error: Failed to commit approval state." });
+    return sendError(res, 500, "Strategic Error: Failed to commit approval state.", { user: "approval_failed" });
   }
 };
 
@@ -1599,6 +1856,7 @@ module.exports = {
   register,
   checkEmailAvailability,
   login,
+  verifyEmail,
   forgotPassword,
   validateResetToken,
   resetPassword,
@@ -1611,6 +1869,7 @@ module.exports = {
   generate2FA,
   verify2FA,
   disable2FA,
+  regenerate2FARecoveryCodes,
   getAllUsers,
   promoteUser,
   demoteUser,
@@ -1625,6 +1884,8 @@ module.exports = {
   getUserActivity,
   verify2FALogin
 };
+
+
 
 
 
