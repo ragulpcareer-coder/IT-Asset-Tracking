@@ -42,6 +42,9 @@ const userSchema = new mongoose.Schema({
   lockUntil: { type: Date },
   lastLogin: { type: Date },
   isActive: { type: Boolean, default: true },
+  offboardedAt: { type: Date },
+  offboardedBy: { type: String, default: "" },
+  offboardReason: { type: String, default: "" },
   lastLoginIp: { type: String },
   lastLoginGeo: { type: mongoose.Schema.Types.Mixed },
   privilegeToken: { type: String },
@@ -92,7 +95,7 @@ userSchema.methods.matchPassword = async function (enteredPassword) {
 
 userSchema.plugin(mongooseFieldEncryption, {
   fields: ["twoFactorSecret", "twoFactorBackupCodes", "emailVerificationToken", "passwordResetToken"],
-  secret: process.env.DB_ENCRYPTION_SECRET || process.env.JWT_SECRET || "fallback_dev_encryption_secret_must_change_in_prod",
+  secret: process.env.DB_ENCRYPTION_SECRET,
   saltGenerator: function (secret) {
     return require("crypto").createHash("sha256").update(secret).digest("hex").substring(0, 16);
   },

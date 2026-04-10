@@ -154,4 +154,79 @@ const getDashboardMetrics = async (req, res) => {
     }
 };
 
-module.exports = { getDashboardMetrics };
+const getDashboardAnalytics = async (req, res) => {
+    try {
+        const assets = await Asset.find().lean();
+
+        const statusDistribution = {};
+        const departmentDistribution = {};
+        const typeDistribution = {};
+        const departmentStatusMatrix = {};
+
+        const carbonFactors = {
+            laptop: 120,
+            desktop: 220,
+            server: 450,
+            "network device": 150,
+            mobile: 60,
+            peripheral: 30
+        };
+
+        let totalCarbonKg = 0;
+        let endOfLifeCount = 0;
+
+        const now = Date.now();
+
+        assets.forEach((asset) => {
+            const status = asset.status || "unknown";
+            const department = asset.location?.department || "IT";
+            const typeKey = String(asset.type || "unknown").toLowerCase();
+            const typeFactor = carbonFactors[typeKey] || 80;
+
+            statusDistribution[status] = (statusDistribution[status] || 0) + 1;
+            departmentDistribution[department] = (departmentDistribution[department] || 0) + 1;
+            typeDistribution[typeKey] = (typeDistribution[typeKey] || 0) + 1;
+
+            totalCarbonKg += typeFactor;
+
+            if (asset.purchaseDate) {
+                const yearsOld = (now - new Date(asset.purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+                if (yearsOld >= 3) endOfLifeCount += 1;
+            }
+
+            if (!departmentStatusMatrix[department]) {
+                departmentStatusMatrix[department] = {};
+            }
+            departmentStatusMatrix[department][status] = (departmentStatusMatrix[department][status] || 0) + 1;
+        });
+
+        const matrix = [];
+        Object.entries(departmentStatusMatrix).forEach(([dept, statuses]) => {
+            Object.entries(statuses).forEach(([status, count]) => {
+                matrix.push({ department: dept, status, count });
+            });
+        });
+
+        return res.json({
+            success: true,
+            statusDistribution,
+            departmentDistribution,
+            typeDistribution,
+            carbon: {
+                totalCarbonKg,
+                perAssetAverage: assets.length ? Math.round(totalCarbonKg / assets.length) : 0
+            },
+            lifecycle: {
+                endOfLifeCount
+            },
+            departmentStatusMatrix: matrix
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Analytics unavailable"
+        });
+    }
+};
+
+module.exports = { getDashboardMetrics, getDashboardAnalytics };

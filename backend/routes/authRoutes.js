@@ -17,7 +17,7 @@ const {
     logoutAll, refresh, generate2FA, verify2FA, disable2FA, regenerate2FARecoveryCodes,
     getAllUsers, promoteUser, demoteUser, suspendUser,
     adminResetPassword, adminDisable2FA, deleteUser,
-    approveUser, rejectUser, approveUserByAdmin, diagEmailTest, getUserActivity,
+    approveUser, rejectUser, approveUserByAdmin, offboardUser, diagEmailTest, getUserActivity,
     forgotPassword, validateResetToken, resetPassword, checkEmailAvailability, verifyEmail,
 } = require("../controllers/authController");
 
@@ -42,6 +42,7 @@ const {
     userIdParamsSchema,
     approvalLinkParamsSchema,
     suspendUserSchema,
+    offboardUserSchema,
     paginationQuerySchema,
 } = require("../validators/authValidators");
 const { diagnosticEmailQuerySchema } = require("../validators/routeValidators");
@@ -115,6 +116,7 @@ router.put("/users/:id/promote", protect, admin, requireAdmin2FA, zeroTrust, val
 router.put("/users/:id/demote", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), requireReAuth, demoteUser);
 router.put("/users/:id/suspend", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), validate(suspendUserSchema), suspendUser);
 router.put("/users/:id/approve", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), approveUserByAdmin);
+router.put("/users/:id/offboard", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), validate(offboardUserSchema), requireReAuth, offboardUser);
 router.put("/users/:id/reset-password", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), validate(adminPasswordResetSchema), requireReAuth, adminResetPassword);
 router.put("/users/:id/disable-2fa", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), adminDisable2FA);
 router.delete("/users/:id", protect, admin, requireAdmin2FA, zeroTrust, validate(userIdParamsSchema, "params"), requireReAuth, deleteUser);

@@ -64,6 +64,9 @@ export default function Cybersecurity() {
   const [selectedAlert, setSelectedAlert] = useState(null);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [timelineHours, setTimelineHours] = useState(24);
+  const [maskedOnly, setMaskedOnly] = useState(false);
+  const [minSeverity, setMinSeverity] = useState("ALL");
 
   const canAccess = !!user && ["Super Admin", "Admin", "Security Auditor"].includes(user.role);
   const allowSecurityPush =
@@ -165,6 +168,65 @@ export default function Cybersecurity() {
     () => (Array.isArray(assets) ? assets.slice(0, 10) : []),
     [assets]
   );
+
+  const filteredThreatPoints = useMemo(() => {
+    const windowMs = Math.max(1, Number(timelineHours) || 24) * 60 * 60 * 1000;
+    const cutoff = Date.now() - windowMs;
+    return threatPoints.filter((p) => {
+      const ts = new Date(p.time || p.createdAt || Date.now()).getTime();
+      if (ts < cutoff) return false;
+      if (maskedOnly && !p.maskedVector) return false;
+      if (minSeverity !== "ALL") {
+        const level = String(p.severity || "").toUpperCase();
+        const order = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+        if (order.indexOf(level) < order.indexOf(minSeverity)) return false;
+      }
+      return true;
+    });
+  }, [threatPoints, timelineHours, maskedOnly, minSeverity]);
+
+  const countryDistribution = useMemo(() => {
+    const map = {};
+    filteredThreatPoints.forEach((p) => {
+      const key = p.country || "Unknown";
+      map[key] = (map[key] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [filteredThreatPoints]);
+
+  const incidentTicker = useMemo(() => {
+    const list = Array.isArray(alerts) ? alerts.slice(0, 8) : [];
+    return list.map((a) => ({
+      id: a._id || `${a.type}-${a.createdAt}`,
+      text: `${new Date(a.createdAt || Date.now()).toLocaleTimeString()} — [${a.type || "Alert"}] ${a.description || a.issue || "Investigate"}`
+    }));
+  }, [alerts]);
+
+  const maskedCount = useMemo(
+    () => filteredThreatPoints.filter((p) => p.maskedVector).length,
+    [filteredThreatPoints]
+  );
+
+  const avgCertainty = useMemo(() => {
+    if (filteredThreatPoints.length === 0) return 0;
+    const sum = filteredThreatPoints.reduce((acc, p) => acc + (Number(p.certaintyScore) || 0), 0);
+    return Math.round(sum / filteredThreatPoints.length);
+  }, [filteredThreatPoints]);
+
+  const attackTypeStats = useMemo(() => {
+    const map = {};
+    (Array.isArray(alerts) ? alerts : []).forEach((a) => {
+      const key = a.type || "Unknown";
+      map[key] = (map[key] || 0) + 1;
+    });
+    return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  }, [alerts]);
+
+  const criticalIncidents = useMemo(() => {
+    return (Array.isArray(alerts) ? alerts : [])
+      .filter((a) => ["CRITICAL", "HIGH"].includes(String(a.severity || "").toUpperCase()))
+      .slice(0, 4);
+  }, [alerts]);
 
   // Protected network zone marker (can be replaced with org-specific coordinates from backend config)
   const defenseHub = useMemo(() => [13.0827, 80.2707], []); // Chennai
@@ -283,9 +345,43 @@ export default function Cybersecurity() {
           <div className="p-4 border-b border-white/10">
             <div className="text-sm text-white font-bold uppercase">Live Threat Map (24h)</div>
             <div className="text-xs text-slate-500">Geographic attack vectors</div>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <label className="text-[10px] uppercase tracking-widest text-slate-400">Time Window</label>
+              <input
+                type="range"
+                min="1"
+                max="24"
+                value={timelineHours}
+                onChange={(e) => setTimelineHours(Number(e.target.value))}
+                className="w-40"
+              />
+              <span className="text-xs text-slate-300">Last {timelineHours}h</span>
+              <span className="text-[10px] text-slate-500">Attacks: {filteredThreatPoints.length}</span>
+              <span className="text-[10px] text-slate-500">Masked: {maskedCount}</span>
+              <span className="text-[10px] text-slate-500">Avg Certainty: {avgCertainty}%</span>
+              <label className="text-[10px] uppercase tracking-widest text-slate-400">Severity</label>
+              <select
+                className="input h-8 bg-slate-950/40 border-white/10 text-[10px]"
+                value={minSeverity}
+                onChange={(e) => setMinSeverity(e.target.value)}
+              >
+                <option value="ALL">All</option>
+                <option value="LOW">Low+</option>
+                <option value="MEDIUM">Medium+</option>
+                <option value="HIGH">High+</option>
+                <option value="CRITICAL">Critical</option>
+              </select>
+              <label className="text-[10px] uppercase tracking-widest text-slate-400">Masked Only</label>
+              <input
+                type="checkbox"
+                className="accent-cyan-500"
+                checked={maskedOnly}
+                onChange={(e) => setMaskedOnly(e.target.checked)}
+              />
+            </div>
           </div>
           <div className="h-[380px]">
-            {threatPoints.length === 0 ? (
+            {filteredThreatPoints.length === 0 ? (
               <div className="h-full flex items-center justify-center text-slate-400 text-sm bg-[#0b1220]">
                 No geolocated threats in the last 24 hours.
               </div>
@@ -307,17 +403,24 @@ export default function Cybersecurity() {
                     Protected Network Zone
                   </Tooltip>
                 </Marker>
-                {threatPoints.map((point) => {
+                {filteredThreatPoints.map((point) => {
                   const critical = String(point.severity).toUpperCase() === "CRITICAL";
                   const sourcePosition = [Number(point.lat), Number(point.lon)];
+                  const targetPosition =
+                    Number.isFinite(Number(point.targetLat)) && Number.isFinite(Number(point.targetLon))
+                      ? [Number(point.targetLat), Number(point.targetLon)]
+                      : defenseHub;
+                  const certainty = Number.isFinite(Number(point.certaintyScore))
+                    ? Math.max(0.25, Math.min(1, Number(point.certaintyScore) / 100))
+                    : 0.65;
                   return (
                     <React.Fragment key={point.id}>
                       <Polyline
-                        positions={[sourcePosition, defenseHub]}
+                        positions={[sourcePosition, targetPosition]}
                         pathOptions={{
                           color: critical ? "#ef4444" : "#f59e0b",
                           weight: critical ? 3 : 2,
-                          opacity: 0.65
+                          opacity: certainty
                         }}
                       />
                       <CircleMarker
@@ -339,29 +442,81 @@ export default function Cybersecurity() {
                             <div>ISP: {point.isp || point.org || "Unknown"}</div>
                             <div>Abuse Score: {Number.isFinite(Number(point.abuseScore)) ? Number(point.abuseScore) : 0}/100</div>
                             <div>Severity: {point.severity || "MEDIUM"}</div>
+                            <div>Certainty: {Number.isFinite(Number(point.certaintyScore)) ? Number(point.certaintyScore) : 0}%</div>
+                            <div>Vector: {point.maskedVector ? "Masked (VPN/Cloud)" : "Direct"}</div>
+                            <div>Target: {point.targetLabel || "Protected Zone"}</div>
                           </div>
                         </Popup>
                       </CircleMarker>
+                      <CircleMarker
+                        center={targetPosition}
+                        radius={4}
+                        pathOptions={{
+                          color: "#22d3ee",
+                          fillColor: "#22d3ee",
+                          fillOpacity: 0.7
+                        }}
+                      />
                     </React.Fragment>
                   );
                 })}
               </MapContainer>
             )}
           </div>
+          <div className="border-t border-white/10 bg-slate-950/40 px-4 py-2">
+            <div className="text-[10px] uppercase tracking-widest text-slate-500 mb-2">Incident Ticker</div>
+            <div className="flex gap-3 overflow-x-auto text-[11px] text-slate-300">
+              {incidentTicker.length === 0 && <span className="text-slate-500">No recent incidents.</span>}
+              {incidentTicker.map((item) => (
+                <span key={item.id} className="whitespace-nowrap rounded-full border border-white/10 px-3 py-1 bg-slate-900/60">
+                  {item.text}
+                </span>
+              ))}
+            </div>
+          </div>
         </Card>
 
         <Card className="p-4 border-white/10 bg-slate-900/40">
           <div className="text-sm text-white font-bold uppercase mb-3">Country Distribution</div>
           <div className="space-y-2">
-            {stats.geoTelemetry.length === 0 && <p className="text-slate-500 text-xs">No country telemetry available.</p>}
-            {stats.geoTelemetry.map((row) => (
-              <div key={`${row._id}-${row.count}`} className="flex justify-between text-xs">
-                <span className="text-slate-300">{row._id}</span>
-                <span className="text-cyan-400 font-bold">{row.count}</span>
+            {countryDistribution.length === 0 && <p className="text-slate-500 text-xs">No country telemetry available.</p>}
+            {countryDistribution.map(([label, count]) => (
+              <div key={`${label}-${count}`} className="flex justify-between text-xs">
+                <span className="text-slate-300">{label}</span>
+                <span className="text-cyan-400 font-bold">{count}</span>
               </div>
             ))}
           </div>
+          <div className="mt-6 border-t border-white/10 pt-4">
+            <div className="text-sm text-white font-bold uppercase mb-3">Attack Types</div>
+            <div className="space-y-2">
+              {attackTypeStats.length === 0 && <p className="text-slate-500 text-xs">No attack telemetry available.</p>}
+              {attackTypeStats.map(([label, count]) => (
+                <div key={`${label}-${count}`} className="flex justify-between text-xs">
+                  <span className="text-slate-300">{label}</span>
+                  <span className="text-amber-400 font-bold">{count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
         </Card>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+        {criticalIncidents.length === 0 && (
+          <Card className="p-4 border-white/10 bg-slate-900/40">
+            <div className="text-xs uppercase tracking-widest text-slate-500">Critical Incidents</div>
+            <div className="text-sm text-slate-400 mt-2">No high severity incidents.</div>
+          </Card>
+        )}
+        {criticalIncidents.map((alert) => (
+          <Card key={alert._id || `${alert.type}-${alert.createdAt}`} className="p-4 border-red-500/20 bg-red-500/5">
+            <div className="text-xs uppercase tracking-widest text-red-300 mb-2">{alert.severity || "HIGH"}</div>
+            <div className="text-sm font-bold text-white">{alert.type || "Security Alert"}</div>
+            <div className="text-[11px] text-slate-400 mt-1">{alert.description || "Investigate for details."}</div>
+            <div className="text-[10px] text-slate-500 mt-2 font-mono">{alert.sourceIp || "Unknown IP"}</div>
+          </Card>
+        ))}
       </div>
 
       <Card className="p-0 overflow-hidden border-white/10 bg-slate-900/40 mb-8">

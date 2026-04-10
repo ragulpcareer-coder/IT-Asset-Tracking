@@ -84,6 +84,41 @@ const diagnosticEmailQuerySchema = Joi.object({
   to: Joi.string().trim().lowercase().email().optional(),
 }).unknown(false);
 
+const onboardingAutoAssignSchema = Joi.object({
+  name: Joi.string().trim().min(2).max(120).allow("", null).optional(),
+  email: Joi.string().trim().lowercase().email().required(),
+});
+
+const procurementCreateSchema = Joi.object({
+  assetType: Joi.string().trim().min(2).max(120).required(),
+  quantity: Joi.number().integer().min(1).max(1000).optional(),
+  justification: Joi.string().trim().max(2000).allow("", null).optional(),
+  vendor: Joi.string().trim().max(200).allow("", null).optional(),
+});
+
+const procurementDecisionSchema = Joi.object({
+  vendor: Joi.string().trim().max(200).allow("", null).optional(),
+  poNumber: Joi.string().trim().max(120).allow("", null).optional(),
+  expectedDelivery: Joi.date().iso().optional(),
+});
+
+const procurementReceiveSchema = Joi.object({
+  assets: Joi.array().items(
+    Joi.object({
+      name: Joi.string().trim().max(200).allow("", null).optional(),
+      serialNumber: Joi.string().trim().min(2).max(120).required(),
+      macAddress: Joi.string().trim().max(120).allow("", null).optional(),
+      assignedTo: Joi.string().trim().lowercase().email().allow("", null).optional(),
+      purchaseDate: Joi.date().iso().optional(),
+      purchasePrice: Joi.number().min(0).optional(),
+      salvageValue: Joi.number().min(0).optional(),
+      usefulLifeYears: Joi.number().integer().min(1).max(15).optional(),
+      ipAddress: Joi.string().trim().max(120).allow("", null).optional(),
+      location: Joi.object().unknown(true).optional(),
+    })
+  ).min(1).required(),
+});
+
 module.exports = {
   paginationQuerySchema,
   dateRangeQuerySchema,
@@ -100,4 +135,8 @@ module.exports = {
   auditCreateSchema,
   integrityQuerySchema,
   diagnosticEmailQuerySchema,
+  onboardingAutoAssignSchema,
+  procurementCreateSchema,
+  procurementDecisionSchema,
+  procurementReceiveSchema,
 };

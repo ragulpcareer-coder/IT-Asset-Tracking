@@ -12,6 +12,7 @@ const logger = require("../utils/logger");
 const riskScoringService = require("../services/riskScoringService");
 const correlationEngine = require("../services/correlationEngine");
 const { runNetworkDiscovery } = require("../services/networkDiscoveryService");
+const { getGeoLocation } = require("../utils/geoIpService");
 const { sendError, sendSuccess } = require("../utils/apiResponse");
 const { Readable } = require("stream");
 
@@ -879,6 +880,187 @@ const verifyAssetIntegrity = async (req, res) => {
   }
 };
 
+const bulkUpdateAssets = async (req, res) => {
+  try {
+    const { assetIds, update } = req.body;
+    const allowed = {};
+
+    if (update.status) allowed.status = update.status;
+    if (Object.prototype.hasOwnProperty.call(update, "assignedTo")) {
+      allowed.assignedTo = update.assignedTo || null;
+      if (!allowed.status) {
+        allowed.status = allowed.assignedTo ? "assigned" : "available";
+      }
+    }
+    if (update.classification) allowed.classification = update.classification;
+    if (update.location) allowed.location = update.location;
+
+    if (Object.keys(allowed).length === 0) {
+      return sendError(res, 400, "No supported fields to update", {
+        update: "empty_payload",
+      });
+    }
+
+    const result = await Asset.updateMany(
+      { _id: { $in: assetIds } },
+      { $set: allowed }
+    );
+
+    await AuditLog.create({
+      action: "BULK_ASSET_UPDATE",
+      performedBy: req.user?.email || "System",
+      details: `Bulk update applied to ${result.modifiedCount || 0} assets.`,
+      ip: req.ip || req.connection?.remoteAddress,
+      resourceId: assetIds,
+    });
+
+    const io = req.app.get("io");
+    if (io) {
+      const updatedAssets = await Asset.find({ _id: { $in: assetIds } });
+      updatedAssets.forEach((asset) => io.emit("assetUpdated", asset));
+    }
+
+    return sendSuccess(res, 200, "Bulk asset update completed", {
+      modified: result.modifiedCount || 0,
+    });
+  } catch (error) {
+    logger.error("Bulk Update Failure:", error);
+    return sendError(res, 500, "Bulk update failed", {
+      assetIds: "bulk_update_failed",
+    });
+  }
+};
+
+const getPublicAssetHealth = async (req, res) => {
+  try {
+    const asset = await Asset.findById(req.params.id);
+    if (!asset) {
+      return sendError(res, 400, "Asset not found", { id: "invalid_asset" });
+    }
+
+    const purchaseDate = asset.purchaseDate ? new Date(asset.purchaseDate) : null;
+    const yearsOld = purchaseDate
+      ? (Date.now() - purchaseDate.getTime()) / (1000 * 60 * 60 * 24 * 365.25)
+      : 0;
+
+    return sendSuccess(res, 200, "Asset health card loaded", {
+      asset: {
+        id: asset._id,
+        name: asset.name,
+        type: asset.type,
+        serialNumber: asset.serialNumber,
+        status: asset.status,
+        classification: asset.classification,
+        assignedTo: asset.assignedTo || "Unassigned",
+        purchaseDate: asset.purchaseDate,
+        warrantyExpiry: asset.warrantyExpiry,
+        bookValue: asset.bookValue,
+        riskScore: asset.riskScore,
+        riskLevel: asset.securityStatus?.riskLevel || "Low",
+        healthStatus: asset.healthStatus,
+        networkStatus: asset.networkStatus,
+        lastCheckIn: asset.lastCheckIn,
+        lastCheckInGeo: asset.lastCheckInGeo,
+        geofenceStatus: asset.geofenceStatus,
+        needsReplacement: yearsOld >= 3,
+      },
+    });
+  } catch (error) {
+    return sendError(res, 500, "Failed to load asset health card", {
+      asset: "health_unavailable",
+    });
+  }
+};
+
+const checkInAsset = async (req, res) => {
+  try {
+    const { assetId, latitude, longitude, city } = req.body;
+    const asset = await Asset.findById(assetId);
+
+    if (!asset) {
+      return sendError(res, 400, "Asset not found", { assetId: "invalid_asset" });
+    }
+
+    const adminRoles = ["Super Admin", "Admin", "Asset Manager"];
+    const canManageAnyAsset = adminRoles.includes(req.user?.role);
+    if (!canManageAnyAsset && asset.assignedTo !== req.user?.email) {
+      return sendError(res, 403, "You can only check in assets assigned to you", {
+        assetId: "forbidden",
+      });
+    }
+
+    const ip = req.ip || req.connection?.remoteAddress || "unknown";
+    const geo = await getGeoLocation(ip).catch(() => ({}));
+    const reportedCity = city || geo.city || "Unknown";
+    const reportedCountry = geo.country || "Unknown";
+    const allowedCities = String(process.env.GEOFENCE_ALLOWED_CITIES || "Chennai")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const allowedCountries = String(process.env.GEOFENCE_ALLOWED_COUNTRIES || "India")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    const isCityAllowed = allowedCities.length ? allowedCities.includes(reportedCity) : true;
+    const isCountryAllowed = allowedCountries.length ? allowedCountries.includes(reportedCountry) : true;
+    const isInside = isCityAllowed && isCountryAllowed;
+
+    asset.lastCheckIn = new Date();
+    asset.lastCheckInGeo = {
+      ip,
+      city: reportedCity,
+      country: reportedCountry,
+      lat: Number.isFinite(Number(latitude)) ? Number(latitude) : geo.lat || 0,
+      lon: Number.isFinite(Number(longitude)) ? Number(longitude) : geo.lon || 0,
+      provider: geo.provider || "unknown",
+      ipType: geo.ipType || "UNKNOWN",
+    };
+    asset.geofenceStatus = {
+      status: isInside ? "INSIDE" : "OUTSIDE",
+      checkedAt: new Date(),
+    };
+
+    await asset.save();
+
+    await AuditLog.create({
+      action: "ASSET_CHECKIN",
+      performedBy: req.user?.email || "System",
+      details: `Checked in ${asset.name}. Geofence status: ${asset.geofenceStatus.status}.`,
+      ip,
+      resourceId: asset._id,
+    });
+
+    if (!isInside) {
+      try {
+        await correlationEngine.triggerAlert("GEOFENCE_VIOLATION", {
+          message: `Geofence violation detected for ${asset.name}. Location: ${reportedCity}, ${reportedCountry}.`,
+          ip,
+          severity: "HIGH",
+          metadata: {
+            assetId: String(asset._id),
+            city: reportedCity,
+            country: reportedCountry,
+            ipType: geo.ipType,
+            provider: geo.provider,
+          },
+        });
+      } catch (alertError) {
+        logger.warn(`Geofence alert pipeline failed: ${alertError.message}`);
+      }
+    }
+
+    return sendSuccess(res, 200, "Check-in recorded", {
+      status: asset.geofenceStatus.status,
+      geo: asset.lastCheckInGeo,
+    });
+  } catch (error) {
+    return sendError(res, 500, "Check-in failed", {
+      assetId: "checkin_failed",
+    });
+  }
+};
+
 module.exports = {
   getAssets,
   getAssetById,
@@ -887,10 +1069,13 @@ module.exports = {
   deleteAsset,
   exportAssets,
   bulkUploadAssets,
+  bulkUpdateAssets,
   scanNetwork,
   getSecurityAlerts,
   agentReport,
   verifyAssetIntegrity,
+  getPublicAssetHealth,
+  checkInAsset,
 };
 
 

@@ -85,6 +85,10 @@ const suspendUserSchema = Joi.object({
   isActive: Joi.boolean().required(),
 });
 
+const offboardUserSchema = Joi.object({
+  reason: Joi.string().trim().max(500).allow("", null).optional(),
+});
+
 const paginationQuerySchema = Joi.object({
   page: Joi.number().integer().min(1).optional(),
   limit: Joi.number().integer().min(1).max(100).optional(),
@@ -107,5 +111,6 @@ module.exports = {
   userIdParamsSchema,
   approvalLinkParamsSchema,
   suspendUserSchema,
+  offboardUserSchema,
   paginationQuerySchema,
 };

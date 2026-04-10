@@ -17,7 +17,7 @@ const pingUrl = (url) => new Promise((resolve, reject) => {
  * Pings itself every 10 minutes to maintain active state.
  */
 cron.schedule('*/10 * * * *', async () => {
-    const backendUrl = process.env.BACKEND_URL || 'https://it-asset-tracking.onrender.com';
+    const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
 
     try {
         const statusCode = await pingUrl(`${backendUrl}/health`);

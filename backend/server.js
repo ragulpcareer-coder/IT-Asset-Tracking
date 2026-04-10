@@ -363,8 +363,12 @@ apiV1.use("/pending", require("./routes/pendingActionRoutes"));
 apiV1.use("/maintenance", require("./routes/maintenanceRoutes"));
 apiV1.use("/dashboard", require("./routes/dashboardRoutes"));
 apiV1.use("/security", require("./routes/securityRoutes")); // SOC Platform — alerts, incidents, simulations
+apiV1.use("/onboarding", require("./routes/onboardingRoutes"));
+apiV1.use("/checkin", require("./routes/checkinRoutes"));
+apiV1.use("/procurement", require("./routes/procurementRoutes"));
 
 // Multi-version support (§39)
+app.use("/api/public", require("./routes/publicRoutes"));
 app.use("/api/v1", apiV1);
 app.use("/api", apiV1); // Alias for legacy/standard support
 
@@ -395,6 +399,7 @@ try {
   require('./jobs/pingWatchdog');
   require('./jobs/networkDiscoveryJob');
   require('./jobs/keepAliveJob');
+  require('./jobs/lifecycleJob');
 } catch (err) {
   console.warn('Job Initialization Warning:', err.message);
 }
@@ -411,3 +416,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`[BOOT] Listening on 0.0.0.0:${PORT} (Render-compatible binding)`);
   logger.info(`SERVER_START: Port=${PORT} Node=${process.version} Env=${process.env.NODE_ENV}`);
 });
+
+

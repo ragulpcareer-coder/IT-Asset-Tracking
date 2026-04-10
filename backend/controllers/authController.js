@@ -1,6 +1,7 @@
-﻿const bcrypt = require("bcryptjs");
+const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const Asset = require("../models/Asset");
 const AuditLog = require("../models/AuditLog");
 const RefreshToken = require("../models/RefreshToken");
 const UserActivity = require("../models/UserActivity");
@@ -47,7 +48,7 @@ const tokenManager = new TokenManager(process.env.JWT_SECRET, process.env.REFRES
 
 // Startup Sentinel: Verify critical production secrets on boot
 if (!process.env.JWT_SECRET) console.error('[BOOT] FATAL: JWT_SECRET is missing!');
-if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set â€” encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
+if (!process.env.DB_ENCRYPTION_SECRET) console.warn('[BOOT] WARNING: DB_ENCRYPTION_SECRET is not set — encrypted fields will use fallback. Existing data encrypted with a different key WILL fail to decrypt, causing login 500 errors.');
 
 const getAccessCookieOptions = () => {
   const isDev = process.env.NODE_ENV === 'development';
@@ -116,7 +117,7 @@ const getRefreshTokenFromRequest = (req) => {
   return req.body?.refreshToken || null;
 };
 
-// Helper for professional activity logging (Â§Category 4)
+// Helper for professional activity logging (§Category 4)
 const logUserActivity = async (userId, actionType, description, req) => {
   try {
     const ipAddress = getClientIp(req);
@@ -742,7 +743,7 @@ const getMe = async (req, res) => {
     // Optimized: Fetch only required metadata for session state
     const user = await User.findById(req.user._id)
       .select("name email role preferences activityTimestamps twoFactorEnabled phone department location")
-      .lean(); // Use lean() for faster read-only access (Â§Performance)
+      .lean(); // Use lean() for faster read-only access (§Performance)
 
     if (!user) return res.status(404).json({ success: false, message: "User registry entry not found." });
     res.status(200).json({ success: true, user });
@@ -921,7 +922,7 @@ const refresh = async (req, res) => {
     // Check stored refresh token record
     const stored = await RefreshToken.findOne({ tokenId: decoded.tokenId, family: decoded.family, user: decoded.userId });
 
-    // SECURITY: Token Reuse Detection (Â§8.4)
+    // SECURITY: Token Reuse Detection (§8.4)
     // If a valid JWT refresh token is presented but not found in DB or already revoked,
     // it implies it might have been stolen and used already. 
     // We revoke the entire family to kill all related sessions.
@@ -1142,7 +1143,7 @@ const getAllUsers = async (req, res) => {
 
 const PendingAction = require("../models/PendingAction");
 
-// @desc    Promote user to Admin (Now requires Dual-Auth Â§3.1)
+// @desc    Promote user to Admin (Now requires Dual-Auth §3.1)
 // @route   PUT /api/auth/users/:id/promote
 // @access  Private/Admin
 const promoteUser = async (req, res) => {
@@ -1150,23 +1151,23 @@ const promoteUser = async (req, res) => {
     const userToPromote = await User.findById(req.params.id);
     if (!userToPromote) return res.status(404).json({ message: "User not found" });
 
-    // Privilege Abuse Detection (Â§5.3)
+    // Privilege Abuse Detection (§5.3)
     if (userToPromote._id.toString() === req.user._id.toString()) {
-      return res.status(403).json({ message: "Security Violation: Self-elevation is forbidden (Â§5.3)." });
+      return res.status(403).json({ message: "Security Violation: Self-elevation is forbidden (§5.3)." });
     }
 
     if (userToPromote.role === "Super Admin" || userToPromote.role === "Admin") {
       return res.status(403).json({ message: "User is already an Admin or Super Admin" });
     }
 
-    const { approvalId } = req.query; // Check if Approval token is provided (Â§3.1)
+    const { approvalId } = req.query; // Check if Approval token is provided (§3.1)
 
     if (approvalId) {
       // SECOND ADMIN APPROVER LOGIC
       const approvedAction = await PendingAction.findById(approvalId);
       if (approvedAction && approvedAction.status === "APPROVED" && approvedAction.data.targetUserId === req.params.id) {
 
-        // Verify it was approved by someone ELSE (Â§3.1)
+        // Verify it was approved by someone ELSE (§3.1)
         if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
           return res.status(403).json({ message: "4-Eyes Principle: You cannot approve your own promotion request." });
         }
@@ -1188,7 +1189,7 @@ const promoteUser = async (req, res) => {
       }
     }
 
-    // If no approved action exists, create a pending one (Â§3.1)
+    // If no approved action exists, create a pending one (§3.1)
     const pending = await PendingAction.create({
       actionType: "PROMOTE_USER",
       data: { targetUserId: userToPromote._id, targetEmail: userToPromote.email, requestedRole: "Admin" },
@@ -1365,7 +1366,7 @@ const adminDisable2FA = async (req, res) => {
   }
 };
 
-// @desc    Delete user account (Now requires Dual-Auth Â§3.1)
+// @desc    Delete user account (Now requires Dual-Auth §3.1)
 // @route   DELETE /api/auth/users/:id
 // @access  Private/Admin
 const deleteUser = async (req, res) => {
@@ -1373,7 +1374,7 @@ const deleteUser = async (req, res) => {
     const userToDelete = await User.findById(req.params.id);
     if (!userToDelete) return res.status(404).json({ message: "User not found" });
 
-    // Self-elevation / Abuse check (Â§5.3)
+    // Self-elevation / Abuse check (§5.3)
     if (userToDelete.email === req.user.email) {
       return res.status(400).json({ message: "Self-deletion is restricted for continuity and forensics." });
     }
@@ -1386,7 +1387,7 @@ const deleteUser = async (req, res) => {
     }
 
     const isPrivilegedTarget = ["Super Admin", "Admin"].includes(userToDelete.role);
-    const { approvalId } = req.query; // Check for Dual-Auth approval (Â§3.1)
+    const { approvalId } = req.query; // Check for Dual-Auth approval (§3.1)
 
     // Immediate delete for standard users to keep IAM table/state consistent.
     if (!isPrivilegedTarget) {
@@ -1413,7 +1414,7 @@ const deleteUser = async (req, res) => {
 
         // 4-Eyes Check: Approver must be DIFFERENT from the final executor
         if (approvedAction.approvals[0].adminId.toString() === req.user._id.toString()) {
-          return res.status(403).json({ message: "Security Violation: Executioner cannot be the same as the Approver (Â§3.1)." });
+          return res.status(403).json({ message: "Security Violation: Executioner cannot be the same as the Approver (§3.1)." });
         }
 
         // Invalidate sessions and delete
@@ -1438,7 +1439,7 @@ const deleteUser = async (req, res) => {
       }
     }
 
-    // Otherwise, create a pending request (Â§3.1)
+    // Otherwise, create a pending request (§3.1)
     const pending = await PendingAction.create({
       actionType: "MASS_USER_DELETE",
       data: { targetUserId: userToDelete._id, targetEmail: userToDelete.email },
@@ -1454,7 +1455,7 @@ const deleteUser = async (req, res) => {
 
     return res.status(202).json({
       success: true,
-      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (§3.1).",
+      message: "Dual Authorization Required: Secondary administrator must verify this account deletion (�3.1).",
       pendingActionId: pending._id
     });
   } catch (error) {
@@ -1821,6 +1822,76 @@ const resetPassword = async (req, res) => {
   }
 };
 
+const offboardUser = async (req, res) => {
+  try {
+    const userToOffboard = await User.findById(req.params.id);
+    if (!userToOffboard) {
+      return sendError(res, 400, "User not found", { id: "invalid_user" });
+    }
+
+    if (userToOffboard.email === req.user?.email) {
+      return sendError(res, 400, "Self-offboarding is restricted for continuity", {
+        user: "self_offboard_forbidden",
+      });
+    }
+
+    if (["Super Admin", "Admin"].includes(userToOffboard.role) && req.user?.role !== "Super Admin") {
+      return sendError(res, 403, "Only a Super Admin can offboard administrative accounts", {
+        role: "insufficient_privilege",
+      });
+    }
+
+    const reason = sanitizeInput(req.body?.reason || "Administrative offboard");
+
+    userToOffboard.isActive = false;
+    userToOffboard.isApproved = false;
+    userToOffboard.offboardedAt = new Date();
+    userToOffboard.offboardedBy = req.user?.email || "System";
+    userToOffboard.offboardReason = reason;
+    userToOffboard.tokenVersion = (userToOffboard.tokenVersion || 0) + 1;
+    await userToOffboard.save();
+
+    await RefreshToken.deleteMany({ user: userToOffboard._id });
+
+    const allAssets = await Asset.find({});
+    const ownedAssetIds = allAssets
+      .filter((asset) => asset.assignedTo === userToOffboard.email)
+      .map((asset) => asset._id);
+
+    let updatedCount = 0;
+    if (ownedAssetIds.length > 0) {
+      const assetUpdate = await Asset.updateMany(
+        { _id: { $in: ownedAssetIds } },
+        { $set: { status: "pending_recovery", assignedTo: null } }
+      );
+      updatedCount = assetUpdate.modifiedCount || 0;
+    }
+
+    await AuditLog.create({
+      action: "USER_OFFBOARDED",
+      performedBy: req.user?.email || "System",
+      details: `Offboarded ${userToOffboard.email}. Assets moved to pending recovery: ${updatedCount}. Reason: ${reason}`,
+      ip: req.ip || req.connection?.remoteAddress,
+      resourceId: userToOffboard._id,
+    });
+
+    const io = req.app.get("io");
+    if (io) {
+      io.emit("userOffboarded", {
+        userId: String(userToOffboard._id),
+        email: userToOffboard.email,
+      });
+    }
+
+    return sendSuccess(res, 200, "User offboarded successfully. Assets marked for recovery.", {
+      assetsUpdated: updatedCount,
+    });
+  } catch (error) {
+    return sendError(res, 500, "Offboarding failed", {
+      user: "offboard_failed",
+    });
+  }
+};
 /**
  * @desc    Admin-Direct Approval (Dashboard)
  * @route   PUT /api/auth/users/:id/approve
@@ -1877,6 +1948,7 @@ module.exports = {
   adminResetPassword,
   adminDisable2FA,
   deleteUser,
+  offboardUser,
   approveUser,
   rejectUser,
   approveUserByAdmin,
@@ -1884,6 +1956,8 @@ module.exports = {
   getUserActivity,
   verify2FALogin
 };
+
+
 
 
 

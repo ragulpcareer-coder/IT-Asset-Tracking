@@ -4,9 +4,9 @@ const validate = require("../middleware/validateRequest");
 const Joi = validate.Joi;
 
 const mongoId = Joi.string().hex().length(24);
-const assetTypes = ["Laptop", "Desktop", "Server", "Network", "Mobile", "Printer", "IoT", "Software", "Other"];
+const assetTypes = ["Laptop", "Desktop", "Server", "Network", "Mobile", "Printer", "IoT", "Software", "Other", "Computer"];
 const classifications = ["Public", "Internal", "Confidential", "Restricted"];
-const statuses = ["available", "assigned", "maintenance", "lost", "retired"];
+const statuses = ["available", "assigned", "maintenance", "lost", "retired", "pending_recovery"];
 
 const locationSchema = Joi.object({
   building: Joi.string().trim().max(120).allow("", null).optional(),
@@ -67,6 +67,27 @@ const agentReportSchema = Joi.object({
   timestamp: Joi.number().integer().required(),
 }).unknown(true);
 
+const bulkAssetUpdateSchema = Joi.object({
+  assetIds: Joi.array().items(mongoId).min(1).required(),
+  update: Joi.object({
+    status: Joi.string().valid(...statuses).optional(),
+    assignedTo: Joi.string().trim().email().allow("", null).optional(),
+    classification: Joi.string().valid(...classifications).optional(),
+    location: locationSchema,
+  }).min(1).required(),
+});
+
+const publicAssetHealthParamsSchema = Joi.object({
+  id: mongoId.required(),
+});
+
+const assetCheckInSchema = Joi.object({
+  assetId: mongoId.required(),
+  latitude: Joi.number().min(-90).max(90).optional(),
+  longitude: Joi.number().min(-180).max(180).optional(),
+  city: Joi.string().trim().max(120).allow("", null).optional(),
+});
+
 module.exports = {
   assetBodySchema,
   assetUpdateSchema,
@@ -74,4 +95,7 @@ module.exports = {
   exportQuerySchema,
   assetListQuerySchema,
   agentReportSchema,
+  bulkAssetUpdateSchema,
+  publicAssetHealthParamsSchema,
+  assetCheckInSchema,
 };

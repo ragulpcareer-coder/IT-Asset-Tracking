@@ -26,6 +26,7 @@ const {
   exportQuerySchema,
   assetListQuerySchema,
   agentReportSchema,
+  bulkAssetUpdateSchema,
 } = require("../validators/assetValidators");
 
 const upload = multer({
@@ -63,6 +64,7 @@ const {
   deleteAsset,
   exportAssets,
   bulkUploadAssets,
+  bulkUpdateAssets,
   scanNetwork,
   getSecurityAlerts,
   agentReport,
@@ -74,6 +76,7 @@ router.get("/", protect, validate(assetListQuerySchema, "query"), getAssets);
 // â”€â”€ Admin Only (protect + admin + 2FA / admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 router.get("/export", protect, admin, requireAdmin2FA, validate(exportQuerySchema, "query"), exportAssets);
 router.get("/security-alerts", protect, admin, requireAdmin2FA, getSecurityAlerts);
+router.put("/bulk-update", protect, admin, requireAdmin2FA, validate(bulkAssetUpdateSchema), bulkUpdateAssets);
 
 // Dynamic Parameter Routes (MUST BE LAST to prevent intercepting static paths)
 router.get("/:id", protect, validate(assetIdParamsSchema, "params"), verifyABAC, getAssetById);

@@ -18,6 +18,8 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
   const navItems = [
     { label: "Dashboard", icon: "🏠", path: "/" },
     { label: "Asset Inventory", icon: "💾", path: "/assets" },
+    { label: "Lifecycle", icon: "LC", path: "/lifecycle" },
+    { label: "Self Service", icon: "SS", path: "/self-service" },
     ...(["Super Admin", "Admin"].includes(user?.role) ? [
       { label: "Security Operations", icon: "🛡️", path: "/security" },
       { label: "Identity & Access", icon: "👥", path: "/users" },
@@ -100,3 +102,5 @@ export default function Sidebar({ collapsed, mobileOpen, onClose }) {
     </>
   );
 }
+
+

@@ -21,6 +21,9 @@ const ForgotPassword = lazy(() => import("./pages/ForgotPassword"));
 const ResetPassword = lazy(() => import("./pages/ResetPassword"));
 const Users = lazy(() => import("./pages/Users"));
 const Cybersecurity = lazy(() => import("./pages/Cybersecurity"));
+const SelfService = lazy(() => import("./pages/SelfService"));
+const AssetHealthCard = lazy(() => import("./pages/AssetHealthCard"));
+const Lifecycle = lazy(() => import("./pages/Lifecycle"));
 
 export default function App() {
   return (
@@ -36,6 +39,7 @@ export default function App() {
             <Route path="/privacy-policy" element={<PrivacyPolicy />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/asset-health/:id" element={<AssetHealthCard />} />
 
             <Route
               path="/"
@@ -83,6 +87,26 @@ export default function App() {
                 <PrivateRoute>
                   <Layout>
                     <Assets />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/lifecycle"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <Lifecycle />
+                  </Layout>
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/self-service"
+              element={
+                <PrivateRoute>
+                  <Layout>
+                    <SelfService />
                   </Layout>
                 </PrivateRoute>
               }

@@ -3,7 +3,7 @@ const crypto = require("crypto");
 const mongooseFieldEncryption = require("mongoose-field-encryption").fieldEncryption;
 
 const assetTypes = ["Laptop", "Desktop", "Server", "Network", "Mobile", "Printer", "IoT", "Software", "Other", "Computer"];
-const assetStatuses = ["available", "assigned", "maintenance", "lost", "retired"];
+const assetStatuses = ["available", "assigned", "maintenance", "lost", "retired", "pending_recovery"];
 const classifications = ["Public", "Internal", "Confidential", "Restricted"];
 
 const assetSchema = new mongoose.Schema(
@@ -46,6 +46,20 @@ const assetSchema = new mongoose.Schema(
     networkStatus: {
       isOnline: { type: Boolean, default: false },
       lastSeen: { type: Date, default: Date.now }
+    },
+    lastCheckIn: { type: Date },
+    lastCheckInGeo: {
+      ip: { type: String, default: "" },
+      city: { type: String, default: "" },
+      country: { type: String, default: "" },
+      lat: { type: Number, default: 0 },
+      lon: { type: Number, default: 0 },
+      provider: { type: String, default: "" },
+      ipType: { type: String, default: "" }
+    },
+    geofenceStatus: {
+      status: { type: String, enum: ["INSIDE", "OUTSIDE", "UNKNOWN"], default: "UNKNOWN" },
+      checkedAt: { type: Date }
     },
     healthStatus: {
       cpuUsage: { type: String, default: "N/A" },
