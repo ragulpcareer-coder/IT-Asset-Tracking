@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
+    "build": "cd frontend && npm install && npm run build",
     "test:backend": "npm --prefix backend test",
     "test:frontend": "npm --prefix frontend run build",
     "test:continuity": "node qa/run-continuity-check.mjs",
