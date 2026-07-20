@@ -1,0 +1,23 @@
+import React, { useState } from "react";
+import Sidebar from "./Sidebar";
+import Topbar from "./Topbar";
+import CommandPalette from "../CommandPalette";
+
+export default function Layout({ children }) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  return (
+    <div className="app-layout">
+      <CommandPalette />
+      <Sidebar collapsed={collapsed} mobileOpen={mobileOpen} onClose={() => setMobileOpen(false)} />
+
+      <div className="app-content">
+        <Topbar toggleSidebar={() => setCollapsed(!collapsed)} openMobile={() => setMobileOpen(true)} />
+        <main className="app-main fade-in" aria-live="polite">
+          {children}
+        </main>
+      </div>
+    </div>
+  );
+}

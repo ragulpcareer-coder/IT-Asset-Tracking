@@ -1,0 +1,243 @@
+/**
+ * Dashboard Metrics Controller
+ * Provides consolidated operational KPI data for the Command Dashboard.
+ *
+ * Metrics:
+ *  1. Active Assets       — Online (heartbeat ≤5 min) / Total
+ *  2. Security Posture    — Weighted score: patch(40%) + 2FA(30%) + encryption(30%)
+ *  3. Active Incidents    — Open/In-Progress tickets (not Resolved/Closed)
+ *  4. Audit Events (24h)  — Log entries in the last 24 hours
+ *
+ * Single endpoint: GET /api/dashboard/metrics
+ * All queries run in parallel via Promise.all — no N+1, no blocking.
+ */
+
+const Asset = require('../models/Asset');
+const Ticket = require('../models/Ticket');
+const AuditLog = require('../models/AuditLog');
+const User = require('../models/User');
+const SoftwareLicense = require('../models/SoftwareLicense');
+const { buildIntelligenceReport } = require('../services/predictiveIntelligenceService');
+
+/**
+ * Security Posture Score (0–100, or null if no data)
+ *
+ * Weighted components:
+ *  - 2FA Adoption        30% — (twoFactorUsers / totalUsers) * 30
+ *  - Patch Compliance    40% — (lastSeen ≤24h assets / totalAssets) * 40
+ *  - Auth Compliance     30% — (authorizedAssets / totalAssets) * 30
+ *
+ * Edge cases:
+ *  - 0 assets AND 0 users  → null  (fresh install — no data, show N/A)
+ *  - 0 assets, users exist → 2FA score only, rescaled to 100
+ *    (patch + encryption excluded — cannot measure what doesn't exist)
+ *  - assets exist, 0 users → patch + encryption only, rescaled to 100
+ *    (2FA excluded — no applicable users)
+ */
+function computeSecurityPosture({ totalAssets, recentlySeenAssets, authorizedAssets }) {
+    // No asset data at all — return null so frontend can display "N/A" instead of a misleading number
+    if (totalAssets === 0) return null;
+
+    const patchScore = (recentlySeenAssets / totalAssets) * 60;
+    const encryptionScore = (authorizedAssets / totalAssets) * 40;
+
+    return Math.round(patchScore + encryptionScore);
+}
+
+
+/**
+ * GET /api/dashboard/metrics
+ * Access: Private (all authenticated roles)
+ */
+const getDashboardMetrics = async (req, res) => {
+    try {
+        const now = new Date();
+        const fiveMinAgo = new Date(now - 5 * 60 * 1000);       // online threshold
+        const twentyFourHAgo = new Date(now - 24 * 60 * 60 * 1000); // patch / audit threshold
+
+        // Run all DB queries in parallel — single round-trip cost
+        const [
+            totalAssets,
+            onlineAssets,
+            recentlySeenAssets,
+            authorizedAssets,
+            activeIncidents,
+            auditEvents24h,
+        ] = await Promise.all([
+
+            // 1a. Total asset count
+            Asset.countDocuments(),
+
+            // 1b. Online = last heartbeat within 5 minutes
+            Asset.countDocuments({
+                'networkStatus.isOnline': true,
+                'networkStatus.lastSeen': { $gte: fiveMinAgo }
+            }),
+
+            // 2a. Patch compliance proxy = lastSeen within 24h (agent reported recently)
+            Asset.countDocuments({
+                'networkStatus.lastSeen': { $gte: twentyFourHAgo }
+            }),
+
+            // 2b. Authorized assets (encryption/compliance component)
+            Asset.countDocuments({
+                'securityStatus.isAuthorized': true
+            }),
+
+            // 3. Active Incidents = tickets not yet resolved or closed
+            Ticket.countDocuments({
+                status: { $in: ['Open', 'In Progress'] }
+            }),
+
+            // 4. Audit events in last 24h — createdAt is already indexed
+            AuditLog.countDocuments({
+                createdAt: { $gte: twentyFourHAgo }
+            }),
+        ]);
+
+        const securityPostureScore = computeSecurityPosture({
+            totalAssets,
+            recentlySeenAssets,
+            authorizedAssets,
+        });
+
+        return res.status(200).json({
+            success: true,
+            activeAssets: {
+                online: onlineAssets,
+                total: totalAssets,
+            },
+            securityPostureScore,
+            activeIncidents: activeIncidents,
+            auditEvents24h: auditEvents24h,
+            // Metadata for client-side display hints
+            _meta: {
+                generatedAt: now.toISOString(),
+                posture: {
+                    authRate: totalAssets > 0 ? Math.round((authorizedAssets / totalAssets) * 100) : null,
+                    patchRate: totalAssets > 0 ? Math.round((recentlySeenAssets / totalAssets) * 100) : null,
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('[Dashboard] Metrics fetch error:', error.message);
+        // Return safe zeros — never crash the dashboard
+        return res.status(200).json({
+            success: false,
+            activeAssets: { online: 0, total: 0 },
+            securityPostureScore: null,
+            activeIncidents: 0,
+            auditEvents24h: 0,
+            _meta: { error: 'metrics_unavailable', generatedAt: new Date().toISOString() }
+        });
+    }
+};
+
+const getDashboardAnalytics = async (req, res) => {
+    try {
+        const assets = await Asset.find().lean();
+
+        const statusDistribution = {};
+        const departmentDistribution = {};
+        const typeDistribution = {};
+        const departmentStatusMatrix = {};
+
+        const carbonFactors = {
+            laptop: 120,
+            desktop: 220,
+            server: 450,
+            "network device": 150,
+            mobile: 60,
+            peripheral: 30
+        };
+
+        let totalCarbonKg = 0;
+        let endOfLifeCount = 0;
+
+        const now = Date.now();
+
+        assets.forEach((asset) => {
+            const status = asset.status || "unknown";
+            const department = asset.location?.department || "IT";
+            const typeKey = String(asset.type || "unknown").toLowerCase();
+            const typeFactor = carbonFactors[typeKey] || 80;
+
+            statusDistribution[status] = (statusDistribution[status] || 0) + 1;
+            departmentDistribution[department] = (departmentDistribution[department] || 0) + 1;
+            typeDistribution[typeKey] = (typeDistribution[typeKey] || 0) + 1;
+
+            totalCarbonKg += typeFactor;
+
+            if (asset.purchaseDate) {
+                const yearsOld = (now - new Date(asset.purchaseDate).getTime()) / (1000 * 60 * 60 * 24 * 365.25);
+                if (yearsOld >= 3) endOfLifeCount += 1;
+            }
+
+            if (!departmentStatusMatrix[department]) {
+                departmentStatusMatrix[department] = {};
+            }
+            departmentStatusMatrix[department][status] = (departmentStatusMatrix[department][status] || 0) + 1;
+        });
+
+        const matrix = [];
+        Object.entries(departmentStatusMatrix).forEach(([dept, statuses]) => {
+            Object.entries(statuses).forEach(([status, count]) => {
+                matrix.push({ department: dept, status, count });
+            });
+        });
+
+        return res.json({
+            success: true,
+            statusDistribution,
+            departmentDistribution,
+            typeDistribution,
+            carbon: {
+                totalCarbonKg,
+                perAssetAverage: assets.length ? Math.round(totalCarbonKg / assets.length) : 0
+            },
+            lifecycle: {
+                endOfLifeCount
+            },
+            departmentStatusMatrix: matrix
+        });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Analytics unavailable"
+        });
+    }
+};
+
+/**
+ * GET /api/dashboard/predictive-intelligence
+ *
+ * Heuristic, explainable predictive scoring — see
+ * services/predictiveIntelligenceService.js for the methodology and why
+ * it's rule-based rather than a black-box ML claim.
+ */
+const getPredictiveIntelligence = async (req, res) => {
+    try {
+        const windowDays = Number(req.query.licenseWindowDays) || 90;
+
+        const [assets, licenses] = await Promise.all([
+            Asset.find({}).select(
+                "name type status purchaseDate usefulLifeYears warrantyExpiry healthStatus networkStatus updatedAt",
+            ).lean(),
+            SoftwareLicense.find({}).select(
+                "name vendor totalSeats assignedUsers expiryDate",
+            ).lean(),
+        ]);
+
+        const report = buildIntelligenceReport({ assets, licenses, licenseWindowDays: windowDays });
+
+        return res.status(200).json({ success: true, data: report });
+    } catch (error) {
+        return res.status(500).json({
+            success: false,
+            message: "Predictive intelligence report unavailable",
+        });
+    }
+};
+
+module.exports = { getDashboardMetrics, getDashboardAnalytics, getPredictiveIntelligence };

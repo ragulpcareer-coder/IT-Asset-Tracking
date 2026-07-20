@@ -1,0 +1,87 @@
+@import "tailwindcss";
+@import "./modern.css";
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  overflow-x: hidden;
+  background: linear-gradient(135deg, #0e1210 0%, #121815 50%, #0a0d0c 100%);
+  min-height: 100vh;
+  color: var(--text-primary, #f4f7f5);
+}
+
+::selection {
+  background-color: rgba(45, 212, 191, 0.3);
+  color: #2dd4bf;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(45, 212, 191, 0.08);
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #2dd4bf, #14b8a6);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #5eead4, #0d9488);
+}
+
+button:focus,
+input:focus,
+a:focus {
+  outline: none;
+  box-shadow: 0 0 15px rgba(45, 212, 191, 0.35);
+}
+
+input:focus,
+textarea:focus {
+  box-shadow:
+    0 0 15px rgba(45, 212, 191, 0.25),
+    inset 0 0 10px rgba(45, 212, 191, 0.08);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Select / Option elements — override Tailwind preflight resets
+   Tailwind v4 sets background: transparent on form elements which
+   makes <option> text invisible against the browser's white default.
+   ───────────────────────────────────────────────────────────────── */
+select,
+select.input {
+  background-color: #0e1210 !important;
+  color: #f4f7f5 !important;
+}
+
+select option {
+  background-color: #111a17 !important;
+  color: #f4f7f5 !important;
+}
+
+select option:checked,
+select option:hover {
+  background-color: rgba(45, 212, 191, 0.2) !important;
+  color: #2dd4bf !important;
+}
+
+/* Settings page uses inline bg-[#111] — keep consistent */
+select[class*="bg-[#111]"],
+select[class*="bg-[#0"] {
+  background-color: #111111 !important;
+  color: #ffffff !important;
+}

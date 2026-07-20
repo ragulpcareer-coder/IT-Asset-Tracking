@@ -1,0 +1,261 @@
+﻿"use strict";
+
+const SecurityAlert = require("../models/SecurityAlert");
+const User = require("../models/User");
+const Asset = require("../models/Asset");
+const { getGeoLocation } = require("../utils/geoIpService");
+const { isPrivateIp } = require("../utils/clientIp");
+const { sendSecurityAlert } = require("../utils/emailService");
+const securityEventService = require("./securityEventService");
+
+const failedLoginsByIp = new Map();
+const recentPromotions = new Map();
+
+const BRUTE_FORCE_WINDOW_MS = 2 * 60 * 1000;
+const BRUTE_FORCE_THRESHOLD = 5;
+const BRUTE_FORCE_BLOCK_THRESHOLD = 10;
+
+async function triggerAlert(type, data = {}) {
+  try {
+    const sourceIp = data.ip || "unknown";
+    const geo = await getGeoLocation(sourceIp);
+
+    const payload = {
+      type,
+      severity: String(data.severity || "LOW").toUpperCase(),
+      description: data.message || `Security Alert: ${type}`,
+      sourceIp,
+      userId: data.userId || null,
+      metadata: {
+        ...(data.metadata || {}),
+        country: geo.country,
+        city: geo.city,
+        lat: geo.lat,
+        lon: geo.lon,
+        ipType: geo.ipType || (isPrivateIp(sourceIp) ? "PRIVATE" : "PUBLIC"),
+        geoConfidence: geo.geoConfidence || "low",
+        asn: geo.asn || "Unknown",
+        isp: geo.isp || "Unknown",
+        org: geo.org || "Unknown",
+        abuseScore: Number.isFinite(Number(geo.abuseScore)) ? Number(geo.abuseScore) : 0,
+        intelConfidence: geo.intelConfidence || "low"
+      },
+      status: "OPEN"
+    };
+
+    const fifteenMinsAgo = new Date(Date.now() - 15 * 60 * 1000);
+    const existing = await SecurityAlert.findOne({
+      type: payload.type,
+      userId: payload.userId,
+      sourceIp: payload.sourceIp,
+      status: "OPEN",
+      createdAt: { $gte: fifteenMinsAgo }
+    }).lean();
+
+    if (existing) return;
+
+    const asset = await Asset.findOne({ ipAddress: payload.sourceIp });
+    if (asset) {
+      payload.assetId = asset._id;
+      payload.riskScoreImpact = payload.severity === "CRITICAL" ? 25 : payload.severity === "HIGH" ? 15 : 5;
+      asset.activeAlertsScore = (asset.activeAlertsScore || 0) + payload.riskScoreImpact;
+      await asset.save();
+    }
+
+    const alert = await SecurityAlert.create(payload);
+    await securityEventService.ingestFromAlert(alert);
+    await correlateToIncident(alert);
+
+    if (global.io) {
+      global.io.emit("security_alert", alert);
+    }
+
+    // Respect user notification preferences for in-app notifications
+    const interestedUsers = await User.find({
+      role: { $in: ["Super Admin", "Admin", "Security Auditor"] },
+      isActive: true,
+      "preferences.pushNotifications": { $ne: false },
+      "preferences.securityAlerts": { $ne: false }
+    }).select("_id").lean();
+
+    if (global.io && interestedUsers.length > 0) {
+      const liveNotification = {
+        id: alert._id,
+        type: "SECURITY_ALERT",
+        severity: alert.severity,
+        title: alert.type,
+        message: alert.description,
+        sourceIp: alert.sourceIp,
+        createdAt: alert.createdAt
+      };
+      for (const user of interestedUsers) {
+        global.io.to(`user:${user._id}`).emit("user_notification", liveNotification);
+      }
+    }
+
+    // Respect email notification preferences for high-severity alerts
+    if (["HIGH", "CRITICAL"].includes(payload.severity)) {
+      const emailTargets = await User.find({
+        role: { $in: ["Super Admin", "Admin", "Security Auditor"] },
+        isActive: true,
+        "preferences.emailNotifications": { $ne: false },
+        "preferences.securityAlerts": { $ne: false }
+      }).select("email").lean();
+
+      for (const target of emailTargets) {
+        sendSecurityAlert(payload.type, payload.description, target.email).catch(() => {});
+      }
+    }
+
+    setImmediate(async () => {
+      try {
+        const soarService = require("./soarService");
+        const recentAlertCount = await SecurityAlert.countDocuments({
+          sourceIp: payload.sourceIp,
+          createdAt: { $gte: new Date(Date.now() - 5 * 60 * 1000) }
+        });
+        await soarService.processAlert(alert, { recentAlertCount });
+      } catch (soarErr) {
+        console.error("[CorrelationEngine] Automation dispatch error:", soarErr.message);
+      }
+    });
+  } catch (err) {
+    console.error("[CorrelationEngine] Alert pipeline failure:", err.message);
+  }
+}
+
+async function correlateToIncident(alert) {
+  try {
+    const Incident = require("../models/Incident");
+    const fiveMinsAgo = new Date(Date.now() - 5 * 60 * 1000);
+
+    let incident = await Incident.findOne({
+      sourceIp: alert.sourceIp,
+      status: { $in: ["OPEN", "INVESTIGATING"] },
+      createdAt: { $gte: fiveMinsAgo }
+    });
+
+    if (!incident) {
+      incident = new Incident({
+        title: `Threat from ${alert.sourceIp || "Unknown"}`,
+        severity: alert.severity,
+        sourceIp: alert.sourceIp,
+        userId: alert.userId,
+        assetId: alert.assetId,
+        alerts: [alert._id],
+        timeline: [{ event: "Incident Detected", details: `${alert.type}: ${alert.description}` }]
+      });
+    } else {
+      incident.alerts.push(alert._id);
+      const order = ["LOW", "MEDIUM", "HIGH", "CRITICAL"];
+      if (order.indexOf(alert.severity) > order.indexOf(incident.severity)) {
+        incident.severity = alert.severity;
+      }
+      incident.timeline.push({ event: "Additional Alert Correlated", details: `Alert: ${alert.type} added.` });
+    }
+
+    await incident.save();
+    alert.incidentId = incident._id;
+    await alert.save();
+  } catch (err) {
+    console.error("[CorrelationEngine] Incident correlation error:", err.message);
+  }
+}
+
+function checkBruteForce(ip, email, context = {}) {
+  if (!ip || ip === "unknown") return;
+
+  const now = Date.now();
+  const attempts = (failedLoginsByIp.get(ip) || []).filter((t) => now - t < BRUTE_FORCE_WINDOW_MS);
+  attempts.push(now);
+  failedLoginsByIp.set(ip, attempts);
+
+  if (attempts.length >= BRUTE_FORCE_BLOCK_THRESHOLD) {
+    triggerAlert("SUSPICIOUS_IP", {
+      message: `IP ${ip} entered block phase after ${attempts.length} failed attempts.`,
+      ip,
+      severity: "CRITICAL",
+      metadata: {
+        attempts: attempts.length,
+        email,
+        userAgent: context.userAgent || "unknown",
+        device: context.device || "unknown"
+      }
+    });
+
+    try {
+      const BlockedIp = require("../models/BlockedIp");
+      BlockedIp.create({ ipAddress: ip, reason: `Brute-force threshold exceeded (${attempts.length})` }).catch(() => {});
+    } catch {}
+
+    failedLoginsByIp.set(ip, []);
+    return;
+  }
+
+  if (attempts.length >= BRUTE_FORCE_THRESHOLD) {
+    triggerAlert("BRUTE_FORCE", {
+      message: `Brute-force pattern detected: ${attempts.length} failed attempts from ${ip} in 2 minutes.`,
+      ip,
+      severity: "HIGH",
+      metadata: {
+        attempts: attempts.length,
+        email,
+        userAgent: context.userAgent || "unknown",
+        device: context.device || "unknown"
+      }
+    });
+  }
+}
+
+function recordZeroTrustViolation(userId, reason, ip) {
+  triggerAlert("ZERO_TRUST_VIOLATION", {
+    message: `Zero Trust policy blocked request: ${reason}`,
+    userId,
+    ip,
+    severity: "HIGH",
+    metadata: { reason }
+  });
+}
+
+function recordPromotion(promotedUserId, promotedEmail) {
+  recentPromotions.set(String(promotedUserId), { ts: Date.now(), email: promotedEmail });
+  setTimeout(() => recentPromotions.delete(String(promotedUserId)), 10 * 60 * 1000);
+}
+
+function checkPrivilegeEscalation(userId, ip, isNewDevice) {
+  if (!isNewDevice) return;
+  const record = recentPromotions.get(String(userId));
+  if (record && Date.now() - record.ts < 10 * 60 * 1000) {
+    triggerAlert("NEW_DEVICE_ADMIN", {
+      message: `Newly promoted admin ${record.email} logged in from an unknown device within 10 minutes.`,
+      ip,
+      userId,
+      severity: "HIGH",
+      metadata: { email: record.email }
+    });
+    recentPromotions.delete(String(userId));
+  }
+}
+
+function emitAlert(_io, type, data) {
+  triggerAlert(type, data);
+}
+
+setInterval(() => {
+  const cutoff = Date.now() - BRUTE_FORCE_WINDOW_MS;
+  for (const [ip, timestamps] of failedLoginsByIp.entries()) {
+    const fresh = timestamps.filter((t) => t > cutoff);
+    if (fresh.length === 0) failedLoginsByIp.delete(ip);
+    else failedLoginsByIp.set(ip, fresh);
+  }
+}, 5 * 60 * 1000);
+
+module.exports = {
+  triggerAlert,
+  checkBruteForce,
+  recordZeroTrustViolation,
+  recordPromotion,
+  checkPrivilegeEscalation,
+  emitAlert
+};
+
